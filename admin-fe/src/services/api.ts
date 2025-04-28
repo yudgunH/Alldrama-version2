@@ -1,7 +1,8 @@
 import axios from "axios";
 import Cookies from "js-cookie";
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:3001";
+// Sử dụng URL được cấu hình hoặc mặc định
+const API_URL = process.env.NEXT_PUBLIC_API_URL || "https://alldramaz.com";
 
 // Tạo instance axios với cấu hình mặc định
 export const api = axios.create({
@@ -9,16 +10,63 @@ export const api = axios.create({
   headers: {
     "Content-Type": "application/json",
   },
+  withCredentials: true, // Đảm bảo cookies được gửi cùng các request
+  timeout: 10000, // Đặt timeout sau 10 giây để tránh request treo quá lâu
 });
 
 // Thêm interceptor để tự động gắn token vào header
-api.interceptors.request.use((config) => {
-  const token = Cookies.get("token");
-  if (token) {
-    config.headers.Authorization = `Bearer ${token}`;
+api.interceptors.request.use(
+  (config) => {
+    const token = Cookies.get("token");
+    if (token) {
+      config.headers.Authorization = `Bearer ${token}`;
+    }
+    return config;
+  },
+  (error) => {
+    console.error("Lỗi khi gửi request:", error);
+    return Promise.reject(error);
   }
-  return config;
-});
+);
+
+// Thêm interceptor để xử lý các response
+api.interceptors.response.use(
+  (response) => {
+    return response;
+  },
+  async (error) => {
+    const originalRequest = error.config;
+    
+    // Xử lý trường hợp timeout
+    if (error.code === "ECONNABORTED") {
+      console.error("Request đã hết thời gian chờ");
+      return Promise.reject(new Error("Request đã hết thời gian chờ. Vui lòng thử lại sau."));
+    }
+    
+    // Kiểm tra nếu lỗi là unauthorized (401) và chưa thử refresh token
+    if (error.response && error.response.status === 401 && !originalRequest._retry) {
+      originalRequest._retry = true;
+      
+      try {
+        // Xử lý refresh token hoặc chuyển hướng đến trang đăng nhập
+        // Có thể thực hiện call API refresh token ở đây
+        
+        // Nếu không có cơ chế refresh, chuyển hướng đến trang đăng nhập
+        window.location.href = "/login";
+        return Promise.reject(error);
+      } catch (refreshError) {
+        console.error("Không thể làm mới token:", refreshError);
+        
+        // Xóa token và chuyển hướng đến trang đăng nhập
+        Cookies.remove("token", { path: "/" });
+        window.location.href = "/login";
+        return Promise.reject(error);
+      }
+    }
+    
+    return Promise.reject(error);
+  }
+);
 
 // API thể loại phim
 export const genreApi = {
@@ -106,4 +154,14 @@ export const mediaApi = {
   // Xóa media
   deleteMedia: (movieId: number, mediaType: "poster" | "backdrop" | "trailer") =>
     api.delete(`/api/media/movies/${movieId}/${mediaType}`),
+};
+
+// API người dùng
+export const userApi = {
+  getAll: () => api.get("/api/users"),
+  getById: (id: number) => api.get(`/api/users/${id}`),
+  update: (id: number, userData: any) => api.put(`/api/users/${id}`, userData),
+  delete: (id: number) => api.delete(`/api/users/${id}`),
+  getFavorites: (userId: number) => api.get(`/api/users/${userId}/favorites`),
+  getWatchHistory: (userId: number) => api.get(`/api/users/${userId}/watch-history`),
 }; 

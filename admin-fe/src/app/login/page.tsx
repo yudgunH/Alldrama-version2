@@ -33,24 +33,38 @@ export default function LoginPage() {
           email: email,
           password: password,
         }),
+        credentials: "include",
       })
 
       if (!res.ok) {
-        setError("Tên đăng nhập hoặc mật khẩu không đúng")
-        return
+        const errorData = await res.json().catch(() => ({}));
+        setError(errorData.message || "Tên đăng nhập hoặc mật khẩu không đúng");
+        setIsLoading(false);
+        return;
       }
 
       const data = await res.json()
+      
+      if (!data.token && !data.accessToken) {
+        console.error("Token không tồn tại trong phản hồi:", data);
+        setError("Lỗi xác thực: Không nhận được token");
+        setIsLoading(false);
+        return;
+      }
+      
+      const token = data.token || data.accessToken;
+      
       if (data.user && data.user.role === "admin") {
-        // Sử dụng hàm login từ AuthContext để lưu token vào cookie
-        login(data.token)
+        login(token);
+        console.log("Đăng nhập thành công với quyền admin");
       } else {
-        setError("Tài khoản không có quyền truy cập")
+        setError("Tài khoản không có quyền truy cập");
+        setIsLoading(false);
       }
     } catch (err) {
-      setError("Đã xảy ra lỗi khi đăng nhập")
-    } finally {
-      setIsLoading(false)
+      console.error("Lỗi khi đăng nhập:", err);
+      setError("Đã xảy ra lỗi khi đăng nhập");
+      setIsLoading(false);
     }
   }
 

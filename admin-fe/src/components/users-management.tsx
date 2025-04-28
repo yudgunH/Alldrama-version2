@@ -5,15 +5,14 @@ import { useEffect, useState } from "react"
 import { Button } from "@/components/ui/button"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Input } from "@/components/ui/input"
-import axios from "axios"
-import Cookies from "js-cookie"
 import { Toaster, toast } from "react-hot-toast"
 import { Loader2 } from "lucide-react"
+import { userApi } from "@/services/api"
 
 interface User {
   id: number
   email: string
-  username: string
+  full_name: string
   registrationDate: string
   isAdmin: boolean
 }
@@ -21,8 +20,10 @@ interface User {
 interface ApiUser {
   id: number
   email: string
-  username: string
+  full_name: string
+  username?: string
   created_at: string
+  createdAt: string
   role: string
 }
 
@@ -40,28 +41,42 @@ export function UsersManagement() {
     setIsLoading(true)
     setError(null)
     try {
-      const token = Cookies.get("token")
-      const response = await axios.get("https://alldramaz.com/api/customers/", {
-        headers: {
-          Authorization: `Bearer ${token}`,
-        },
-        withCredentials: true,
-      })
+      console.log("Đang tải danh sách người dùng...")
+      // Sử dụng userApi đã cấu hình
+      const response = await userApi.getAll()
+
+      console.log("Phản hồi API:", response.data)
+      
+      // Kiểm tra cấu trúc dữ liệu trả về từ API
+      let userData: ApiUser[];
+      if (Array.isArray(response.data)) {
+        userData = response.data;
+      } else if (response.data.users && Array.isArray(response.data.users)) {
+        userData = response.data.users;
+      } else {
+        throw new Error("Cấu trúc dữ liệu không đúng định dạng");
+      }
+
+      console.log("Dữ liệu người dùng:", userData)
 
       // Chuyển đổi dữ liệu từ API sang định dạng của component
-      const transformedUsers: User[] = response.data.map((user: ApiUser) => ({
+      const transformedUsers: User[] = userData.map((user: ApiUser) => ({
         id: user.id,
         email: user.email,
-        username: user.username || user.email.split("@")[0], // Sử dụng phần đầu của email nếu không có username
-        registrationDate: new Date(user.created_at).toISOString().split("T")[0], // Format ngày tháng
+        full_name: user.full_name || user.username || user.email.split("@")[0],
+        registrationDate: new Date(user.created_at || user.createdAt).toISOString().split("T")[0], // Format ngày tháng
         isAdmin: user.role === "admin",
       }))
 
       setUsers(transformedUsers)
-    } catch (err) {
-      console.error("Error fetching users:", err)
-      setError("Không thể tải danh sách người dùng. Vui lòng thử lại sau.")
-      toast.error("Lỗi khi tải danh sách người dùng")
+      console.log("Đã tải xong danh sách người dùng:", transformedUsers.length)
+    } catch (err: any) {
+      console.error("Lỗi khi tải danh sách người dùng:", err)
+      
+      // Hiển thị thông báo lỗi chi tiết hơn
+      const errorMessage = err.response?.data?.message || err.message || "Không thể tải danh sách người dùng. Vui lòng thử lại sau."
+      setError(errorMessage)
+      toast.error(errorMessage)
     } finally {
       setIsLoading(false)
     }
@@ -69,19 +84,18 @@ export function UsersManagement() {
 
   const handleDeleteUser = async (id: number) => {
     try {
-      const token = Cookies.get("token")
-      await axios.delete(`https://alldramaz.com/api/customers/${id}`, {
-        headers: {
-          Authorization: `Bearer ${token}`,
-        },
-        withCredentials: true,
-      })
-
+      // Xác nhận trước khi xóa
+      if (!confirm("Bạn có chắc chắn muốn xóa người dùng này? Hành động này không thể hoàn tác.")) {
+        return;
+      }
+      
+      await userApi.delete(id)
       setUsers(users.filter((user) => user.id !== id))
       toast.success("Xóa người dùng thành công")
-    } catch (err) {
-      console.error("Error deleting user:", err)
-      toast.error("Lỗi khi xóa người dùng")
+    } catch (err: any) {
+      console.error("Lỗi khi xóa người dùng:", err)
+      const errorMessage = err.response?.data?.message || err.message || "Lỗi khi xóa người dùng"
+      toast.error(errorMessage)
     }
   }
 
@@ -90,34 +104,32 @@ export function UsersManagement() {
       const user = users.find((u) => u.id === id)
       if (!user) return
 
-      const token = Cookies.get("token")
-      await axios.put(
-        `https://alldramaz.com/api/customers/${id}`,
-        {
-          role: user.isAdmin ? "user" : "admin",
-        },
-        {
-          headers: {
-            Authorization: `Bearer ${token}`,
-            "Content-Type": "application/json",
-          },
-          withCredentials: true,
-        },
-      )
+      const newRole = user.isAdmin ? "user" : "admin"
+      
+      await userApi.update(id, {
+        role: newRole
+      })
 
       setUsers(users.map((user) => (user.id === id ? { ...user, isAdmin: !user.isAdmin } : user)))
       toast.success(`Người dùng đã được ${user.isAdmin ? "hủy quyền" : "cấp quyền"} admin`)
-    } catch (err) {
-      console.error("Error updating user role:", err)
-      toast.error("Lỗi khi cập nhật quyền người dùng")
+    } catch (err: any) {
+      console.error("Lỗi khi cập nhật quyền người dùng:", err)
+      const errorMessage = err.response?.data?.message || err.message || "Lỗi khi cập nhật quyền người dùng"
+      toast.error(errorMessage)
     }
   }
 
+  // Tìm kiếm người dùng
   const filteredUsers = users.filter(
     (user) =>
       user.email.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      user.username.toLowerCase().includes(searchTerm.toLowerCase()),
+      user.full_name.toLowerCase().includes(searchTerm.toLowerCase()),
   )
+
+  // Nếu không tìm thấy người dùng, hiển thị thông báo phù hợp
+  const noUsersMessage = searchTerm 
+    ? "Không tìm thấy người dùng phù hợp với từ khóa tìm kiếm" 
+    : "Chưa có người dùng nào trong hệ thống";
 
   return (
     <div className="container mx-auto p-6 space-y-4">
@@ -132,7 +144,15 @@ export function UsersManagement() {
           onChange={(e: React.ChangeEvent<HTMLInputElement>) => setSearchTerm(e.target.value)}
           className="max-w-sm"
         />
-        <Button onClick={fetchUsers}>Làm mới</Button>
+        <Button onClick={fetchUsers} disabled={isLoading}>
+          {isLoading ? (
+            <>
+              <Loader2 className="mr-2 h-4 w-4 animate-spin" /> Đang tải...
+            </>
+          ) : (
+            'Làm mới'
+          )}
+        </Button>
       </div>
 
       {isLoading ? (
@@ -158,7 +178,7 @@ export function UsersManagement() {
             {filteredUsers.length === 0 ? (
               <TableRow>
                 <TableCell colSpan={6} className="text-center py-10">
-                  {searchTerm ? "Không tìm thấy người dùng phù hợp" : "Chưa có người dùng nào"}
+                  {noUsersMessage}
                 </TableCell>
               </TableRow>
             ) : (
@@ -166,7 +186,7 @@ export function UsersManagement() {
                 <TableRow key={user.id}>
                   <TableCell>{user.id}</TableCell>
                   <TableCell>{user.email}</TableCell>
-                  <TableCell>{user.username}</TableCell>
+                  <TableCell>{user.full_name}</TableCell>
                   <TableCell>{user.registrationDate}</TableCell>
                   <TableCell>
                     <span

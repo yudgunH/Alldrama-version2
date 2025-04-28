@@ -18,10 +18,25 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const router = useRouter()
   const pathname = usePathname()
 
+  // Hàm kiểm tra token hợp lệ
+  const verifyToken = () => {
+    try {
+      const token = Cookies.get("token")
+      if (!token) return false
+      
+      // Kiểm tra nếu token đã hết hạn
+      // Nếu có thể decode jwt, có thể kiểm tra exp
+      // Đây chỉ là kiểm tra đơn giản về sự tồn tại của token
+      return true
+    } catch (error) {
+      console.error("Lỗi xác thực token:", error)
+      return false
+    }
+  }
+
   useEffect(() => {
-    // Kiểm tra token từ cookie thay vì localStorage
-    const token = Cookies.get("token")
-    const loggedIn = !!token
+    // Kiểm tra token có hợp lệ không
+    const loggedIn = verifyToken()
     setIsLoggedIn(loggedIn)
 
     // Nếu chưa đăng nhập và không ở trang login, chuyển hướng đến trang login
@@ -36,22 +51,31 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, [pathname, router])
 
   const login = (token: string) => {
-    // Chỉ lưu token vào cookie, không lưu vào localStorage
+    if (!token) {
+      console.error("Token không hợp lệ")
+      return
+    }
+
+    // Lưu token vào cookie với các tùy chọn bảo mật
     Cookies.set("token", token, {
       path: "/",
       expires: 1, // Hết hạn sau 1 ngày
+      secure: process.env.NODE_ENV === "production", // Chỉ gửi qua HTTPS trong môi trường production
       sameSite: "strict",
     })
+    
     setIsLoggedIn(true)
+    console.log("Đăng nhập thành công, token đã được lưu")
 
     // Chuyển hướng đến trang chủ
     router.push("/")
   }
 
   const logout = () => {
-    // Xóa token từ cookie, không cần xóa từ localStorage
+    // Xóa token từ cookie
     Cookies.remove("token", { path: "/" })
     setIsLoggedIn(false)
+    console.log("Đã đăng xuất, token đã bị xóa")
 
     // Chuyển hướng đến trang đăng nhập
     router.push("/login")

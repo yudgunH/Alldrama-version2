@@ -203,7 +203,7 @@ export function MoviesManagement() {
   const fetchMovies = useCallback(async () => {
     try {
       const response = await axios.get("https://alldramaz.com/api/movies")
-      const moviesData: Movie[] = response.data.map((movie: ApiMovie) => transformApiMovieToFrontend(movie))
+      const moviesData: Movie[] = response.data.movies.map((movie: ApiMovie) => transformApiMovieToFrontend(movie))
       setMovies(moviesData)
     } catch (error) {
       console.error("Error fetching movies:", error)
@@ -393,6 +393,7 @@ export function MoviesManagement() {
             <Table>
               <TableHeader>
                 <TableRow>
+                  <TableHead>ID</TableHead>
                   <TableHead>Tiêu đề</TableHead>
                   <TableHead>Thể loại</TableHead>
                   <TableHead>Năm</TableHead>
@@ -405,6 +406,7 @@ export function MoviesManagement() {
               <TableBody>
                 {filteredMovies.map((movie) => (
                   <TableRow key={movie.id}>
+                    <TableCell>{movie.id}</TableCell>
                     <TableCell className="font-medium">{movie.title}</TableCell>
                     <TableCell>{movie.genre}</TableCell>
                     <TableCell>{movie.year}</TableCell>
