@@ -1,888 +1,407 @@
 "use client"
 
-import type React from "react"
-import { useCallback, useEffect, useState } from "react"
-import axios from "axios"
+import { useState, useEffect, useCallback } from "react"
+import Link from "next/link"
 import Image from "next/image"
+import { useRouter } from "next/navigation"
+import { toast } from "react-hot-toast"
+import {
+  PlusCircle,
+  Search,
+  Edit,
+  Trash2,
+  Eye,
+  Video,
+  CheckCircle,
+  Clock,
+} from "lucide-react"
 import { Button } from "@/components/ui/button"
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogClose } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
-import { Label } from "@/components/ui/label"
-import { Progress } from "@/components/ui/progress"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
-import { ScrollArea } from "@/components/ui/scroll-area"
-import { Textarea } from "@/components/ui/textarea"
-import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion"
-import { PlusCircle, Search, Upload } from "lucide-react"
-import { Toaster, toast } from "react-hot-toast"
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import {
+  Table,
+  TableHeader,
+  TableBody,
+  TableHead,
+  TableRow,
+  TableCell,
+} from "@/components/ui/table"
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
+import { Badge } from "@/components/ui/badge"
+import { Progress } from "@/components/ui/progress"
+import { Pagination } from "@/components/ui/pagination"
 
-// Cập nhật phần lấy token từ cookie thay vì localStorage
-import Cookies from "js-cookie"
-
-//
-// === Interfaces & Helper Functions ===
-//
-
-export interface Movie {
-  id: number
-  title: string
-  genre: string
-  year: number
-  episodes: number
-  views: number
-  rating: number
-  summary: string
-  poster: string | File | null
-  trailer: string | File | null
-}
-
-interface ApiMovie {
-  id: number
-  title: string
-  genre: string
-  releaseYear: number
-  totalEpisodes: number
-  views: number
-  rating: string | number
-  summary: string
-  posterUrl: string | null
-  trailerUrl: string | null
-}
-
-export interface Episode {
-  id: number
-  episodeNumber: number
-  video: string | null
-}
-
-interface ApiEpisode {
-  id: number
-  episodeNumber: number
-  videoUrl: string | null
-}
-
-export interface MovieFormProps {
-  movie?: Movie
-  onSubmit: (movie: Omit<Movie, "id">) => void
-}
-
-const transformApiMovieToFrontend = (movie: ApiMovie): Movie => ({
-  id: movie.id,
-  title: movie.title,
-  genre: movie.genre,
-  year: movie.releaseYear,
-  episodes: movie.totalEpisodes,
-  views: movie.views,
-  rating: Number(movie.rating),
-  summary: movie.summary,
-  poster: movie.posterUrl,
-  trailer: movie.trailerUrl,
-})
-
-const transformMovieToApi = (movie: Omit<Movie, "id">) => ({
-  title: movie.title,
-  rating: movie.rating,
-  views: movie.views,
-  genre: movie.genre,
-  summary: movie.summary,
-  duration: 120, // giá trị mặc định
-  total_episodes: movie.episodes,
-  releaseYear: movie.year,
-  posterUrl: movie.poster,
-  trailerUrl: movie.trailer,
-})
-
-//
-// === Upload Functions with Progress Callback ===
-//
-
-async function uploadFile(
-  title: string,
-  file: File,
-  fieldName: string,
-  onProgress?: (progress: number) => void,
-): Promise<string | null> {
-  try {
-    const contentType = fieldName === "poster" ? "image/jpeg" : "video/mp4"
-    const fileName = `${fieldName}-${Date.now()}`
-    const formData = new FormData()
-    formData.append("file", file)
-    formData.append("title", title)
-    formData.append("fileName", fileName)
-    formData.append("contentType", contentType)
-
-    const response = await axios.post("https://alldramaz.com/api/aws/upload", formData, {
-      headers: { "Content-Type": "multipart/form-data" },
-      onUploadProgress: (progressEvent) => {
-        if (progressEvent.total) {
-          const progress = Math.round((progressEvent.loaded * 100) / progressEvent.total)
-          if (onProgress) {
-            onProgress(progress)
-          }
-        }
-      },
-    })
-
-    toast.success("Tải file thành công!")
-    return response.data.finalUrl
-  } catch (error) {
-    console.error("Error uploading file:", error)
-    toast.error("Tải file thất bại.")
-    return null
-  }
-}
-
-async function uploadEpisodeFile(
-  movieTitle: string,
-  episodeNumber: number,
-  file: File,
-  onProgress?: (progress: number) => void,
-): Promise<string | null> {
-  try {
-    const contentType = "video/mp4"
-    const fileName = `episode-${episodeNumber}`
-    const formData = new FormData()
-    formData.append("file", file)
-    formData.append("title", movieTitle)
-    formData.append("fileName", fileName)
-    formData.append("contentType", contentType)
-
-    const response = await axios.post("https://alldramaz.com/api/aws/upload", formData, {
-      headers: { "Content-Type": "multipart/form-data" },
-      onUploadProgress: (progressEvent) => {
-        if (progressEvent.total) {
-          const progress = Math.round((progressEvent.loaded * 100) / progressEvent.total)
-          if (onProgress) {
-            onProgress(progress)
-          }
-        }
-      },
-    })
-
-    return response.data.finalUrl
-  } catch (error) {
-    console.error("Error uploading episode file:", error)
-    toast.error("Tải file tập phim thất bại.")
-    return null
-  }
-}
-
-//
-// === Types for Upload Progress ===
-//
-
-type UploadProgress = {
-  id: string // unique id for each movie upload
-  title: string
-  progress: number
-}
-
-// Thêm trường movieTitle để hiển thị tên phim cho từng episode
-type EpisodeUploadProgress = {
-  id: string // unique id for each episode upload
-  movieTitle: string
-  episodeNumber: number
-  progress: number
-}
-
-//
-// === Main Component: MoviesManagement ===
-//
+import { api, movieApi } from "@/services/api"
+import { Movie, UploadProgress } from "@/models"
 
 export function MoviesManagement() {
+  const router = useRouter()
   const [movies, setMovies] = useState<Movie[]>([])
-  const [uploadingMovies, setUploadingMovies] = useState<UploadProgress[]>([])
-  const [uploadingEpisodes, setUploadingEpisodes] = useState<EpisodeUploadProgress[]>([])
+  const [filteredMovies, setFilteredMovies] = useState<Movie[]>([])
   const [searchTerm, setSearchTerm] = useState("")
-  // Thay thế đoạn code lấy token từ localStorage
-  const session = { data: { token: Cookies.get("token") } }
+  const [genreFilter, setGenreFilter] = useState<string>("all")
+  const [yearFilter, setYearFilter] = useState<string>("all")
+  const [uploadingMovies, setUploadingMovies] = useState<UploadProgress[]>([])
+  const [isLoading, setIsLoading] = useState(true)
+  const [currentPage, setCurrentPage] = useState(1)
+  const [totalPages, setTotalPages] = useState(1)
+  const itemsPerPage = 10
 
-  // Fetch movies from API
+  // Fetch movies
   const fetchMovies = useCallback(async () => {
     try {
-      const response = await axios.get("https://alldramaz.com/api/movies")
-      const moviesData: Movie[] = response.data.movies.map((movie: ApiMovie) => transformApiMovieToFrontend(movie))
-      setMovies(moviesData)
+      setIsLoading(true)
+      const response = await movieApi.getAll(currentPage, itemsPerPage)
+      
+      // API mới trả về cấu trúc { movies: [...], pagination: {...} }
+      if (response.data.movies) {
+        setMovies(response.data.movies || [])
+        if (response.data.pagination) {
+          setTotalPages(response.data.pagination.totalPages || 1)
+        }
+      } else {
+        // Fallback cho trường hợp API trả về dữ liệu khác cấu trúc
+        setMovies(response.data.items || response.data || [])
+        if (response.data.total) {
+          setTotalPages(Math.ceil(response.data.total / itemsPerPage))
+        } else {
+          setTotalPages(1)
+        }
+      }
+      
+      setIsLoading(false)
     } catch (error) {
       console.error("Error fetching movies:", error)
-      toast.error("Lấy danh sách phim thất bại.")
+      toast.error("Không thể tải danh sách phim")
+      setIsLoading(false)
+      setMovies([]) // Đặt mảng rỗng khi lỗi
+      setTotalPages(1)
     }
-  }, [])
+  }, [currentPage, itemsPerPage])
 
   useEffect(() => {
     fetchMovies()
-  }, [fetchMovies])
+  }, [fetchMovies, currentPage])
 
-  // Update progress for movie upload
-  const updateUploadProgress = (id: string, progress: number) => {
-    setUploadingMovies((prevUploads: UploadProgress[]) =>
-      prevUploads.map((upload: UploadProgress) => (upload.id === id ? { ...upload, progress } : upload)),
-    )
-  }
-
-  // Update progress for episode upload
-  const updateEpisodeUploadProgress = (id: string, progress: number) => {
-    setUploadingEpisodes((prevUploads: EpisodeUploadProgress[]) =>
-      prevUploads.map((upload: EpisodeUploadProgress) => (upload.id === id ? { ...upload, progress } : upload)),
-    )
-  }
-
-  // Functions để thêm/xoá progress của episode
-  const addUploadingEpisode = (upload: EpisodeUploadProgress) => {
-    setUploadingEpisodes((prev: EpisodeUploadProgress[]) => [...prev, upload])
-  }
-
-  const removeUploadingEpisode = (id: string) => {
-    setUploadingEpisodes((prev: EpisodeUploadProgress[]) => prev.filter((upload) => upload.id !== id))
-  }
-
-  // Handle add new movie
-  const handleAddMovie = async (newMovie: Omit<Movie, "id">) => {
-    const uploadId = `${newMovie.title}-${Date.now()}`
-    setUploadingMovies((prev) => [...prev, { id: uploadId, title: newMovie.title, progress: 0 }])
-
-    // Tính số bước: upload poster, upload trailer (nếu có) + gọi API thêm movie
-    const totalSteps =
-      (newMovie.poster && newMovie.poster instanceof File ? 1 : 0) +
-      (newMovie.trailer && newMovie.trailer instanceof File ? 1 : 0) +
-      1
-    const progressStep = 100 / totalSteps
-    let accumulatedProgress = 0
-
-    try {
-      let posterUrl = newMovie.poster
-      if (newMovie.poster && newMovie.poster instanceof File) {
-        posterUrl = await uploadFile(newMovie.title, newMovie.poster, "poster", (progress) => {
-          const currentStepProgress = (progress * progressStep) / 100
-          updateUploadProgress(uploadId, accumulatedProgress + currentStepProgress)
-        })
-        accumulatedProgress += progressStep
-        updateUploadProgress(uploadId, accumulatedProgress)
-      }
-
-      let trailerUrl = newMovie.trailer
-      if (newMovie.trailer && newMovie.trailer instanceof File) {
-        trailerUrl = await uploadFile(newMovie.title, newMovie.trailer, "trailer", (progress) => {
-          const currentStepProgress = (progress * progressStep) / 100
-          updateUploadProgress(uploadId, accumulatedProgress + currentStepProgress)
-        })
-        accumulatedProgress += progressStep
-        updateUploadProgress(uploadId, accumulatedProgress)
-      }
-
-      const movieData = transformMovieToApi({
-        ...newMovie,
-        poster: posterUrl,
-        trailer: trailerUrl,
-      })
-      if (!session?.data?.token) return
-      const response = await axios.post("https://alldramaz.com/api/movies", JSON.stringify(movieData), {
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${session.data.token}`,
-        },
-        withCredentials: true,
-      })
-
-      accumulatedProgress += progressStep
-      updateUploadProgress(uploadId, accumulatedProgress)
-      updateUploadProgress(uploadId, 100)
-
-      // Xoá progress sau khi hoàn tất upload
-      setUploadingMovies((prev) => prev.filter((upload) => upload.id !== uploadId))
-
-      const addedMovie = transformApiMovieToFrontend(response.data)
-      setMovies((prevMovies) => [...prevMovies, addedMovie])
-      toast.success("Thêm phim thành công!")
-    } catch (error) {
-      console.error("Error adding movie:", error)
-      toast.error("Thêm phim thất bại.")
-      setUploadingMovies((prev) => prev.filter((upload) => upload.id !== uploadId))
+  // Apply filters
+  useEffect(() => {
+    let result = [...movies]
+    
+    if (searchTerm) {
+      result = result.filter(movie => 
+        movie.title.toLowerCase().includes(searchTerm.toLowerCase())
+      )
     }
-  }
+    
+    if (genreFilter && genreFilter !== "all") {
+      result = result.filter(movie => 
+        movie.genres.some(g => g.id.toString() === genreFilter)
+      )
+    }
+    
+    if (yearFilter && yearFilter !== "all") {
+      const yearValue = typeof yearFilter === 'string' ? parseInt(yearFilter) : yearFilter;
+      result = result.filter(movie => 
+        movie.releaseYear === yearValue
+      )
+    }
+    
+    setFilteredMovies(result)
+  }, [movies, searchTerm, genreFilter, yearFilter])
 
-  const handleEditMovie = async (editedMovie: Omit<Movie, "id">) => {
-    // Tương tự như handleAddMovie nhưng dành cho chỉnh sửa phim
-  }
-
+  // Handle delete movie
   const handleDeleteMovie = async (id: number) => {
-    if (!session?.data?.token) return
+    if (!confirm("Bạn có chắc chắn muốn xóa phim này?")) {
+      return
+    }
+    
     try {
-      await axios.delete(`https://alldramaz.com/api/movies/${id}`, {
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${session.data.token}`,
-        },
-        withCredentials: true,
-      })
-
-      const movieToDelete = movies.find((movie) => movie.id === id)
-      if (movieToDelete) {
-        if (typeof movieToDelete.poster === "string") {
-          const posterFileKey = `${movieToDelete.title}/${movieToDelete.poster.split("/").pop()}`
-          await axios.delete("https://alldramaz.com/api/aws/file", {
-            data: { fileKey: posterFileKey },
-            headers: {
-              "Content-Type": "application/json",
-              Authorization: `Bearer ${session.data.token}`,
-            },
-          })
-        }
-        if (typeof movieToDelete.trailer === "string") {
-          const trailerFileKey = `${movieToDelete.title}/${movieToDelete.trailer.split("/").pop()}`
-          await axios.delete("https://alldramaz.com/api/aws/file", {
-            data: { fileKey: trailerFileKey },
-            headers: {
-              "Content-Type": "application/json",
-              Authorization: `Bearer ${session.data.token}`,
-            },
-          })
-        }
-      }
-
-      setMovies((prevMovies) => prevMovies.filter((movie) => movie.id !== id))
-      toast.success("Xóa phim thành công!")
+      await movieApi.delete(id)
+      toast.success("Đã xóa phim thành công")
+      fetchMovies()
     } catch (error) {
       console.error("Error deleting movie:", error)
-      toast.error("Xóa phim thất bại.")
+      toast.error("Không thể xóa phim")
     }
   }
 
-  const filteredMovies = movies.filter((movie) => movie.title.toLowerCase().includes(searchTerm.toLowerCase()))
+  // Render status badge
+  const renderStatusBadge = (movie: Movie) => {
+    if (movie.isProcessed === false) {
+      return (
+        <Badge variant="warning" className="flex items-center gap-1">
+          <Clock size={14} />
+          <span>Đang xử lý</span>
+        </Badge>
+      )
+    } else {
+      return (
+        <Badge variant="success" className="flex items-center gap-1">
+          <CheckCircle size={14} />
+          <span>Hoạt động</span>
+        </Badge>
+      )
+    }
+  }
+
+  // Render movie genres
+  const renderGenres = (movie: Movie) => {
+    if (!movie.genres || movie.genres.length === 0) {
+      return <span className="text-gray-400">-</span>
+    }
+
+    if (movie.genres.length <= 2) {
+      return movie.genres.map(g => g.name).join(", ")
+    }
+
+    return (
+      <>
+        {movie.genres[0].name}, {movie.genres[1].name}{" "}
+        <span className="text-gray-500">+{movie.genres.length - 2}</span>
+      </>
+    )
+  }
 
   return (
-    <div className="container mx-auto p-6 space-y-8">
-      <Toaster />
-
+    <div className="space-y-6">
       <div className="flex justify-between items-center">
         <h1 className="text-3xl font-bold">Quản lý Phim</h1>
-        <Dialog>
-          <DialogTrigger asChild>
-            <Button>
-              <PlusCircle className="mr-2 h-4 w-4" />
-              Thêm Phim Mới
-            </Button>
-          </DialogTrigger>
-          <DialogContent className="max-w-3xl">
-            <DialogHeader>
-              <DialogTitle>Thêm Phim Mới</DialogTitle>
-            </DialogHeader>
-            <MovieForm onSubmit={handleAddMovie} />
-          </DialogContent>
-        </Dialog>
+        <Button asChild>
+          <Link href="/movies/new">
+            <PlusCircle className="mr-2 h-4 w-4" />
+            Thêm Phim Mới
+          </Link>
+        </Button>
       </div>
 
-      <div className="flex gap-8">
-        <Card className="flex-grow">
+      {/* Hiển thị tiến trình upload */}
+      {uploadingMovies.length > 0 && (
+        <Card className="mb-6">
           <CardHeader>
-            <CardTitle>Danh sách Phim</CardTitle>
-            <div className="flex items-center space-x-2">
-              <Search className="text-muted-foreground" />
-              <Input
-                type="text"
-                placeholder="Tìm kiếm phim..."
-                value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
-                className="max-w-sm"
-              />
-            </div>
+            <CardTitle>Đang tải lên</CardTitle>
           </CardHeader>
-          <CardContent>
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>ID</TableHead>
-                  <TableHead>Tiêu đề</TableHead>
-                  <TableHead>Thể loại</TableHead>
-                  <TableHead>Năm</TableHead>
-                  <TableHead>Tập</TableHead>
-                  <TableHead>Lượt xem</TableHead>
-                  <TableHead>Đánh giá</TableHead>
-                  <TableHead>Hành động</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {filteredMovies.map((movie) => (
-                  <TableRow key={movie.id}>
-                    <TableCell>{movie.id}</TableCell>
-                    <TableCell className="font-medium">{movie.title}</TableCell>
-                    <TableCell>{movie.genre}</TableCell>
-                    <TableCell>{movie.year}</TableCell>
-                    <TableCell>{movie.episodes}</TableCell>
-                    <TableCell>{movie.views.toLocaleString()}</TableCell>
-                    <TableCell>{movie.rating}</TableCell>
-                    <TableCell>
-                      <div className="flex space-x-2">
-                        <Dialog>
-                          <DialogTrigger asChild>
-                            <Button variant="outline" size="sm">
-                              Chỉnh sửa
-                            </Button>
-                          </DialogTrigger>
-                          <DialogContent className="max-w-3xl">
-                            <DialogHeader>
-                              <DialogTitle>Chỉnh sửa Phim</DialogTitle>
-                            </DialogHeader>
-                            <MovieForm movie={movie} onSubmit={handleEditMovie} />
-                          </DialogContent>
-                        </Dialog>
-                        <Dialog>
-                          <DialogTrigger asChild>
-                            <Button variant="outline" size="sm">
-                              Tập phim
-                            </Button>
-                          </DialogTrigger>
-                          <DialogContent className="max-w-3xl">
-                            <DialogHeader>
-                              <DialogTitle>Quản lý Tập phim</DialogTitle>
-                            </DialogHeader>
-                            <EpisodeManager
-                              movieId={movie.id}
-                              movieTitle={movie.title}
-                              onEpisodeAdded={fetchMovies}
-                              uploadingEpisodes={uploadingEpisodes}
-                              updateEpisodeUploadProgress={updateEpisodeUploadProgress}
-                              addUploadingEpisode={addUploadingEpisode}
-                              removeUploadingEpisode={removeUploadingEpisode}
+          <CardContent className="space-y-4">
+            {uploadingMovies.map((upload) => (
+              <div key={upload.id} className="space-y-2">
+                <div className="flex justify-between">
+                  <span>{upload.title}</span>
+                  <span>{upload.progress}%</span>
+                </div>
+                <Progress value={upload.progress} />
+              </div>
+            ))}
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Filters */}
+      <Card className="mb-6">
+        <CardHeader>
+          <CardTitle>Bộ lọc</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="flex flex-wrap gap-4">
+            <div className="flex-1 min-w-[200px]">
+              <div className="relative">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={18} />
+                <Input
+                  placeholder="Tìm kiếm phim..."
+                  className="pl-10"
+                  value={searchTerm}
+                  onChange={(e) => setSearchTerm(e.target.value)}
+                />
+              </div>
+            </div>
+            <div className="w-[150px]">
+              <Select value={genreFilter} onValueChange={setGenreFilter}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Thể loại" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">Tất cả thể loại</SelectItem>
+                  <SelectItem value="1">Hành động</SelectItem>
+                  <SelectItem value="2">Tình cảm</SelectItem>
+                  <SelectItem value="3">Hài hước</SelectItem>
+                  <SelectItem value="4">Kinh dị</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="w-[150px]">
+              <Select 
+                value={yearFilter} 
+                onValueChange={(value) => setYearFilter(value)}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="Năm" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">Tất cả năm</SelectItem>
+                  {[...Array(10)].map((_, i) => {
+                    const year = new Date().getFullYear() - i
+                    return (
+                      <SelectItem key={year} value={year.toString()}>
+                        {year}
+                      </SelectItem>
+                    )
+                  })}
+                </SelectContent>
+              </Select>
+            </div>
+            <div>
+              <Button 
+                variant="outline" 
+                onClick={() => {
+                  setSearchTerm("")
+                  setGenreFilter("all")
+                  setYearFilter("all")
+                }}
+              >
+                Xóa bộ lọc
+              </Button>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Movies table */}
+      <Card>
+        <CardHeader>
+          <CardTitle>Danh sách phim</CardTitle>
+        </CardHeader>
+        <CardContent>
+          {isLoading ? (
+            <div className="text-center py-8">Đang tải dữ liệu...</div>
+          ) : filteredMovies.length === 0 ? (
+            <div className="text-center py-8">
+              <p className="text-gray-500">Không có phim nào</p>
+              <Button asChild className="mt-4">
+                <Link href="/movies/new">
+                  <PlusCircle className="mr-2 h-4 w-4" />
+                  Thêm Phim Mới
+                </Link>
+              </Button>
+            </div>
+          ) : (
+            <>
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead className="w-[60px]">Poster</TableHead>
+                    <TableHead>Tên Phim</TableHead>
+                    <TableHead className="hidden md:table-cell">Năm</TableHead>
+                    <TableHead className="hidden md:table-cell">Thời lượng</TableHead>
+                    <TableHead className="hidden lg:table-cell">Thể loại</TableHead>
+                    <TableHead className="hidden lg:table-cell">Số tập</TableHead>
+                    <TableHead className="hidden lg:table-cell">Lượt xem</TableHead>
+                    <TableHead className="hidden md:table-cell">Rating</TableHead>
+                    <TableHead>Trạng thái</TableHead>
+                    <TableHead className="text-right">Thao tác</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {filteredMovies.map((movie) => (
+                    <TableRow key={movie.id}>
+                      <TableCell className="p-2">
+                        {movie.posterUrl ? (
+                          <div className="relative w-[40px] h-[60px] overflow-hidden rounded">
+                            <Image
+                              src={movie.posterUrl}
+                              alt={movie.title}
+                              fill
+                              className="object-cover"
                             />
-                          </DialogContent>
-                        </Dialog>
-                        <Button variant="destructive" size="sm" onClick={() => handleDeleteMovie(movie.id)}>
-                          Xóa
-                        </Button>
-                      </div>
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          </CardContent>
-        </Card>
-
-        <Card className="w-1/3">
-          <CardHeader>
-            <CardTitle className="flex items-center">
-              <Upload className="mr-2 h-5 w-5" />
-              Tiến độ Tải lên
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="space-y-6">
-              <section>
-                <h3 className="font-semibold mb-2">Phim</h3>
-                <ScrollArea className="h-[200px]">
-                  {uploadingMovies.length === 0 ? (
-                    <p className="text-muted-foreground">Không có phim nào đang được tải lên.</p>
-                  ) : (
-                    uploadingMovies.map((upload) => (
-                      <div key={upload.id} className="mb-4">
-                        <div className="flex justify-between mb-1">
-                          <span className="text-sm font-medium">{upload.title}</span>
-                          <span className="text-sm font-medium">{Math.round(upload.progress)}%</span>
+                          </div>
+                        ) : (
+                          <div className="w-[40px] h-[60px] bg-gray-200 dark:bg-gray-800 rounded flex items-center justify-center">
+                            <Video className="text-gray-400" size={20} />
+                          </div>
+                        )}
+                      </TableCell>
+                      <TableCell className="font-medium">
+                        <Link 
+                          href={`/movies/${movie.id}`} 
+                          className="hover:text-blue-600 hover:underline"
+                        >
+                          {movie.title}
+                        </Link>
+                      </TableCell>
+                      <TableCell className="hidden md:table-cell">
+                        {movie.releaseYear}
+                      </TableCell>
+                      <TableCell className="hidden md:table-cell">
+                        {movie.duration} phút
+                      </TableCell>
+                      <TableCell className="hidden lg:table-cell">
+                        {renderGenres(movie)}
+                      </TableCell>
+                      <TableCell className="hidden lg:table-cell">
+                        {movie.totalEpisodes}
+                      </TableCell>
+                      <TableCell className="hidden lg:table-cell">
+                        {movie.views.toLocaleString()}
+                      </TableCell>
+                      <TableCell className="hidden md:table-cell">
+                        {movie.rating} ★
+                      </TableCell>
+                      <TableCell>
+                        {renderStatusBadge(movie)}
+                      </TableCell>
+                      <TableCell className="text-right">
+                        <div className="flex justify-end space-x-2">
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            asChild
+                          >
+                            <Link href={`/movies/${movie.id}`}>
+                              <Eye className="mr-2 h-4 w-4" />
+                              Chi tiết
+                            </Link>
+                          </Button>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            asChild
+                          >
+                            <Link href={`/movies/${movie.id}/edit`}>
+                              <Edit className="mr-2 h-4 w-4" />
+                              Sửa
+                            </Link>
+                          </Button>
+                          <Button
+                            variant="destructive"
+                            size="sm"
+                            onClick={() => handleDeleteMovie(movie.id)}
+                          >
+                            <Trash2 className="mr-2 h-4 w-4" />
+                            Xóa
+                          </Button>
                         </div>
-                        <Progress value={upload.progress} className="w-full" />
-                      </div>
-                    ))
-                  )}
-                </ScrollArea>
-              </section>
-              <section>
-                <h3 className="font-semibold mb-2">Tập phim</h3>
-                <ScrollArea className="h-[200px]">
-                  {uploadingEpisodes.length === 0 ? (
-                    <p className="text-muted-foreground">Không có tập phim nào đang được tải lên.</p>
-                  ) : (
-                    uploadingEpisodes.map((upload) => (
-                      <div key={upload.id} className="mb-4">
-                        <div className="flex justify-between mb-1">
-                          <span className="text-sm font-medium">
-                            {upload.movieTitle} - Tập {upload.episodeNumber}
-                          </span>
-                          <span className="text-sm font-medium">{Math.round(upload.progress)}%</span>
-                        </div>
-                        <Progress value={upload.progress} className="w-full" />
-                      </div>
-                    ))
-                  )}
-                </ScrollArea>
-              </section>
-            </div>
-          </CardContent>
-        </Card>
-      </div>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+              
+              {totalPages > 1 && (
+                <div className="mt-6">
+                  <Pagination
+                    currentPage={currentPage}
+                    totalPages={totalPages}
+                    onPageChange={(page) => setCurrentPage(page)}
+                  />
+                </div>
+              )}
+            </>
+          )}
+        </CardContent>
+      </Card>
     </div>
   )
-}
-
-//
-// === MovieForm Component ===
-//
-
-function MovieForm({ movie, onSubmit }: MovieFormProps) {
-  const [formData, setFormData] = useState<Omit<Movie, "id">>(
-    movie || {
-      title: "",
-      genre: "",
-      year: new Date().getFullYear(),
-      episodes: 1,
-      views: 0,
-      rating: 0,
-      summary: "",
-      poster: null,
-      trailer: null,
-    },
-  )
-
-  const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
-    const { name, value } = e.target
-    setFormData((prev) => ({
-      ...prev,
-      [name]: name === "year" || name === "episodes" || name === "views" || name === "rating" ? Number(value) : value,
-    }))
-  }
-
-  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const { name, files } = e.target
-    if (files && files[0]) {
-      setFormData((prev) => ({ ...prev, [name]: files[0] }))
-    }
-  }
-
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault()
-    onSubmit(formData)
-  }
-
-  return (
-    <form onSubmit={handleSubmit} className="space-y-4">
-      <div className="grid grid-cols-2 gap-4">
-        <div>
-          <Label htmlFor="title">Tiêu đề</Label>
-          <Input id="title" name="title" value={formData.title} onChange={handleChange} required />
-        </div>
-        <div>
-          <Label htmlFor="genre">Thể loại</Label>
-          <Select value={formData.genre} onValueChange={(value) => setFormData((prev) => ({ ...prev, genre: value }))}>
-            <SelectTrigger id="genre">
-              <SelectValue placeholder="Chọn thể loại" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="Presidente ejecutivo">Tổng tài</SelectItem>
-              <SelectItem value="Renacimiento">Chuyển sinh</SelectItem>
-              <SelectItem value="Histórico">Cổ đại</SelectItem>
-              <SelectItem value="Viaje en el tiempo">Xuyên không</SelectItem>
-              <SelectItem value="Comedia">Hài hước</SelectItem>
-              <SelectItem value="Juventud">Học đường</SelectItem>
-              <SelectItem value="Drama">Drama</SelectItem>
-            </SelectContent>
-          </Select>
-        </div>
-        <div>
-          <Label htmlFor="year">Năm</Label>
-          <Input id="year" name="year" type="number" value={formData.year} onChange={handleChange} required />
-        </div>
-        <div>
-          <Label htmlFor="episodes">Tập</Label>
-          <Input
-            id="episodes"
-            name="episodes"
-            type="number"
-            value={formData.episodes}
-            onChange={handleChange}
-            required
-          />
-        </div>
-      </div>
-      <div>
-        <Label htmlFor="summary">Tóm tắt</Label>
-        <Textarea id="summary" name="summary" value={formData.summary} onChange={handleChange} required />
-      </div>
-      <div className="grid grid-cols-2 gap-4">
-        <div>
-          <Label htmlFor="poster">Ảnh bìa</Label>
-          <Input id="poster" name="poster" type="file" accept="image/*" onChange={handleFileChange} />
-          {formData.poster && typeof formData.poster !== "string" && (
-            <div className="relative mt-2 h-40 w-full">
-              <Image
-                src={URL.createObjectURL(formData.poster as File) || "/placeholder.svg"}
-                alt="Ảnh bìa Phim"
-                fill
-                className="object-contain"
-              />
-            </div>
-          )}
-        </div>
-        <div>
-          <Label htmlFor="trailer">Video giới thiệu</Label>
-          <Input id="trailer" name="trailer" type="file" accept="video/*" onChange={handleFileChange} />
-          {formData.trailer && typeof formData.trailer !== "string" && (
-            <video controls className="mt-2 h-40 w-full">
-              <source src={URL.createObjectURL(formData.trailer as File)} type="video/mp4" />
-              Trình duyệt của bạn không hỗ trợ thẻ video.
-            </video>
-          )}
-        </div>
-      </div>
-      <DialogClose asChild>
-        <Button type="submit">{movie ? "Cập nhật Phim" : "Thêm Phim"}</Button>
-      </DialogClose>
-    </form>
-  )
-}
-
-//
-// === EpisodeManager Component ===
-//
-
-export interface EpisodeManagerProps {
-  movieId: number
-  movieTitle: string
-  onEpisodeAdded: () => void
-  uploadingEpisodes: EpisodeUploadProgress[]
-  updateEpisodeUploadProgress: (id: string, progress: number) => void
-  addUploadingEpisode: (upload: EpisodeUploadProgress) => void
-  removeUploadingEpisode: (id: string) => void
-}
-
-export function EpisodeManager({
-  movieId,
-  movieTitle,
-  onEpisodeAdded,
-  uploadingEpisodes,
-  updateEpisodeUploadProgress,
-  addUploadingEpisode,
-  removeUploadingEpisode,
-}: EpisodeManagerProps) {
-  // Temporary mock for useSession
-  const session = { data: { token: Cookies.get("token") } }
-  const [episodes, setEpisodes] = useState<ApiEpisode[]>([])
-  const [episodeNumber, setEpisodeNumber] = useState<number>(1)
-  const [isAddDialogOpen, setIsAddDialogOpen] = useState(false)
-  const [isEditDialogOpen, setIsEditDialogOpen] = useState(false)
-  const [isPreviewDialogOpen, setIsPreviewDialogOpen] = useState(false)
-  const [previewVideoUrl, setPreviewVideoUrl] = useState<string | null>(null)
-  const [editingEpisode, setEditingEpisode] = useState<ApiEpisode | null>(null)
-
-  const fetchEpisodes = useCallback(async () => {
-    try {
-      if (!session?.data?.token) return
-      const response = await axios.get(`https://alldramaz.com/api/episodes/movie/${movieId}`, {
-        headers: {
-          Authorization: `Bearer ${session.data.token}`,
-        },
-      })
-      setEpisodes(response.data)
-    } catch (error) {
-      console.error("Error fetching episodes:", error)
-      toast.error("Lấy danh sách tập phim thất bại.")
-    }
-  }, [movieId, session?.data?.token])
-
-  useEffect(() => {
-    fetchEpisodes()
-  }, [fetchEpisodes])
-
-  const handleAddEpisode = async (e: React.FormEvent) => {
-    e.preventDefault()
-    const fileInput = document.getElementById("episodeVideo") as HTMLInputElement
-    if (!fileInput || !fileInput.files || fileInput.files.length === 0) {
-      toast.error("Vui lòng chọn file cho tập phim.")
-      return
-    }
-
-    if (!fileInput || !fileInput.files || fileInput.files.length === 0) {
-      toast.error("Vui lòng chọn file cho tập phim.")
-      return
-    }
-
-    const uploadId = `episode-${episodeNumber}-${Date.now()}`
-    // Thêm progress với movieTitle được truyền vào
-    setIsAddDialogOpen(false)
-    addUploadingEpisode({ id: uploadId, movieTitle, episodeNumber, progress: 0 })
-
-    const totalSteps = 2 // 1 bước upload file + 1 bước gọi API
-    const progressStep = 100 / totalSteps
-    let accumulatedProgress = 0
-
-    try {
-      const file = fileInput.files[0]
-      const finalUrl = await uploadEpisodeFile(movieTitle, episodeNumber, file, (progress) => {
-        const currentStepProgress = (progress * progressStep) / 100
-        updateEpisodeUploadProgress(uploadId, accumulatedProgress + currentStepProgress)
-      })
-
-      accumulatedProgress += progressStep
-      updateEpisodeUploadProgress(uploadId, accumulatedProgress)
-
-      if (!session?.data?.token) return
-      const response = await axios.post(
-        "https://alldramaz.com/api/episodes",
-        {
-          movieId,
-          videoUrl: finalUrl,
-          episodeNumber: episodeNumber,
-        },
-        {
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${session.data.token}`,
-          },
-        },
-      )
-
-      accumulatedProgress += progressStep
-      updateEpisodeUploadProgress(uploadId, accumulatedProgress)
-      updateEpisodeUploadProgress(uploadId, 100)
-
-      removeUploadingEpisode(uploadId)
-
-      toast.success("Thêm tập phim thành công!")
-      fetchEpisodes()
-      setEpisodeNumber((prev) => prev + 1)
-      setIsAddDialogOpen(false)
-    } catch (error) {
-      console.error("Error adding episode:", error)
-      toast.error("Thêm tập phim thất bại.")
-      removeUploadingEpisode(uploadId)
-    }
-  }
-
-  const handlePreviewEpisode = (videoUrl: string | null) => {
-    if (videoUrl) {
-      setPreviewVideoUrl(videoUrl)
-      setIsPreviewDialogOpen(true)
-    } else {
-      toast.error("URL video không tồn tại.")
-    }
-  }
-
-  const handleClosePreviewDialog = () => {
-    setIsPreviewDialogOpen(false)
-    setPreviewVideoUrl(null)
-  }
-
-  const handleDeleteEpisode = async (episodeId: number) => {
-    try {
-      if (!session?.data?.token) return
-      await axios.delete(`https://alldramaz.com/api/episodes/${episodeId}`, {
-        headers: {
-          Authorization: `Bearer ${session.data.token}`,
-        },
-      })
-
-      const episodeToDelete = episodes.find((episode) => episode.id === episodeId)
-      if (episodeToDelete && episodeToDelete.videoUrl) {
-        const episodeFileKey = `${movieTitle}/${episodeToDelete.videoUrl.split("/").pop()}`
-        await axios.delete("https://alldramaz.com/api/aws/file", {
-          data: { fileKey: episodeFileKey },
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${session.data.token}`,
-          },
-        })
-      }
-      setEpisodes((prevEpisodes) => prevEpisodes.filter((episode) => episode.id !== episodeId))
-      toast.success("Xóa tập phim thành công!")
-    } catch (error) {
-      console.error("Error deleting episode:", error)
-      toast.error("Xóa tập phim thất bại.")
-    }
-  }
-
-  return (
-    <div className="space-y-4">
-      {/* Dialog Thêm tập phim */}
-      <Dialog open={isAddDialogOpen} onOpenChange={setIsAddDialogOpen}>
-        <DialogTrigger asChild>
-          <Button>Thêm Tập Mới</Button>
-        </DialogTrigger>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Thêm Tập Mới</DialogTitle>
-          </DialogHeader>
-          <form onSubmit={handleAddEpisode} className="space-y-4">
-            <div>
-              <Label htmlFor="episodeNumber">Số Tập</Label>
-              <Input
-                id="episodeNumber"
-                name="episodeNumber"
-                type="number"
-                value={episodeNumber}
-                onChange={(e) => setEpisodeNumber(Number(e.target.value))}
-                required
-              />
-            </div>
-            <div>
-              <Label htmlFor="episodeVideo">Video Tập</Label>
-              <Input id="episodeVideo" name="episodeVideo" type="file" accept="video/*" required />
-            </div>
-            <Button type="submit">Thêm Tập</Button>
-          </form>
-        </DialogContent>
-      </Dialog>
-
-      {/* Dialog Xem trước Video */}
-      <Dialog open={isPreviewDialogOpen} onOpenChange={handleClosePreviewDialog}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Xem trước Tập</DialogTitle>
-          </DialogHeader>
-          {previewVideoUrl && (
-            <div className="space-y-4">
-              <video controls className="max-h-64 w-full">
-                <source src={previewVideoUrl} type="video/mp4" />
-                Trình duyệt của bạn không hỗ trợ thẻ video.
-              </video>
-            </div>
-          )}
-        </DialogContent>
-      </Dialog>
-
-      {/* Danh sách tập phim */}
-      <Accordion type="single" collapsible className="w-full">
-        <AccordionItem value="episodes">
-          <AccordionTrigger>Danh sách Tập phim</AccordionTrigger>
-          <AccordionContent>
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Tập</TableHead>
-                  <TableHead>Hành động</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {episodes.map((episode) => (
-                  <TableRow key={episode.id}>
-                    <TableCell>{episode.episodeNumber}</TableCell>
-                    <TableCell>
-                      <Button variant="outline" size="sm" onClick={() => handlePreviewEpisode(episode.videoUrl)}>
-                        Xem trước
-                      </Button>
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => {
-                          setEditingEpisode(episode)
-                          setIsEditDialogOpen(true)
-                        }}
-                        className="mr-2"
-                      >
-                        Chỉnh sửa
-                      </Button>
-                      <Button variant="destructive" size="sm" onClick={() => handleDeleteEpisode(episode.id)}>
-                        Xóa
-                      </Button>
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          </AccordionContent>
-        </AccordionItem>
-      </Accordion>
-    </div>
-  )
-}
-
+} 

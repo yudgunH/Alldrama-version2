@@ -1,20 +1,15 @@
 import axios from "axios";
 import Cookies from "js-cookie";
 
-// Sử dụng URL được cấu hình hoặc mặc định
-const API_URL = process.env.NEXT_PUBLIC_API_URL || "https://alldramaz.com";
-
-// Tạo instance axios với cấu hình mặc định
+// Create base API instance
 export const api = axios.create({
-  baseURL: API_URL,
+  baseURL: process.env.NEXT_PUBLIC_API_URL || "https://alldramaz.com",
   headers: {
     "Content-Type": "application/json",
   },
-  withCredentials: true, // Đảm bảo cookies được gửi cùng các request
-  timeout: 10000, // Đặt timeout sau 10 giây để tránh request treo quá lâu
 });
 
-// Thêm interceptor để tự động gắn token vào header
+// Add request interceptor to add auth token
 api.interceptors.request.use(
   (config) => {
     const token = Cookies.get("token");
@@ -68,100 +63,215 @@ api.interceptors.response.use(
   }
 );
 
-// API thể loại phim
-export const genreApi = {
-  getAll: () => api.get("/api/genres"),
-  getById: (id: number) => api.get(`/api/genres/${id}`),
-  create: (name: string) => api.post("/api/genres", { name }),
-  update: (id: number, name: string) => api.put(`/api/genres/${id}`, { name }),
-  delete: (id: number) => api.delete(`/api/genres/${id}`),
-};
-
-// API phim
-export const movieApi = {
-  getAll: (page = 1, limit = 10, sort = "createdAt", order = "DESC") =>
-    api.get(`/api/movies?page=${page}&limit=${limit}&sort=${sort}&order=${order}`),
-  search: (query: string, page = 1, limit = 10) =>
-    api.get(`/api/movies/search?q=${query}&page=${page}&limit=${limit}`),
-  getById: (id: number) => api.get(`/api/movies/${id}`),
-  create: (movieData: any) => api.post("/api/movies", movieData),
-  update: (id: number, movieData: any) => api.put(`/api/movies/${id}`, movieData),
-  delete: (id: number) => api.delete(`/api/movies/${id}`),
-};
-
-// API tập phim
-export const episodeApi = {
-  getByMovieId: (movieId: number) => api.get(`/api/episodes/movie/${movieId}`),
-  getById: (id: number) => api.get(`/api/episodes/${id}`),
-  create: (episodeData: any) => api.post("/api/episodes", episodeData),
-  update: (id: number, episodeData: any) => api.put(`/api/episodes/${id}`, episodeData),
-  delete: (id: number) => api.delete(`/api/episodes/${id}`),
-};
-
-// API media
+// Media API
 export const mediaApi = {
-  // Upload trực tiếp
-  uploadMoviePoster: (movieId: number, file: File) => {
+  // Get presigned URL for uploading media
+  getPresignedUrl: (params: {
+    movieId?: number;
+    episodeId?: number;
+    fileType: "poster" | "backdrop" | "trailer" | "video" | "thumbnail";
+  }) => {
+    return api.post("/api/media/presigned-url", params);
+  },
+  
+  // Get processing status for an episode
+  getProcessingStatus: (episodeId: number) => {
+    return api.get(`/api/episodes/${episodeId}/processing-status`);
+  },
+  
+  // Upload media with presigned URL
+  uploadToPresignedUrl: (presignedUrl: string, file: File, onProgress?: (progress: number) => void) => {
+    return api.put(presignedUrl, file, {
+      headers: {
+        "Content-Type": file.type,
+      },
+      onUploadProgress: (progressEvent) => {
+        if (progressEvent.total && onProgress) {
+          const progress = Math.round((progressEvent.loaded * 100) / progressEvent.total);
+          onProgress(progress);
+        }
+      }
+    });
+  },
+  
+  // Upload trực tiếp với multipart/form-data (phương pháp cũ)
+  uploadMoviePoster: (movieId: number, file: File, onProgress?: (progress: number) => void) => {
     const formData = new FormData();
     formData.append("poster", file);
     return api.post(`/api/media/movies/${movieId}/poster`, formData, {
       headers: {
         "Content-Type": "multipart/form-data",
       },
+      onUploadProgress: (progressEvent) => {
+        if (progressEvent.total && onProgress) {
+          const progress = Math.round((progressEvent.loaded * 100) / progressEvent.total);
+          onProgress(progress);
+        }
+      }
     });
   },
-  uploadMovieBackdrop: (movieId: number, file: File) => {
+  uploadMovieBackdrop: (movieId: number, file: File, onProgress?: (progress: number) => void) => {
     const formData = new FormData();
     formData.append("backdrop", file);
     return api.post(`/api/media/movies/${movieId}/backdrop`, formData, {
       headers: {
         "Content-Type": "multipart/form-data",
       },
+      onUploadProgress: (progressEvent) => {
+        if (progressEvent.total && onProgress) {
+          const progress = Math.round((progressEvent.loaded * 100) / progressEvent.total);
+          onProgress(progress);
+        }
+      }
     });
   },
-  uploadMovieTrailer: (movieId: number, file: File) => {
+  uploadMovieTrailer: (movieId: number, file: File, onProgress?: (progress: number) => void) => {
     const formData = new FormData();
     formData.append("trailer", file);
     return api.post(`/api/media/movies/${movieId}/trailer`, formData, {
       headers: {
         "Content-Type": "multipart/form-data",
       },
+      onUploadProgress: (progressEvent) => {
+        if (progressEvent.total && onProgress) {
+          const progress = Math.round((progressEvent.loaded * 100) / progressEvent.total);
+          onProgress(progress);
+        }
+      }
     });
   },
-  
-  // Lấy presigned URL để upload trực tiếp
-  getPresignedUrl: (params: {
-    movieId: number;
-    episodeId?: number;
-    fileType: "poster" | "backdrop" | "trailer" | "video" | "thumbnail";
-  }) => api.post("/api/media/presigned-url", params),
-  
-  // Upload video tập phim
-  uploadEpisodeVideo: (movieId: number, episodeId: number, file: File) => {
+  uploadEpisodeVideo: (movieId: number, episodeId: number, file: File, onProgress?: (progress: number) => void) => {
     const formData = new FormData();
     formData.append("video", file);
     return api.post(`/api/media/episodes/${movieId}/${episodeId}/video`, formData, {
       headers: {
         "Content-Type": "multipart/form-data",
       },
+      onUploadProgress: (progressEvent) => {
+        if (progressEvent.total && onProgress) {
+          const progress = Math.round((progressEvent.loaded * 100) / progressEvent.total);
+          onProgress(progress);
+        }
+      }
     });
   },
   
-  // Kiểm tra trạng thái xử lý video
-  checkProcessingStatus: (episodeId: number) =>
-    api.get(`/api/media/episodes/${episodeId}/processing-status`),
-    
   // Xóa media
   deleteMedia: (movieId: number, mediaType: "poster" | "backdrop" | "trailer") =>
-    api.delete(`/api/media/movies/${movieId}/${mediaType}`),
+    api.delete(`/api/movies/${movieId}/${mediaType}`),
+    
+  // Xóa tập phim và media liên quan
+  deleteEpisode: (movieId: number, episodeId: number) =>
+    api.delete(`/api/episodes/${movieId}/${episodeId}`),
 };
 
-// API người dùng
+// Movie API
+export const movieApi = {
+  // Get all movies
+  getAll: (page = 1, limit = 10) => {
+    return api.get("/api/movies", {
+      params: { page, limit }
+    });
+  },
+  
+  // Get movie by ID
+  getById: (id: number) => {
+    return api.get(`/api/movies/${id}`);
+  },
+  
+  // Create new movie
+  create: (data: any) => {
+    return api.post("/api/movies", data);
+  },
+  
+  // Update movie
+  update: (id: number, data: any) => {
+    return api.put(`/api/movies/${id}`, data);
+  },
+  
+  // Delete movie
+  delete: (id: number) => {
+    return api.delete(`/api/movies/${id}`);
+  },
+  
+  // Get movie episodes
+  getEpisodes: (movieId: number) => {
+    return api.get(`/api/movies/${movieId}/episodes`);
+  },
+  
+  // Get movie statistics
+  getStatistics: (movieId: number) => {
+    return api.get(`/api/movies/${movieId}/statistics`);
+  },
+};
+
+// Episode API
+export const episodeApi = {
+  // Get episode by ID
+  getById: (id: number) => {
+    return api.get(`/api/episodes/${id}`);
+  },
+  
+  // Get episodes by movie ID
+  getByMovieId: (movieId: number) => {
+    return api.get(`/api/episodes/movie/${movieId}`);
+  },
+  
+  // Create new episode
+  create: (movieId: number, data: any) => {
+    return api.post(`/api/movies/${movieId}/episodes`, data);
+  },
+  
+  // Update episode
+  update: (id: number, data: any) => {
+    return api.put(`/api/episodes/${id}`, data);
+  },
+  
+  // Delete episode
+  delete: (id: number) => {
+    return api.delete(`/api/episodes/${id}`);
+  },
+  
+  // Get processing status
+  getProcessingStatus: (id: number) => {
+    return api.get(`/api/episodes/${id}/processing-status`);
+  },
+};
+
+// Genre API
+export const genreApi = {
+  // Get all genres
+  getAll: () => {
+    return api.get("/api/genres");
+  },
+};
+
+// User API
 export const userApi = {
-  getAll: () => api.get("/api/users"),
-  getById: (id: number) => api.get(`/api/users/${id}`),
-  update: (id: number, userData: any) => api.put(`/api/users/${id}`, userData),
-  delete: (id: number) => api.delete(`/api/users/${id}`),
-  getFavorites: (userId: number) => api.get(`/api/users/${userId}/favorites`),
-  getWatchHistory: (userId: number) => api.get(`/api/users/${userId}/watch-history`),
-}; 
+  // Get all users
+  getAll: () => {
+    return api.get("/api/users");
+  },
+  
+  // Get user by ID
+  getById: (id: number) => {
+    return api.get(`/api/users/${id}`);
+  },
+  
+  // Create new user
+  create: (data: any) => {
+    return api.post("/api/users", data);
+  },
+  
+  // Update user
+  update: (id: number, data: any) => {
+    return api.put(`/api/users/${id}`, data);
+  },
+  
+  // Delete user
+  delete: (id: number) => {
+    return api.delete(`/api/users/${id}`);
+  },
+};
+
+export default api; 

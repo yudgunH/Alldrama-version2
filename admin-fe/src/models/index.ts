@@ -8,16 +8,20 @@ export interface Genre {
 export interface Movie {
   id: number;
   title: string;
-  rating: number;
-  views: number;
   summary: string;
+  releaseYear: number;
   duration: number;
   totalEpisodes: number;
-  releaseYear: number;
-  posterUrl: string | null;
-  trailerUrl: string | null;
-  playlistUrl: string | null;
   genres: Genre[];
+  genreIds: number[];
+  views: number;
+  rating: number;
+  posterUrl: string | null;
+  backdropUrl: string | null;
+  trailerUrl: string | null;
+  isProcessed: boolean;
+  createdAt?: string;
+  updatedAt?: string;
 }
 
 export interface Episode {
@@ -25,24 +29,25 @@ export interface Episode {
   movieId: number;
   episodeNumber: number;
   title: string;
-  description: string;
-  playlistUrl: string | null;
-  thumbnailUrl: string | null;
-  duration: number;
-  isProcessed: boolean;
-  processingError: string | null;
+  description: string | null;
+  duration: number | null;
   views: number;
-  createdAt: string;
-  updatedAt: string;
+  rating: number;
+  thumbnailUrl: string | null;
+  playlistUrl: string | null;
+  isProcessed: boolean;
+  createdAt?: string;
+  updatedAt?: string;
 }
 
 export interface User {
   id: number;
-  full_name: string;
+  username: string;
   email: string;
-  role: 'admin' | 'user' | 'subscriber';
-  subscriptionExpiredAt: string | null;
+  role: string;
+  avatar?: string;
   createdAt: string;
+  updatedAt: string;
 }
 
 export interface Comment {
@@ -85,4 +90,19 @@ export interface ProcessingStatus {
   processingError: string | null;
   playlistUrl: string | null;
   thumbnailUrl: string | null;
+}
+
+export interface ApiResponse<T> {
+  success: boolean;
+  data: T;
+  message?: string;
+  errors?: Record<string, string[]>;
+}
+
+export interface PaginatedResponse<T> {
+  items: T[];
+  total: number;
+  page: number;
+  limit: number;
+  totalPages: number;
 } 

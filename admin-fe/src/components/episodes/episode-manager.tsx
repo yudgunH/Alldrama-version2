@@ -1,7 +1,7 @@
 "use client"
 
 import { useState, useEffect } from "react"
-import { Plus, Play, Trash2, AlertCircle, CheckCircle } from "lucide-react"
+import { Plus, Play, Trash2, AlertCircle, CheckCircle, Upload } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Textarea } from "@/components/ui/textarea"
@@ -14,6 +14,7 @@ import { HLSPlayer } from "@/components/ui/hls-player"
 import { episodeApi, mediaApi } from "@/services/api"
 import { Episode, EpisodeUploadProgress } from "@/models"
 import { toast } from "react-hot-toast"
+import axios from "axios"
 
 interface EpisodeManagerProps {
   movieId: number
@@ -69,7 +70,7 @@ export function EpisodeManager({ movieId, movieTitle }: EpisodeManagerProps) {
     const pollingInterval = setInterval(async () => {
       for (const episodeId of processingPollingIds) {
         try {
-          const response = await mediaApi.checkProcessingStatus(episodeId)
+          const response = await mediaApi.getProcessingStatus(episodeId)
           const { isProcessed, playlistUrl } = response.data
           
           if (isProcessed) {
@@ -94,6 +95,60 @@ export function EpisodeManager({ movieId, movieTitle }: EpisodeManagerProps) {
     return () => clearInterval(pollingInterval)
   }, [processingPollingIds, episodes])
 
+  // Thêm hàm upload video riêng
+  const uploadVideoForEpisode = async (episodeId: number, file: File) => {
+    try {
+      // Bước 1: Lấy presigned URL
+      const presignedResponse = await mediaApi.getPresignedUrl({
+        movieId: movieId,
+        episodeId: episodeId,
+        fileType: "video",
+      })
+      
+      const { presignedUrl, contentType, cdnUrl } = presignedResponse.data
+      
+      // Bước 2: Upload trực tiếp lên storage
+      const uploadId = `episode-${movieId}-${episodeId}`;
+      
+      // Thêm vào danh sách đang upload để hiển thị tiến trình
+      addUploadingEpisode({
+        id: uploadId,
+        movieTitle,
+        episodeNumber: episodeId,
+        progress: 0
+      })
+      
+      await axios.put(presignedUrl, file, {
+        headers: {
+          "Content-Type": contentType || file.type,
+        },
+        onUploadProgress: (progressEvent) => {
+          if (progressEvent.total) {
+            const currentProgress = Math.round((progressEvent.loaded * 100) / progressEvent.total)
+            updateEpisodeUploadProgress(uploadId, currentProgress)
+            
+            if (currentProgress === 100) {
+              // Không xóa ngay lập tức để người dùng thấy tiến trình hoàn thành
+              setTimeout(() => {
+                removeUploadingEpisode(uploadId)
+                toast.success("Tải video thành công, đang xử lý HLS...")
+              }, 2000)
+            }
+          }
+        }
+      })
+      
+      // Thêm tập phim vào danh sách đang xử lý để polling trạng thái
+      setProcessingPollingIds(prev => [...prev, episodeId])
+      
+      return true;
+    } catch (error) {
+      console.error("Upload video error:", error)
+      toast.error("Có lỗi khi tải lên video")
+      return false;
+    }
+  }
+
   // Add a new episode
   const handleAddEpisode = async () => {
     try {
@@ -103,41 +158,67 @@ export function EpisodeManager({ movieId, movieTitle }: EpisodeManagerProps) {
         return
       }
       
-      // Tạo tập phim mới
+      // Kiểm tra nếu đã chọn cả video và ảnh thumbnail
+      const videoFile = document.getElementById('file-video') as HTMLInputElement;
+      const thumbnailFile = document.getElementById('file-thumbnail') as HTMLInputElement;
+      
+      if (!videoFile.files || videoFile.files.length === 0) {
+        toast.error("Vui lòng chọn file video")
+        return
+      }
+      
+      // Bước 1: Tạo tập phim mới
       const episodeData = {
         movieId,
         episodeNumber: newEpisode.episodeNumber,
         title: newEpisode.title,
         description: newEpisode.description,
-        thumbnailUrl: newEpisode.thumbnailUrl,
-        duration: 0, // Sẽ được cập nhật sau khi upload video
       }
       
-      const response = await episodeApi.create(episodeData)
-      const createdEpisode = response.data.episode
+      const response = await episodeApi.create(movieId, episodeData)
+      const createdEpisode = response.data
+      const episodeId = createdEpisode.id
       
-      // Tải video nếu có
-      if (newEpisode.videoUrl) {
-        // Đã tải video lên trong bước trước đó
-        await episodeApi.update(createdEpisode.id, {
-          ...createdEpisode,
-          playlistUrl: newEpisode.videoUrl,
+      if (episodeId) {
+        // Bước 2: Upload thumbnail nếu có
+        if (thumbnailFile.files && thumbnailFile.files.length > 0) {
+          // Upload thumbnail
+          const thumbnailPresignedResponse = await mediaApi.getPresignedUrl({
+            movieId,
+            episodeId,
+            fileType: "thumbnail",
+          })
+          
+          await axios.put(
+            thumbnailPresignedResponse.data.presignedUrl, 
+            thumbnailFile.files[0], 
+            {
+              headers: {
+                "Content-Type": thumbnailPresignedResponse.data.contentType,
+              }
+            }
+          )
+        }
+        
+        // Bước 3: Upload video
+        if (videoFile.files && videoFile.files.length > 0) {
+          await uploadVideoForEpisode(episodeId, videoFile.files[0])
+        }
+      
+        toast.success("Thêm tập phim thành công")
+        setShowAddDialog(false)
+        
+        // Reset form và tải lại danh sách
+        setNewEpisode({
+          episodeNumber: episodes.length + 1,
+          title: "",
+          description: "",
+          thumbnailUrl: null,
+          videoUrl: null,
         })
+        
+        fetchEpisodes()
       }
-      
-      toast.success("Thêm tập phim thành công")
-      setShowAddDialog(false)
-      
-      // Reset form và tải lại danh sách
-      setNewEpisode({
-        episodeNumber: episodes.length + 1,
-        title: "",
-        description: "",
-        thumbnailUrl: null,
-        videoUrl: null,
-      })
-      
-      fetchEpisodes()
     } catch (error) {
       console.error("Error adding episode:", error)
       toast.error("Không thể thêm tập phim")
@@ -343,48 +424,65 @@ export function EpisodeManager({ movieId, movieTitle }: EpisodeManagerProps) {
             </div>
             <div>
               <label className="block text-sm font-medium mb-1">Thumbnail</label>
-              <MediaUploader
-                movieId={movieId}
-                fileType="thumbnail"
-                onUploadComplete={(url) => {
-                  setNewEpisode(prev => ({ ...prev, thumbnailUrl: url }))
-                  toast.success("Tải thumbnail thành công")
-                }}
-                onUploadError={(error) => toast.error(`Lỗi: ${error}`)}
-                accept="image/*"
-              />
+              <div className="flex items-center space-x-2">
+                <input
+                  type="file"
+                  id="file-thumbnail"
+                  accept="image/*"
+                  className="hidden"
+                  onChange={(e) => {
+                    // Chỉ hiển thị preview, sẽ upload sau khi tạo tập phim
+                    if (e.target.files && e.target.files[0]) {
+                      const previewUrl = URL.createObjectURL(e.target.files[0])
+                      setNewEpisode(prev => ({ ...prev, thumbnailUrl: previewUrl }))
+                    }
+                  }}
+                />
+                <label
+                  htmlFor="file-thumbnail"
+                  className="cursor-pointer flex items-center space-x-2 p-2 border border-dashed rounded-md hover:bg-gray-50 dark:hover:bg-gray-800"
+                >
+                  <Upload size={20} />
+                  <span>Chọn file thumbnail</span>
+                </label>
+              </div>
+              {newEpisode.thumbnailUrl && (
+                <div className="mt-2 relative aspect-video max-w-[200px] overflow-hidden rounded-md">
+                  <img 
+                    src={newEpisode.thumbnailUrl}
+                    alt="Thumbnail Preview"
+                    className="object-cover w-full h-full"
+                  />
+                </div>
+              )}
             </div>
             <div>
               <label className="block text-sm font-medium mb-1">Video</label>
-              <MediaUploader
-                movieId={movieId}
-                fileType="video"
-                onUploadComplete={(url) => {
-                  setNewEpisode(prev => ({ ...prev, videoUrl: url }))
-                  toast.success("Tải video thành công")
-                }}
-                onUploadError={(error) => toast.error(`Lỗi: ${error}`)}
-                onUploadProgress={(progress) => {
-                  const uploadId = `episode-${movieId}-${newEpisode.episodeNumber}`
-                  const existingUpload = uploadingEpisodes.find(u => u.id === uploadId)
-                  
-                  if (existingUpload) {
-                    updateEpisodeUploadProgress(uploadId, progress)
-                  } else {
-                    addUploadingEpisode({
-                      id: uploadId,
-                      movieTitle,
-                      episodeNumber: newEpisode.episodeNumber,
-                      progress
-                    })
-                  }
-                  
-                  if (progress === 100) {
-                    removeUploadingEpisode(uploadId)
-                  }
-                }}
-                accept="video/*"
-              />
+              <div className="flex items-center space-x-2">
+                <input
+                  type="file"
+                  id="file-video"
+                  accept="video/*"
+                  className="hidden"
+                  onChange={(e) => {
+                    // Chỉ hiển thị tên file, sẽ upload sau khi tạo tập phim
+                    if (e.target.files && e.target.files[0]) {
+                      const fileName = e.target.files[0].name
+                      toast.success(`Đã chọn file: ${fileName}`)
+                    }
+                  }}
+                />
+                <label
+                  htmlFor="file-video"
+                  className="cursor-pointer flex items-center space-x-2 p-2 border border-dashed rounded-md hover:bg-gray-50 dark:hover:bg-gray-800"
+                >
+                  <Upload size={20} />
+                  <span>Chọn file video</span>
+                </label>
+              </div>
+              <p className="text-sm text-muted-foreground mt-2">
+                Video sẽ được tự động xử lý thành HLS sau khi upload hoàn tất. Quá trình này có thể mất 2-10 phút tùy độ dài video.
+              </p>
             </div>
           </div>
           <div className="flex justify-end gap-3">

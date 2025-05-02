@@ -52,12 +52,12 @@ export function MediaUploader({
       
       // Bước 1: Lấy presigned URL
       const presignedResponse = await mediaApi.getPresignedUrl({
-        movieId,
+        movieId: movieId || null,
         episodeId,
         fileType,
       })
       
-      const { presignedUrl, contentType, cdnUrl } = presignedResponse.data
+      const { presignedUrl, contentType, cdnUrl, expiresIn } = presignedResponse.data
       
       // Bước 2: Upload trực tiếp lên storage
       await axios.put(presignedUrl, file, {
@@ -75,8 +75,17 @@ export function MediaUploader({
         }
       })
       
-      // Lấy URL đã upload
-      const finalUrl = `${cdnUrl}${movieId}/${fileType}${episodeId ? `/${episodeId}` : ""}`
+      // Xây dựng URL dựa trên cấu trúc mới
+      let finalUrl = '';
+      if (fileType === "poster" || fileType === "backdrop") {
+        finalUrl = `${cdnUrl}movies/${movieId}/${fileType}.jpg`;
+      } else if (fileType === "trailer") {
+        finalUrl = `${cdnUrl}movies/${movieId}/trailer.mp4`;
+      } else if (fileType === "video" && episodeId) {
+        finalUrl = `${cdnUrl}episodes/${movieId}/${episodeId}/hls/master.m3u8`;
+      } else if (fileType === "thumbnail" && episodeId) {
+        finalUrl = `${cdnUrl}episodes/${movieId}/${episodeId}/thumbnail.jpg`;
+      }
       
       setStatus("success")
       setProgress(100)
