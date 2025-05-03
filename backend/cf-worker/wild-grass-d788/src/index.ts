@@ -267,32 +267,26 @@ app.get("/api/hls-status/:jobId/:movieId/:episodeId", async (c) => {
       return c.json({ success: false, error: "Thiếu job ID" }, 400);
     }
     
-    // Tìm metadata file cho job này trong bucket
-    const jobFiles = await c.env.MEDIA_BUCKET.list({
-      prefix: `episodes/${movieId}/${episodeId}/hls/`,
-      delimiter: "/",
-      include: ["customMetadata"]
-    });
+    // Truy cập trực tiếp file metadata dựa trên đường dẫn chính xác
+    const metadataKey = `episodes/${movieId}/${episodeId}/hls/job-metadata.json`;
     
-    let jobMetadata = null;
+    // Lấy file metadata
+    const metadataFile = await c.env.MEDIA_BUCKET.get(metadataKey);
     
-    for (const obj of jobFiles.objects) {
-      if (obj.key.endsWith("job-metadata.json")) {
-        const metadataFile = await c.env.MEDIA_BUCKET.get(obj.key);
-        if (metadataFile) {
-          const metadata = JSON.parse(await metadataFile.text());
-          if (metadata.jobId === jobId) {
-            jobMetadata = metadata;
-            break;
-          }
-        }
-      }
-    }
-    
-    if (!jobMetadata) {
+    if (!metadataFile) {
       return c.json({ 
         success: false, 
         error: "Không tìm thấy thông tin job" 
+      }, 404);
+    }
+    
+    const jobMetadata = JSON.parse(await metadataFile.text());
+    
+    // Kiểm tra xem jobId có khớp không
+    if (jobMetadata.jobId !== jobId) {
+      return c.json({ 
+        success: false, 
+        error: "JobID không khớp với metadata" 
       }, 404);
     }
     

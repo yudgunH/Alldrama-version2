@@ -81,17 +81,55 @@ export const mediaApi = {
   
   // Upload media with presigned URL
   uploadToPresignedUrl: (presignedUrl: string, file: File, onProgress?: (progress: number) => void) => {
-    return api.put(presignedUrl, file, {
-      headers: {
-        "Content-Type": file.type,
-      },
-      onUploadProgress: (progressEvent) => {
-        if (progressEvent.total && onProgress) {
-          const progress = Math.round((progressEvent.loaded * 100) / progressEvent.total);
+    console.log("mediaApi.uploadToPresignedUrl: Bắt đầu upload với", { presignedUrl, fileType: file.type, fileSize: file.size });
+    
+    // Sử dụng fetch API trực tiếp thay vì axios để tránh vấn đề với preflight CORS
+    return new Promise((resolve, reject) => {
+      const xhr = new XMLHttpRequest();
+      
+      xhr.open('PUT', presignedUrl, true);
+      xhr.setRequestHeader('Content-Type', file.type);
+      
+      xhr.upload.onprogress = (event) => {
+        if (event.lengthComputable && onProgress) {
+          const progress = Math.round((event.loaded * 100) / event.total);
+          console.log(`mediaApi.uploadToPresignedUrl: Progress ${progress}%`);
           onProgress(progress);
         }
-      }
+      };
+      
+      xhr.onload = () => {
+        if (xhr.status >= 200 && xhr.status < 300) {
+          console.log("mediaApi.uploadToPresignedUrl: Upload thành công", { status: xhr.status });
+          resolve({ status: xhr.status, statusText: xhr.statusText });
+        } else {
+          console.error("mediaApi.uploadToPresignedUrl: Lỗi khi upload", { status: xhr.status, response: xhr.responseText });
+          reject(new Error(`Upload failed with status ${xhr.status}: ${xhr.statusText}`));
+        }
+      };
+      
+      xhr.onerror = () => {
+        console.error("mediaApi.uploadToPresignedUrl: Network error");
+        reject(new Error('Network error occurred during upload'));
+      };
+      
+      xhr.onabort = () => {
+        console.warn("mediaApi.uploadToPresignedUrl: Upload aborted");
+        reject(new Error('Upload aborted'));
+      };
+      
+      xhr.send(file);
     });
+  },
+  
+  // Thông báo cho backend là đã upload video thành công
+  notifyVideoUploaded: (movieId: number, episodeId: number) => {
+    return api.post(`/api/media/episodes/${movieId}/${episodeId}/video-uploaded`);
+  },
+  
+  // Kích hoạt quá trình xử lý HLS cho video - phương thức dự phòng
+  startHLSProcessing: (movieId: number, episodeId: number) => {
+    return api.post(`/api/media/episodes/${movieId}/${episodeId}/process-hls`);
   },
   
   // Upload trực tiếp với multipart/form-data (phương pháp cũ)
@@ -219,7 +257,7 @@ export const episodeApi = {
   
   // Create new episode
   create: (movieId: number, data: any) => {
-    return api.post(`/api/movies/${movieId}/episodes`, data);
+    return api.post(`/api/episodes`, { ...data, movieId });
   },
   
   // Update episode

@@ -137,7 +137,7 @@ export function EpisodeManager({ movieId, movieTitle }: EpisodeManagerProps) {
         try {
           const response = await episodeApi.getProcessingStatus(episodeId)
           
-          const { isProcessed, progress } = response.data
+          const { isProcessed, progress, playlistUrl, thumbnailUrl, estimatedTimeRemaining, steps } = response.data
           
           if (isProcessed) {
             // Xóa khỏi danh sách polling
@@ -148,7 +148,19 @@ export function EpisodeManager({ movieId, movieTitle }: EpisodeManagerProps) {
             fetchEpisodes()
           } else if (selectedEpisode?.id === episodeId) {
             // Cập nhật trạng thái xử lý nếu đang xem chi tiết
-            setProcessingStatus(response.data)
+            setProcessingStatus({
+              isProcessed,
+              progress: progress || 0,
+              playlistUrl,
+              thumbnailUrl,
+              estimatedTimeRemaining: estimatedTimeRemaining || "Đang tính...",
+              steps: steps || [
+                { name: "Tải lên video gốc", status: "completed", completedAt: new Date().toISOString() },
+                { name: "Tạo thumbnail", status: "processing", progress: progress || 30 },
+                { name: "Chuyển đổi sang HLS", status: "pending" },
+                { name: "Tạo playlist", status: "pending" }
+              ]
+            })
           }
         } catch (error) {
           console.error(`Error checking processing status for episode ${episodeId}:`, error)
@@ -190,34 +202,116 @@ export function EpisodeManager({ movieId, movieTitle }: EpisodeManagerProps) {
     file: File,
   ): Promise<string | null> => {
     try {
+      console.log("uploadWithPresignedUrl: Bắt đầu với", { movieId, episodeId, file: file.name });
+      
+      // Kiểm tra movieId hợp lệ
+      if (!movieId || movieId <= 0) {
+        console.error("uploadWithPresignedUrl: movieId không hợp lệ", movieId);
+        throw new Error("ID phim không hợp lệ (movieId <= 0)")
+      }
+      
+      // Kiểm tra episodeId hợp lệ
+      if (!episodeId || episodeId <= 0) {
+        console.error("uploadWithPresignedUrl: episodeId không hợp lệ", episodeId);
+        throw new Error("ID tập phim không hợp lệ")
+      }
+      
       // Lấy presigned URL
+      console.log("uploadWithPresignedUrl: Đang lấy presigned URL với", { movieId, episodeId, fileType: "video" });
+      
       const response = await mediaApi.getPresignedUrl({
         movieId,
         episodeId,
         fileType: "video",
       })
       
+      console.log("uploadWithPresignedUrl: Đã nhận presigned URL response", response.data);
+      
       const { presignedUrl, contentType, cdnUrl } = response.data
       
-      // Upload file
-      await api.put(presignedUrl, file, {
-        headers: {
-          "Content-Type": contentType || file.type,
-        },
-        onUploadProgress: (progressEvent) => {
-          if (progressEvent.total) {
-            const progress = Math.round((progressEvent.loaded * 100) / progressEvent.total)
+      // Kiểm tra presignedUrl hợp lệ
+      if (!presignedUrl) {
+        console.error("uploadWithPresignedUrl: Không nhận được URL hợp lệ", response.data);
+        throw new Error("Không nhận được URL hợp lệ từ server")
+      }
+      
+      // Bước 1: Upload file lên R2 thông qua presigned URL
+      console.log("uploadWithPresignedUrl: Đang tải video lên R2 storage...", { 
+        presignedUrl,
+        contentType,
+        fileSize: file.size,
+        fileType: file.type
+      });
+      
+      try {
+        await mediaApi.uploadToPresignedUrl(
+          presignedUrl, 
+          file,
+          (progress) => {
+            console.log(`uploadWithPresignedUrl: Upload progress ${progress}%`);
             if (uploadProgress) {
               setUploadProgress(prev => prev ? { ...prev, progress } : null)
             }
           }
+        )
+        console.log("uploadWithPresignedUrl: Upload thành công!");
+      } catch (uploadError) {
+        console.error("uploadWithPresignedUrl: Lỗi khi upload file", uploadError);
+        throw uploadError;
+      }
+      
+      console.log("uploadWithPresignedUrl: Đã tải video lên R2 storage thành công, đang thông báo cho backend...");
+      
+      // Bước 2: Thông báo cho backend rằng file đã được upload thành công
+      let notificationSuccess = false;
+      
+      // Phương pháp 1: Thông báo video đã upload
+      try {
+        console.log("uploadWithPresignedUrl: Gọi notifyVideoUploaded", { movieId, episodeId });
+        await mediaApi.notifyVideoUploaded(movieId, episodeId);
+        notificationSuccess = true;
+        console.log("uploadWithPresignedUrl: Đã thông báo backend bằng phương thức notifyVideoUploaded");
+      } catch (notifyError) {
+        console.warn("uploadWithPresignedUrl: Không thể gọi API thông báo upload", notifyError);
+      }
+      
+      // Phương pháp 2: Kích hoạt xử lý HLS trực tiếp
+      if (!notificationSuccess) {
+        try {
+          console.log("uploadWithPresignedUrl: Gọi startHLSProcessing", { movieId, episodeId });
+          await mediaApi.startHLSProcessing(movieId, episodeId);
+          notificationSuccess = true;
+          console.log("uploadWithPresignedUrl: Đã thông báo backend bằng phương thức startHLSProcessing");
+        } catch (processError) {
+          console.warn("uploadWithPresignedUrl: Không thể gọi API kích hoạt xử lý HLS", processError);
         }
-      })
+      }
+      
+      // Phương pháp 3: Sử dụng API cũ
+      if (!notificationSuccess) {
+        try {
+          console.log("uploadWithPresignedUrl: Gọi uploadEpisodeVideo với file rỗng", { movieId, episodeId });
+          await mediaApi.uploadEpisodeVideo(
+            movieId, 
+            episodeId, 
+            new File([new Uint8Array(0)], "uploaded-via-presigned-url.txt", { type: "text/plain" })
+          );
+          notificationSuccess = true;
+          console.log("uploadWithPresignedUrl: Đã thông báo backend bằng phương thức uploadEpisodeVideo");
+        } catch (uploadError) {
+          console.error("uploadWithPresignedUrl: Tất cả các phương thức thông báo đều thất bại", uploadError);
+          throw new Error("Không thể thông báo cho backend về việc đã upload video");
+        }
+      }
+      
+      if (notificationSuccess) {
+        console.log(`uploadWithPresignedUrl: Video đã được tải lên thành công và thông báo xử lý cho tập phim ${episodeId}`);
+      }
       
       return `${cdnUrl}episodes/${movieId}/${episodeId}/hls/master.m3u8`
     } catch (error) {
-      console.error(`Error uploading video:`, error)
-      toast.error(`Không thể tải lên video`)
+      console.error(`uploadWithPresignedUrl: Error uploading video:`, error)
+      toast.error(`Không thể tải lên video: ${error instanceof Error ? error.message : 'Lỗi không xác định'}`)
       return null
     }
   }
@@ -235,9 +329,21 @@ export function EpisodeManager({ movieId, movieTitle }: EpisodeManagerProps) {
       toast.error("Vui lòng chọn file video cho tập phim")
       return
     }
+
+    console.log("========DEBUG INFO==========")
+    console.log("Submit form với thông tin:", { 
+      movieId, 
+      formData,
+      videoFile: {
+        name: videoFile.name,
+        size: videoFile.size,
+        type: videoFile.type
+      }
+    });
     
     try {
       // Step 1: Create new episode (without media URL)
+      console.log("Bắt đầu tạo tập phim...")
       const episodeResponse = await episodeApi.create(movieId, {
         episodeNumber: formData.episodeNumber,
         title: formData.title,
@@ -245,6 +351,7 @@ export function EpisodeManager({ movieId, movieTitle }: EpisodeManagerProps) {
       })
       
       const episodeId = episodeResponse.data.id
+      console.log("Đã tạo tập phim với ID:", episodeId)
       
       if (!episodeId) {
         throw new Error("Không thể lấy ID tập phim sau khi tạo")
@@ -258,10 +365,38 @@ export function EpisodeManager({ movieId, movieTitle }: EpisodeManagerProps) {
       })
       
       // Step 2: Upload video
-      await uploadWithPresignedUrl(
+      console.log("Bắt đầu upload video:", { 
+        movieId, 
+        episodeId, 
+        videoFile: {
+          name: videoFile.name,
+          size: videoFile.size,
+          type: videoFile.type
+        }
+      })
+      
+      const uploadResult = await uploadWithPresignedUrl(
         episodeId,
         videoFile
       )
+      
+      console.log("Kết quả upload:", uploadResult)
+      
+      if (!uploadResult) {
+        // Upload thất bại
+        toast.error("Upload video thất bại, nhưng tập phim đã được tạo")
+        setUploadProgress(prev => prev ? { ...prev, progress: 0 } : null)
+        
+        // Vẫn thêm vào danh sách polling để theo dõi trạng thái
+        setProcessingPollingIds(prev => [...prev, episodeId])
+        
+        // Đóng dialog nhưng không reset form
+        setIsDialogOpen(false)
+        
+        // Cập nhật danh sách tập phim
+        fetchEpisodes()
+        return
+      }
       
       setUploadProgress(prev => prev ? { ...prev, progress: 100 } : null)
       toast.success("Đã thêm tập phim thành công!")
@@ -281,9 +416,10 @@ export function EpisodeManager({ movieId, movieTitle }: EpisodeManagerProps) {
       
       // Cập nhật danh sách tập phim
       fetchEpisodes()
-    } catch (error) {
+    } catch (error: any) {
       console.error("Error creating episode:", error)
-      toast.error("Không thể tạo tập phim mới")
+      const errorMessage = error.response?.data?.message || error.message || "Không thể tạo tập phim mới"
+      toast.error(`Lỗi: ${errorMessage}`)
       setUploadProgress(null)
     }
   }
@@ -314,10 +450,39 @@ export function EpisodeManager({ movieId, movieTitle }: EpisodeManagerProps) {
     setSelectedEpisode(episode)
     setIsProcessingDialogOpen(true)
     
+    // Khởi tạo trạng thái mặc định trước khi gọi API
+    setProcessingStatus({
+      isProcessed: episode.isProcessed,
+      progress: 0,
+      playlistUrl: episode.playlistUrl,
+      thumbnailUrl: episode.thumbnailUrl,
+      estimatedTimeRemaining: "Đang tính...",
+      steps: [
+        { name: "Tải lên video gốc", status: "completed", completedAt: new Date().toISOString() },
+        { name: "Tạo thumbnail", status: "pending" },
+        { name: "Chuyển đổi sang HLS", status: "pending" },
+        { name: "Tạo playlist", status: "pending" }
+      ]
+    })
+    
     // Fetch current processing status
     episodeApi.getProcessingStatus(episode.id)
       .then(response => {
-        setProcessingStatus(response.data)
+        const { isProcessed, progress, playlistUrl, thumbnailUrl, estimatedTimeRemaining, steps } = response.data
+        
+        setProcessingStatus({
+          isProcessed,
+          progress: progress || 0,
+          playlistUrl: playlistUrl || episode.playlistUrl,
+          thumbnailUrl: thumbnailUrl || episode.thumbnailUrl,
+          estimatedTimeRemaining: estimatedTimeRemaining || "Đang tính...",
+          steps: steps || [
+            { name: "Tải lên video gốc", status: "completed", completedAt: new Date().toISOString() },
+            { name: "Tạo thumbnail", status: isProcessed ? "completed" : "processing", progress: progress || 30 },
+            { name: "Chuyển đổi sang HLS", status: isProcessed ? "completed" : "pending" },
+            { name: "Tạo playlist", status: isProcessed ? "completed" : "pending" }
+          ]
+        })
       })
       .catch(error => {
         console.error("Error fetching processing status:", error)
@@ -430,7 +595,7 @@ export function EpisodeManager({ movieId, movieTitle }: EpisodeManagerProps) {
                     </div>
                   </div>
                 ) : (
-                  <div className="flex flex-col items-center justify-center w-full border-2 border-dashed rounded-md mt-2 p-8">
+                  <div className="relative flex flex-col items-center justify-center w-full border-2 border-dashed rounded-md mt-2 p-8">
                     <FileVideo className="h-8 w-8 text-gray-400 mb-2" />
                     <p className="text-sm text-center text-gray-500">
                       Kéo thả file video vào đây hoặc click để chọn file
