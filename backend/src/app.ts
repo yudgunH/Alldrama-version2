@@ -21,7 +21,9 @@ import commentRoutes from "./routes/commentRoutes";
 const app = express();
 
 // Middleware
-app.use(express.json());
+// Tăng giới hạn kích thước body request lên 50MB
+app.use(express.json({ limit: '50mb' }));
+app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 app.use(cookieParser());
 
 // Thêm middleware bảo mật

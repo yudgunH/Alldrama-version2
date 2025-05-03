@@ -81,7 +81,7 @@ export const sendCsrfToken = (req: Request, res: Response, next: NextFunction) =
 // Middleware để giới hạn kích thước request
 export const limitRequestSize = (req: Request, res: Response, next: NextFunction) => {
   const contentLength = parseInt(req.headers['content-length'] as string, 10) || 0;
-  const MAX_SIZE = 1 * 1024 * 1024; // 1MB
+  const MAX_SIZE = 50 * 1024 * 1024; // Tăng lên 50MB
   
   if (contentLength > MAX_SIZE) {
     return res.status(413).json({ message: 'Kích thước request quá lớn' });
