@@ -1,8 +1,8 @@
 import { useEffect, useState, useRef } from 'react'
-import axios from 'axios'
 import { API_ENDPOINTS } from '@/lib/api/endpoints'
 import type { Movie, Episode } from '@/types'
 import { useLocalStorage } from '@/hooks/useLocalStorage'
+import { apiClient } from '@/lib/api/apiClient'
 
 /**
  * Cache TTL in milliseconds (5 minutes)
@@ -107,10 +107,12 @@ export const useMovieDetail = (movieId: string | number, initialData?: Movie) =>
   // Function to fetch only episodes when we already have movie data
   const fetchEpisodesOnly = async (signal: AbortSignal) => {
     try {
-      const response = await axios.get(API_ENDPOINTS.EPISODES.LIST_BY_MOVIE(movieId), { signal });
+      const fetchedEpisodes = await apiClient.get<Episode[]>(
+        API_ENDPOINTS.EPISODES.LIST_BY_MOVIE(movieId),
+        { signal }
+      );
       
       if (isMounted.current) {
-        const fetchedEpisodes = response.data || [];
         setEpisodes(fetchedEpisodes);
         
         // Update cache with new episodes but keep existing movie
@@ -129,10 +131,8 @@ export const useMovieDetail = (movieId: string | number, initialData?: Movie) =>
         incrementViewCount(movie);
       }
     } catch (err) {
-      // Only log non-abort errors
-      if (!axios.isCancel(err)) {
-        console.error('Error fetching episodes:', err);
-      }
+      // Handle errors but don't disrupt UI flow
+      console.error('Error fetching episodes:', err);
     }
   };
   
@@ -149,56 +149,43 @@ export const useMovieDetail = (movieId: string | number, initialData?: Movie) =>
       
       if (!signal) return;
       
-      // Fetch movie details và episodes song song
-      const [movieResponse, episodesResponse] = await Promise.allSettled([
-        axios.get(API_ENDPOINTS.MOVIES.DETAIL(movieId), { signal }),
-        axios.get(API_ENDPOINTS.EPISODES.LIST_BY_MOVIE(movieId), { signal })
-      ])
-      
-      // Chỉ update state và cache nếu component vẫn mounted
-      if (isMounted.current) {
-        let currentMovie: Movie | null = null
-        let currentEpisodes: Episode[] = []
+      try {
+        // Fetch movie details và episodes song song
+        const [movieData, episodesData] = await Promise.all([
+          apiClient.get<Movie>(API_ENDPOINTS.MOVIES.DETAIL(movieId), { signal }),
+          apiClient.get<Episode[]>(API_ENDPOINTS.EPISODES.LIST_BY_MOVIE(movieId), { signal })
+        ]);
         
-        if (movieResponse.status === 'fulfilled') {
-          currentMovie = movieResponse.value.data
-          setMovie(currentMovie)
-        } else if (movieResponse.status === 'rejected' && !axios.isCancel(movieResponse.reason)) {
-          setError('Không thể tải thông tin phim')
-        }
-        
-        if (episodesResponse.status === 'fulfilled') {
-          currentEpisodes = episodesResponse.value.data || []
-          setEpisodes(currentEpisodes)
-        }
-        
-        // Lưu vào cache nếu có dữ liệu movie
-        if (currentMovie) {
+        // Chỉ update state và cache nếu component vẫn mounted
+        if (isMounted.current) {
+          setMovie(movieData);
+          setEpisodes(episodesData || []);
+          
+          // Lưu vào cache
           setCachedMovies(prev => ({
             ...prev,
             [String(movieId)]: {
-              movie: currentMovie,
-              episodes: currentEpisodes,
+              movie: movieData,
+              episodes: episodesData || [],
               timestamp: Date.now()
             }
-          }))
+          }));
+          
+          if (showLoading) {
+            setIsLoading(false);
+          }
+          
+          // Gọi API view count riêng biệt và không cần đợi kết quả
+          incrementViewCount(movieData);
         }
-        
-        if (showLoading) {
-          setIsLoading(false)
-        }
-        
-        // Gọi API view count riêng biệt và không cần đợi kết quả
-        incrementViewCount(currentMovie)
+      } catch (err) {
+        throw err;
       }
     } catch (err) {
-      // Only log and set error for non-abort errors
-      if (!axios.isCancel(err)) {
-        console.error('Error fetching movie details:', err)
-        if (isMounted.current && showLoading) {
-          setError('Không thể tải thông tin phim. Vui lòng thử lại sau.')
-          setIsLoading(false)
-        }
+      console.error('Error fetching movie details:', err)
+      if (isMounted.current && showLoading) {
+        setError('Không thể tải thông tin phim. Vui lòng thử lại sau.')
+        setIsLoading(false)
       }
     }
   }
@@ -209,10 +196,13 @@ export const useMovieDetail = (movieId: string | number, initialData?: Movie) =>
     
     try {
       // Không cần đợi kết quả từ API này
-      axios.post(API_ENDPOINTS.VIEWS.INCREMENT_MOVIE(movieId), {
-        progress: 0,
-        duration: movie.duration || 0
-      }).catch(err => {
+      apiClient.post(
+        API_ENDPOINTS.VIEWS.INCREMENT_MOVIE(movieId),
+        {
+          progress: 0,
+          duration: movie.duration || 0
+        }
+      ).catch(err => {
         console.error('Error incrementing view count:', err)
       })
     } catch (error) {

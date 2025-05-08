@@ -1,12 +1,35 @@
 'use client'
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, Suspense } from 'react';
 import Link from 'next/link';
 import Image from 'next/image';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { useAuth } from '@/hooks/api/useAuth';
 
-export default function LoginPage() {
+// Loading component for Suspense
+const LoginPageLoader = () => {
+  return (
+    <div className="min-h-screen flex items-center justify-center bg-gray-900 py-12 px-4 sm:px-6 lg:px-8">
+      <div className="max-w-md w-full space-y-8 bg-gray-800 p-8 rounded-xl shadow-lg animate-pulse">
+        <div className="flex justify-center">
+          <div className="h-16 w-16 bg-gray-700 rounded-full"></div>
+        </div>
+        <div className="h-8 bg-gray-700 rounded w-2/3 mx-auto"></div>
+        <div className="h-4 bg-gray-700 rounded w-1/3 mx-auto"></div>
+        
+        <div className="space-y-4 pt-4">
+          <div className="h-12 bg-gray-700 rounded"></div>
+          <div className="h-12 bg-gray-700 rounded"></div>
+          <div className="h-6 bg-gray-700 rounded"></div>
+          <div className="h-12 bg-gray-700 rounded"></div>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+// Component that uses useSearchParams
+const LoginContent = () => {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [rememberMe, setRememberMe] = useState(false);
@@ -166,5 +189,14 @@ export default function LoginPage() {
         </form>
       </div>
     </div>
+  );
+};
+
+// Main component with Suspense boundary
+export default function LoginPage() {
+  return (
+    <Suspense fallback={<LoginPageLoader />}>
+      <LoginContent />
+    </Suspense>
   );
 }

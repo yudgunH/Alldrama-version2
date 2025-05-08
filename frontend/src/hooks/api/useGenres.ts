@@ -5,6 +5,7 @@ import { toast } from 'react-hot-toast';
 import { API_ENDPOINTS } from '@/lib/api/endpoints';
 import { genreService } from '@/lib/api/services/genreService';
 import { useAuth } from './useAuth';
+import { apiClient } from '@/lib/api/apiClient';
 
 export const useGenres = () => {
   const { user } = useAuth();
@@ -19,11 +20,7 @@ export const useGenres = () => {
   // Fetcher function for SWR
   const fetcher = useCallback(async (url: string) => {
     try {
-      const response = await fetch(url);
-      if (!response.ok) {
-        throw new Error('Failed to fetch genres');
-      }
-      return await response.json();
+      return await apiClient.get<Genre[]>(url);
     } catch (error) {
       console.error('Error fetching genres:', error);
       throw error;

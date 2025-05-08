@@ -17,6 +17,7 @@ import RelatedMovies from '@/components/features/watch/RelatedMovies'
 import { generateWatchUrl } from '@/utils/url'
 import { useWatchHistory } from '@/hooks/api/useWatchHistory'
 import { useAuth } from '@/hooks/api/useAuth'
+import { apiClient } from '@/lib/api/apiClient'
 
 // Extend base types to include subtitles
 interface MovieWithSubtitles extends Movie {
@@ -129,12 +130,12 @@ export default function WatchPage() {
         if (!movieId || isNaN(+movieId)) throw new Error('invalid id')
 
         /* movie */
-        const { data: m } = await axios.get(API_ENDPOINTS.MOVIES.DETAIL(movieId))
+        const m = await apiClient.get<Movie>(API_ENDPOINTS.MOVIES.DETAIL(movieId))
         setMovie(m)
 
         /* lấy danh sách tập (nếu có) */
         if (m.totalEpisodes > 0) {
-          const { data: list } = await axios.get(API_ENDPOINTS.EPISODES.LIST_BY_MOVIE(movieId))
+          const list = await apiClient.get<Episode[]>(API_ENDPOINTS.EPISODES.LIST_BY_MOVIE(movieId))
           setEps(list)
 
           // xác định tập hiện tại

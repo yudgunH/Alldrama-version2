@@ -1,7 +1,7 @@
 import useSWR from 'swr';
-import axios from 'axios';
 import { API_ENDPOINTS } from '@/lib/api/endpoints';
 import { Movie, Genre, MovieSearchParams } from '@/types';
+import { apiClient } from '@/lib/api/apiClient';
 
 export type SearchFilters = {
   query?: string;
@@ -19,16 +19,28 @@ export type SearchResults = {
   error: any;
 };
 
-// Custom fetcher sử dụng axios
-const apiGet = (url: string) => axios.get(url).then(res => res.data);
+// Define interfaces for API responses
+interface GenresResponse {
+  genres?: Genre[];
+}
+
+interface MoviesSearchResponse {
+  movies: Movie[];
+  total?: number;
+  filtered_by_genre?: boolean;
+  filtered_by_year?: boolean;
+}
+
+// Custom fetcher sử dụng apiClient
+const apiGet = <T>(url: string) => apiClient.get<T>(url);
 
 export const useSearch = (filters: SearchFilters = {}) => {
   const { query = '', genre = '', year = '', sortBy = '' } = filters;
   
   // Fetch danh sách thể loại
-  const { data: genresData, error: genresError } = useSWR(
+  const { data: genresData, error: genresError } = useSWR<Genre[] | GenresResponse>(
     API_ENDPOINTS.GENRES.LIST,
-    apiGet
+    (url: string) => apiGet<Genre[] | GenresResponse>(url)
   );
   
   // Tạo URL với các query params
@@ -51,7 +63,7 @@ export const useSearch = (filters: SearchFilters = {}) => {
     }
     
     // Nếu genresData là đối tượng có thuộc tính genres, sử dụng thuộc tính genres
-    if (genresData.genres && Array.isArray(genresData.genres)) {
+    if ('genres' in genresData && Array.isArray(genresData.genres)) {
       return genresData.genres;
     }
     
@@ -78,16 +90,16 @@ export const useSearch = (filters: SearchFilters = {}) => {
   const searchUrl = `${url}?${params.toString()}`;
 
   // Fetch dữ liệu tìm kiếm
-  const { data, error, isLoading, isValidating } = useSWR(
+  const { data, error, isLoading, isValidating } = useSWR<MoviesSearchResponse>(
     query || genre || year ? searchUrl : null,
-    apiGet
+    (url: string) => apiGet<MoviesSearchResponse>(url)
   );
   
   // Fetch tất cả phim nếu cần thiết cho việc lọc
-  const { data: allMoviesData } = useSWR(
+  const { data: allMoviesData } = useSWR<MoviesSearchResponse>(
     // Chỉ fetch khi chưa có dữ liệu tìm kiếm và đang ở trang tìm kiếm
     !isLoading && !data ? `${API_ENDPOINTS.MOVIES.LIST}?limit=1000&fields=releaseYear,genres` : null,
-    apiGet
+    (url: string) => apiGet<MoviesSearchResponse>(url)
   );
   
   // Tạo danh sách các năm phát hành từ dữ liệu phim
@@ -115,7 +127,7 @@ export const useSearch = (filters: SearchFilters = {}) => {
     let movies = [...(data?.movies || allMoviesData?.movies || [])];
     
     // Nếu có thể loại nhưng API không hỗ trợ lọc hoặc không tìm thấy ID genre, thực hiện lọc ở client
-    if (genre && !data?.filtered_by_genre) {
+    if (genre && data && !data.filtered_by_genre) {
       movies = movies.filter((movie: Movie) => {
         if (!movie.genres) return false;
         
@@ -133,7 +145,7 @@ export const useSearch = (filters: SearchFilters = {}) => {
     }
     
     // Lọc theo năm nếu API không hỗ trợ
-    if (year && !data?.filtered_by_year) {
+    if (year && data && !data.filtered_by_year) {
       const yearNum = parseInt(year);
       if (!isNaN(yearNum)) {
         movies = movies.filter((movie: Movie) => movie.releaseYear === yearNum);

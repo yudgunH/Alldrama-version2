@@ -218,7 +218,7 @@ export const mediaService = {
     }
     
     // Dùng API base URL từ biến môi trường hoặc giá trị mặc định
-    const baseUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000';
+    const baseUrl = process.env.NEXT_PUBLIC_API_URL || 'https://alldramaz.com';
     return `${baseUrl}${path.startsWith('/') ? '' : '/'}${path}`;
   }
 };

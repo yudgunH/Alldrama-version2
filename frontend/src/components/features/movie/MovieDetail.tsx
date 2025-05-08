@@ -23,6 +23,7 @@ import { API_ENDPOINTS } from "@/lib/api/endpoints"
 import { useAuth } from "@/hooks/api/useAuth"
 import { toast } from "sonner"
 import { useFavorites } from "@/hooks/api/useFavorites"
+import { apiClient } from "@/lib/api/apiClient"
 
 interface MovieDetailProps {
   movieId: string | number
@@ -105,10 +106,10 @@ const MovieDetail = ({ movieId, initialData }: MovieDetailProps) => {
             ? movie.genres[0] 
             : movie.genres[0].id
           
-          // Fetch movies by genre
-          const response = await axios.get(API_ENDPOINTS.GENRES.MOVIES(genreId))
+          // Fetch movies by genre using apiClient instead of axios directly
+          const response = await apiClient.get<{movies: Movie[]}>(API_ENDPOINTS.GENRES.MOVIES(genreId))
           // Filter out the current movie
-          const filtered = response.data.movies.filter((m: Movie) => m.id !== movie.id)
+          const filtered = response.movies.filter((m: Movie) => m.id !== movie.id)
           // Limit to 5 movies
           setRelatedMovies(filtered.slice(0, 5))
         } catch (err) {
@@ -124,11 +125,13 @@ const MovieDetail = ({ movieId, initialData }: MovieDetailProps) => {
   useEffect(() => {
     const fetchTopRatedMovies = async () => {
       try {
-        // Fetch top rated movies from the API
-        const response = await axios.get(`${API_ENDPOINTS.MOVIES.LIST}?sort=rating&order=DESC&limit=6`)
+        // Fetch top rated movies from the API using apiClient
+        const response = await apiClient.get<{movies: Movie[]}>(
+          `${API_ENDPOINTS.MOVIES.LIST}?sort=rating&order=DESC&limit=6`
+        )
         
         // Filter out the current movie if it's in the list
-        const filtered = response.data.movies.filter((m: Movie) => 
+        const filtered = response.movies.filter((m: Movie) => 
           movie ? m.id !== movie.id : true
         )
         

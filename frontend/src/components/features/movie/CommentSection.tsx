@@ -1,26 +1,18 @@
 'use client'
 
-import { useState, useEffect, FormEvent } from "react"
+import { useState, useEffect, FormEvent, useRef } from "react"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { Button } from "@/components/ui/button"
 import { Star, MessageCircle } from "lucide-react"
-import axios from "axios"
+// import { Textarea } from "@/components/ui/textarea"
+import { toast } from "sonner"
 import { API_ENDPOINTS } from "@/lib/api/endpoints"
 import { useAuth } from "@/hooks/api/useAuth"
-
-interface Comment {
-  id: string
-  userId: string
-  movieId: string
-  text: string
-  rating: number
-  user: {
-    id: string
-    name: string
-    imageUrl?: string
-  }
-  createdAt: string
-}
+import { Comment } from "@/types"
+import { formatDistance } from "date-fns"
+import { vi } from "date-fns/locale"
+import { Skeleton } from "@/components/ui/skeleton"
+import { apiClient } from "@/lib/api/apiClient"
 
 interface CommentSectionProps {
   movieId: string
@@ -55,74 +47,59 @@ export default function CommentSection({ movieId }: CommentSectionProps) {
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const { user, isAuthenticated } = useAuth()
+  const [isLoading, setIsLoading] = useState(false)
 
-  // Fetch comments when component mounts or movieId changes
+  // Fetch comments
   useEffect(() => {
     const fetchComments = async () => {
+      setIsLoading(true)
+      
       try {
-        if (!movieId) {
-          console.error("No movieId provided to CommentSection");
-          setError("Không thể tải bình luận. Thiếu ID phim.");
-          return;
-        }
-        
-        const response = await axios.get(API_ENDPOINTS.COMMENTS.BY_MOVIE(movieId))
-        
-        // Ensure we have valid comments data
-        if (Array.isArray(response.data)) {
-          // Filter out comments with malformed user data
-          const validComments = response.data.filter(comment => 
-            comment && comment.user && typeof comment.user.name === 'string'
-          );
-          setComments(validComments)
-        } else {
-          console.error("Invalid comments data format:", response.data);
-          setComments([])
-        }
-      } catch (err) {
-        console.error("Error fetching comments:", err)
-        setError("Không thể tải bình luận. Vui lòng thử lại sau.")
+        // Sử dụng apiClient thay vì axios trực tiếp
+        const response = await apiClient.get<{comments: Comment[]}>(API_ENDPOINTS.COMMENTS.BY_MOVIE(movieId))
+        setComments(response.comments || [])
+      } catch (error) {
+        console.error("Error fetching comments:", error)
+        toast.error("Không thể tải bình luận")
+      } finally {
+        setIsLoading(false)
       }
     }
-
+    
     if (movieId) {
       fetchComments()
     }
   }, [movieId])
 
-  // Submit a new comment
-  const handleSubmit = async (e: FormEvent) => {
-    e.preventDefault()
+  // Submit comment
+  const submitComment = async () => {
+    if (!newComment.trim()) return
     
     if (!isAuthenticated) {
-      setError("Vui lòng đăng nhập để bình luận")
-      return
-    }
-    
-    if (!newComment.trim()) {
-      setError("Vui lòng nhập nội dung bình luận")
+      toast.error("Vui lòng đăng nhập để bình luận")
       return
     }
     
     setIsSubmitting(true)
-    setError(null)
     
     try {
-      const response = await axios.post(API_ENDPOINTS.COMMENTS.CREATE, {
+      // Sử dụng apiClient thay vì axios trực tiếp
+      const response = await apiClient.post<{comment: Comment}>(API_ENDPOINTS.COMMENTS.CREATE, {
         movieId,
         text: newComment,
         rating: rating || 5 // Default to 5 if no rating
       })
       
-      // Add new comment to list
-      setComments([response.data, ...comments])
+      // Thêm comment mới vào danh sách
+      setComments(prev => [response.comment, ...prev])
       
-      // Reset form
+      // Reset input
       setNewComment("")
       setRating(0)
-    } catch (err) {
-      console.error("Error posting comment:", err)
-      setError("Không thể đăng bình luận. Vui lòng thử lại sau.")
+      toast.success("Đã thêm bình luận")
+    } catch (error) {
+      console.error("Error submitting comment:", error)
+      toast.error("Không thể gửi bình luận")
     } finally {
       setIsSubmitting(false)
     }
@@ -130,24 +107,20 @@ export default function CommentSection({ movieId }: CommentSectionProps) {
 
   // Format date to friendly string
   const formatDate = (dateString: string) => {
-    if (!dateString) return '';
+    if (!dateString) return ''
     
     try {
-      return new Date(dateString).toLocaleDateString('vi-VN', {
-        year: 'numeric',
-        month: 'long',
-        day: 'numeric',
-      });
+      return formatDistance(new Date(dateString), new Date(), { locale: vi })
     } catch (err) {
-      console.error("Error formatting date:", err);
-      return '';
+      console.error("Error formatting date:", err)
+      return ''
     }
   }
 
   // Safe getter for user initials
   const getUserInitial = (user: Comment['user'] | undefined): string => {
-    if (!user || !user.name || user.name.length === 0) return 'U';
-    return user.name[0].toUpperCase();
+    if (!user || !user.full_name || user.full_name.length === 0) return 'U'
+    return user.full_name[0].toUpperCase()
   }
 
   return (
@@ -161,7 +134,7 @@ export default function CommentSection({ movieId }: CommentSectionProps) {
 
       {/* Comment form */}
       {isAuthenticated ? (
-        <form onSubmit={handleSubmit} className="mb-8">
+        <form onSubmit={(e) => { e.preventDefault(); submitComment() }} className="mb-8">
           <div className="flex items-start gap-4">
             <Avatar className="w-10 h-10">
               <AvatarImage src={user?.avatar_url} alt={user?.full_name} />
@@ -213,16 +186,20 @@ export default function CommentSection({ movieId }: CommentSectionProps) {
 
       {/* Comments list */}
       <div className="space-y-6">
-        {comments.length > 0 ? (
+        {isLoading ? (
+          <div className="text-center py-6">
+            <Skeleton className="h-10 w-full" />
+          </div>
+        ) : comments.length > 0 ? (
           comments.map((comment) => (
             <div key={comment.id} className="flex gap-4 p-4 rounded-lg bg-gray-800/30 border border-gray-700/50">
               <Avatar className="w-10 h-10">
-                <AvatarImage src={comment.user?.imageUrl} alt={comment.user?.name || 'User'} />
+                <AvatarImage src={comment.user?.avatar_url} alt={comment.user?.full_name || 'User'} />
                 <AvatarFallback>{getUserInitial(comment.user)}</AvatarFallback>
               </Avatar>
               <div>
                 <div className="flex items-center gap-2">
-                  <h4 className="font-medium text-white">{comment.user?.name || 'Anonymous'}</h4>
+                  <h4 className="font-medium text-white">{comment.user?.full_name || 'Anonymous'}</h4>
                   <span className="text-sm text-gray-400">{formatDate(comment.createdAt)}</span>
                 </div>
                 <div className="flex items-center mt-1 mb-2">
@@ -233,7 +210,7 @@ export default function CommentSection({ movieId }: CommentSectionProps) {
                     />
                   ))}
                 </div>
-                <p className="text-gray-300 text-sm">{comment.text}</p>
+                <p className="text-gray-300 text-sm">{comment.comment}</p>
               </div>
             </div>
           ))

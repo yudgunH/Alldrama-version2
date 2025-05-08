@@ -4,37 +4,17 @@ import { useState, useEffect, FormEvent } from "react"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { Button } from "@/components/ui/button"
 import { Star, MessageCircle } from "lucide-react"
-import axios from "axios"
-import { API_ENDPOINTS } from "@/lib/api/endpoints"
+import { Textarea } from "@/components/ui/textarea"
+import { toast } from "sonner"
 import { useAuth } from "@/hooks/api/useAuth"
 import { Card, CardContent } from "@/components/ui/card"
 import { Comment } from "@/types/comment"
-
+import { apiClient } from "@/lib/api/apiClient"
+import { Skeleton } from "@/components/ui/skeleton"
+import { API_ENDPOINTS } from "@/lib/api/endpoints"
 
 interface CommentsSectionProps {
   contentId: string;
-}
-
-// Simple Textarea component to avoid dependency issues
-function Textarea({ 
-  className, 
-  placeholder, 
-  value, 
-  onChange 
-}: { 
-  className?: string, 
-  placeholder?: string, 
-  value: string, 
-  onChange: (e: React.ChangeEvent<HTMLTextAreaElement>) => void 
-}) {
-  return (
-    <textarea
-      className={`w-full rounded-md p-3 ${className}`}
-      placeholder={placeholder}
-      value={value}
-      onChange={onChange}
-    />
-  )
 }
 
 export default function CommentsSection({ contentId }: CommentsSectionProps) {
@@ -45,6 +25,7 @@ export default function CommentsSection({ contentId }: CommentsSectionProps) {
   const [error, setError] = useState<string | null>(null)
   const [containsSpoilers, setContainsSpoilers] = useState(false)
   const { user, isAuthenticated } = useAuth()
+  const [isLoading, setIsLoading] = useState(false)
   
   // Define the common glass background style
   const GLASS_BG = "bg-gradient-to-br from-gray-800/70 to-gray-900/80 border-gray-700/60 backdrop-blur-sm shadow-lg";
@@ -52,6 +33,8 @@ export default function CommentsSection({ contentId }: CommentsSectionProps) {
   // Fetch comments when component mounts or contentId changes
   useEffect(() => {
     const fetchComments = async () => {
+      setIsLoading(true);
+      
       try {
         if (!contentId) {
           console.error("No contentId provided to CommentsSection");
@@ -59,22 +42,24 @@ export default function CommentsSection({ contentId }: CommentsSectionProps) {
           return;
         }
         
-        const response = await axios.get(API_ENDPOINTS.COMMENTS.BY_MOVIE(contentId))
+        const response = await apiClient.get<{comments: Comment[]}>(API_ENDPOINTS.COMMENTS.BY_MOVIE(contentId));
         
         // Ensure we have valid comments data
-        if (Array.isArray(response.data)) {
+        if (Array.isArray(response.comments)) {
           // Filter out comments with malformed user data
-          const validComments = response.data.filter(comment => 
-            comment && comment.user && typeof comment.user.name === 'string'
+          const validComments = response.comments.filter(comment => 
+            comment && comment.user && typeof comment.user.full_name === 'string'
           );
           setComments(validComments)
         } else {
-          console.error("Invalid comments data format:", response.data);
+          console.error("Invalid comments data format:", response.comments);
           setComments([])
         }
       } catch (err) {
         console.error("Error fetching comments:", err)
         setError("Không thể tải bình luận. Vui lòng thử lại sau.")
+      } finally {
+        setIsLoading(false);
       }
     }
 
@@ -88,7 +73,7 @@ export default function CommentsSection({ contentId }: CommentsSectionProps) {
     e.preventDefault()
     
     if (!isAuthenticated) {
-      setError("Vui lòng đăng nhập để bình luận")
+      toast.error("Vui lòng đăng nhập để bình luận")
       return
     }
     
@@ -101,23 +86,24 @@ export default function CommentsSection({ contentId }: CommentsSectionProps) {
     setError(null)
     
     try {
-      const response = await axios.post(API_ENDPOINTS.COMMENTS.CREATE, {
+      const response = await apiClient.post<{comment: Comment}>(API_ENDPOINTS.COMMENTS.CREATE, {
         movieId: contentId,
         text: newComment,
         rating: rating || 5, // Default to 5 if no rating
         containsSpoilers
-      })
+      });
       
       // Add new comment to list
-      setComments([response.data, ...comments])
+      setComments([response.comment, ...comments])
       
       // Reset form
       setNewComment("")
       setRating(0)
       setContainsSpoilers(false)
+      toast.success("Đã thêm bình luận")
     } catch (err) {
       console.error("Error posting comment:", err)
-      setError("Không thể đăng bình luận. Vui lòng thử lại sau.")
+      toast.error("Không thể đăng bình luận. Vui lòng thử lại sau.")
     } finally {
       setIsSubmitting(false)
     }
@@ -213,7 +199,9 @@ export default function CommentsSection({ contentId }: CommentsSectionProps) {
 
         {/* Comments list */}
         <div className="space-y-4">
-          {comments.length > 0 ? (
+          {isLoading ? (
+            <Skeleton className="h-[40px] w-full" />
+          ) : comments.length > 0 ? (
             comments.map((comment) => (
               <div key={comment.id} className="flex gap-4 p-4 rounded-lg bg-gray-700/50 border border-gray-600/50">
                 <Avatar className="w-10 h-10">
@@ -233,7 +221,7 @@ export default function CommentsSection({ contentId }: CommentsSectionProps) {
                       />
                     ))}
                   </div>
-                  {comment.containsSpoilers ? (
+                  {comment.comment.includes('spoiler') ? (
                     <details className="text-gray-300 text-sm">
                       <summary className="cursor-pointer text-amber-400 font-medium">Cảnh báo: Có spoiler! (Bấm để xem)</summary>
                       <p className="mt-2">{comment.comment}</p>

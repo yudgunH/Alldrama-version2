@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, Suspense } from 'react';
 import Image from 'next/image';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
@@ -9,11 +9,25 @@ import { useFavorites } from '@/hooks/api/useFavorites';
 import { useWatchHistory } from '@/hooks/api/useWatchHistory';
 import { useAuth } from '@/hooks/api/useAuth';
 import { Favorite, WatchHistory } from '@/types';
+import { favoriteService } from '@/lib/api/services/favoriteService';
 
 // Tabs
 type TabType = 'account' | 'history' | 'favorites' | 'settings';
 
-const ProfilePage = () => {
+// Loading component
+const ProfilePageLoader = () => {
+  return (
+    <div className="min-h-screen bg-gray-900 flex items-center justify-center">
+      <div className="text-center">
+        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-red-500 mx-auto"></div>
+        <p className="mt-4 text-white">Đang tải thông tin...</p>
+      </div>
+    </div>
+  );
+};
+
+// Main profile content component that uses useSearchParams
+const ProfileContent = () => {
   const [activeTab, setActiveTab] = useState<TabType>('account');
   const [isLoading, setIsLoading] = useState(false);
   const [currentPassword, setCurrentPassword] = useState('');
@@ -383,100 +397,169 @@ const ProfilePage = () => {
   );
 
   // Render the settings tab
-  const renderSettings = () => (
-    <div className="bg-gray-800 rounded-lg shadow-lg p-6">
-      <h2 className="text-2xl font-bold text-white mb-6">Cài đặt tài khoản</h2>
-      
-      <div className="bg-gray-700 rounded-lg p-6">
-        <h3 className="text-xl font-semibold text-white mb-4">Đổi mật khẩu</h3>
-        <form onSubmit={handleChangePassword}>
-          {passwordError && (
-            <div className="bg-red-900/60 text-white text-sm p-3 rounded-md mb-4">
-              {passwordError}
-            </div>
-          )}
+  const renderSettings = () => {
+    const [apiStatus, setApiStatus] = useState<{ status: string; message: string } | null>(null);
+    const [testingApi, setTestingApi] = useState(false);
+
+    const testApiConnection = async () => {
+      setTestingApi(true);
+      setApiStatus(null);
+      try {
+        const result = await favoriteService.checkAuthAndConnectivity();
+        setApiStatus(result);
+      } catch (error) {
+        setApiStatus({
+          status: 'error',
+          message: 'Lỗi không xác định khi kiểm tra kết nối API'
+        });
+      } finally {
+        setTestingApi(false);
+      }
+    };
+
+    return (
+      <div className="space-y-8">
+        {/* Password Change Section */}
+        <div className="bg-gray-800 rounded-lg shadow-lg p-6">
+          <h2 className="text-xl font-bold text-white mb-6">Đổi mật khẩu</h2>
           
-          {passwordSuccess && (
-            <div className="bg-green-900/60 text-white text-sm p-3 rounded-md mb-4">
-              {passwordSuccess}
-            </div>
-          )}
-          
-          <div className="space-y-4">
-            <div>
-              <label htmlFor="current-password" className="block text-sm font-medium text-gray-300 mb-1">
-                Mật khẩu hiện tại
-              </label>
-              <input
-                id="current-password"
-                type="password"
-                value={currentPassword}
-                onChange={(e) => setCurrentPassword(e.target.value)}
-                className="w-full bg-gray-800 border border-gray-600 rounded-md px-4 py-2 text-white focus:outline-none focus:ring-2 focus:ring-red-500"
-                required
-              />
+          <form onSubmit={handleChangePassword}>
+            {passwordError && (
+              <div className="bg-red-900/60 text-white text-sm p-3 rounded-md mb-4">
+                {passwordError}
+              </div>
+            )}
+            
+            {passwordSuccess && (
+              <div className="bg-green-900/60 text-white text-sm p-3 rounded-md mb-4">
+                {passwordSuccess}
+              </div>
+            )}
+            
+            <div className="space-y-4">
+              <div>
+                <label htmlFor="current-password" className="block text-sm font-medium text-gray-300 mb-1">
+                  Mật khẩu hiện tại
+                </label>
+                <input
+                  id="current-password"
+                  type="password"
+                  value={currentPassword}
+                  onChange={(e) => setCurrentPassword(e.target.value)}
+                  className="w-full bg-gray-800 border border-gray-600 rounded-md px-4 py-2 text-white focus:outline-none focus:ring-2 focus:ring-red-500"
+                  required
+                />
+              </div>
+              
+              <div>
+                <label htmlFor="new-password" className="block text-sm font-medium text-gray-300 mb-1">
+                  Mật khẩu mới
+                </label>
+                <input
+                  id="new-password"
+                  type="password"
+                  value={newPassword}
+                  onChange={(e) => setNewPassword(e.target.value)}
+                  className="w-full bg-gray-800 border border-gray-600 rounded-md px-4 py-2 text-white focus:outline-none focus:ring-2 focus:ring-red-500"
+                  required
+                  minLength={8}
+                />
+                <p className="text-xs text-gray-400 mt-1">
+                  Mật khẩu phải có ít nhất 8 ký tự
+                </p>
+              </div>
+              
+              <div>
+                <label htmlFor="confirm-password" className="block text-sm font-medium text-gray-300 mb-1">
+                  Xác nhận mật khẩu
+                </label>
+                <input
+                  id="confirm-password"
+                  type="password"
+                  value={confirmPassword}
+                  onChange={(e) => setConfirmPassword(e.target.value)}
+                  className="w-full bg-gray-800 border border-gray-600 rounded-md px-4 py-2 text-white focus:outline-none focus:ring-2 focus:ring-red-500"
+                  required
+                />
+              </div>
             </div>
             
-            <div>
-              <label htmlFor="new-password" className="block text-sm font-medium text-gray-300 mb-1">
-                Mật khẩu mới
-              </label>
-              <input
-                id="new-password"
-                type="password"
-                value={newPassword}
-                onChange={(e) => setNewPassword(e.target.value)}
-                className="w-full bg-gray-800 border border-gray-600 rounded-md px-4 py-2 text-white focus:outline-none focus:ring-2 focus:ring-red-500"
-                required
-                minLength={8}
-              />
-              <p className="text-xs text-gray-400 mt-1">
-                Mật khẩu phải có ít nhất 8 ký tự
-              </p>
+            <div className="mt-6">
+              <button
+                type="submit"
+                disabled={isLoading}
+                className={`w-full bg-red-600 hover:bg-red-700 text-white py-3 rounded-md transition-colors ${
+                  isLoading ? 'opacity-75 cursor-not-allowed' : ''
+                }`}
+              >
+                {isLoading ? (
+                  <div className="flex items-center justify-center">
+                    <svg className="animate-spin -ml-1 mr-2 h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                    </svg>
+                    Đang xử lý...
+                  </div>
+                ) : (
+                  'Cập nhật mật khẩu'
+                )}
+              </button>
             </div>
+          </form>
+        </div>
+        
+        {/* API Connection Debug Section - Only visible in development */}
+        {process.env.NODE_ENV === 'development' && (
+          <div className="bg-gray-800 rounded-lg shadow-lg p-6">
+            <h2 className="text-xl font-bold text-white mb-6">Kiểm tra kết nối API</h2>
+            <p className="text-gray-400 mb-4">
+              Công cụ này giúp kiểm tra xem trình duyệt của bạn có thể kết nối đến API server và xác thực đúng không.
+            </p>
             
-            <div>
-              <label htmlFor="confirm-password" className="block text-sm font-medium text-gray-300 mb-1">
-                Xác nhận mật khẩu
-              </label>
-              <input
-                id="confirm-password"
-                type="password"
-                value={confirmPassword}
-                onChange={(e) => setConfirmPassword(e.target.value)}
-                className="w-full bg-gray-800 border border-gray-600 rounded-md px-4 py-2 text-white focus:outline-none focus:ring-2 focus:ring-red-500"
-                required
-              />
-            </div>
-          </div>
-          
-          <div className="mt-6">
             <button
-              type="submit"
-              disabled={isLoading}
-              className={`w-full bg-red-600 hover:bg-red-700 text-white py-3 rounded-md transition-colors ${
-                isLoading ? 'opacity-75 cursor-not-allowed' : ''
-              }`}
+              onClick={testApiConnection}
+              disabled={testingApi}
+              className="bg-blue-600 hover:bg-blue-700 text-white py-2 px-4 rounded transition duration-200 disabled:opacity-50"
             >
-              {isLoading ? (
-                <div className="flex items-center justify-center">
-                  <svg className="animate-spin -ml-1 mr-2 h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                  </svg>
-                  Đang xử lý...
-                </div>
-              ) : (
-                'Cập nhật mật khẩu'
-              )}
+              {testingApi ? 'Đang kiểm tra...' : 'Kiểm tra kết nối API'}
+            </button>
+            
+            {apiStatus && (
+              <div className={`mt-4 p-4 rounded ${apiStatus.status === 'success' ? 'bg-green-800/30' : 'bg-red-800/30'}`}>
+                <h3 className={`font-bold ${apiStatus.status === 'success' ? 'text-green-400' : 'text-red-400'}`}>
+                  {apiStatus.status === 'success' ? 'Kết nối thành công' : 'Lỗi kết nối'}
+                </h3>
+                <p className="text-gray-300 mt-1">{apiStatus.message}</p>
+                
+                {apiStatus.status === 'error' && (
+                  <div className="mt-3 text-gray-400 text-sm">
+                    <p>Kiểm tra:</p>
+                    <ul className="list-disc list-inside ml-2 mt-1 space-y-1">
+                      <li>CORS đã được cấu hình đúng trên backend</li>
+                      <li>Token xác thực đã được lưu đúng cách</li>
+                      <li>API URL đã được cấu hình đúng: {process.env.NEXT_PUBLIC_API_URL || 'https://alldramaz.com'}</li>
+                    </ul>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        )}
+        
+        {/* Danger Zone */}
+        <div className="bg-gray-800 rounded-lg shadow-lg p-6">
+          <h2 className="text-xl font-bold text-white mb-6">Nguy hiểm</h2>
+          <div className="flex flex-col space-y-4">
+            <button className="bg-red-600 hover:bg-red-700 text-white py-2 px-4 rounded transition duration-200">
+              Xóa tài khoản
             </button>
           </div>
-        </form>
+        </div>
       </div>
-    </div>
-  );
+    );
+  };
 
-  // Render the tab content based on active tab
+  // Render the active tab content
   const renderTabContent = () => {
     switch (activeTab) {
       case 'account':
@@ -493,60 +576,60 @@ const ProfilePage = () => {
   };
 
   return (
-    <div className="min-h-screen bg-gray-900 py-20 px-4 sm:px-6">
-      <div className="max-w-6xl mx-auto">
-        <h1 className="text-3xl font-bold text-white mb-8">Trang cá nhân</h1>
-        
-        {/* Tabs */}
-        <div className="mb-6 border-b border-gray-700">
-          <nav className="flex space-x-2 sm:space-x-8 overflow-x-auto py-2" aria-label="Tabs">
-            <button
-              onClick={() => handleTabClick('account')}
-              className={`px-3 py-2 font-medium text-sm rounded-md whitespace-nowrap ${
-                activeTab === 'account'
-                  ? 'bg-red-600 text-white'
-                  : 'text-gray-400 hover:text-white hover:bg-gray-800'
-              }`}
-            >
-              Thông tin tài khoản
-            </button>
-            <button
-              onClick={() => handleTabClick('history')}
-              className={`px-3 py-2 font-medium text-sm rounded-md whitespace-nowrap ${
-                activeTab === 'history'
-                  ? 'bg-red-600 text-white'
-                  : 'text-gray-400 hover:text-white hover:bg-gray-800'
-              }`}
-            >
-              Lịch sử xem phim
-            </button>
-            <button
-              onClick={() => handleTabClick('favorites')}
-              className={`px-3 py-2 font-medium text-sm rounded-md whitespace-nowrap ${
-                activeTab === 'favorites'
-                  ? 'bg-red-600 text-white'
-                  : 'text-gray-400 hover:text-white hover:bg-gray-800'
-              }`}
-            >
-              Phim yêu thích
-            </button>
-            <button
-              onClick={() => handleTabClick('settings')}
-              className={`px-3 py-2 font-medium text-sm rounded-md whitespace-nowrap ${
-                activeTab === 'settings'
-                  ? 'bg-red-600 text-white'
-                  : 'text-gray-400 hover:text-white hover:bg-gray-800'
-              }`}
-            >
-              Cài đặt
-            </button>
-          </nav>
+    <div className="min-h-screen bg-gray-900 flex flex-col">
+      <div className="container mx-auto px-4 py-8">
+        {/* Tabs Navigation */}
+        <div className="flex overflow-x-auto space-x-4 bg-gray-800 p-2 rounded-lg mb-6">
+          <button
+            onClick={() => handleTabClick('account')}
+            className={`px-4 py-2 rounded-lg whitespace-nowrap transition-colors ${
+              activeTab === 'account' ? 'bg-red-600 text-white' : 'text-gray-400 hover:bg-gray-700'
+            }`}
+          >
+            Thông tin tài khoản
+          </button>
+          <button
+            onClick={() => handleTabClick('history')}
+            className={`px-4 py-2 rounded-lg whitespace-nowrap transition-colors ${
+              activeTab === 'history' ? 'bg-red-600 text-white' : 'text-gray-400 hover:bg-gray-700'
+            }`}
+          >
+            Lịch sử xem
+          </button>
+          <button
+            onClick={() => handleTabClick('favorites')}
+            className={`px-4 py-2 rounded-lg whitespace-nowrap transition-colors ${
+              activeTab === 'favorites' ? 'bg-red-600 text-white' : 'text-gray-400 hover:bg-gray-700'
+            }`}
+          >
+            Phim yêu thích
+          </button>
+          <button
+            onClick={() => handleTabClick('settings')}
+            className={`px-4 py-2 rounded-lg whitespace-nowrap transition-colors ${
+              activeTab === 'settings' ? 'bg-red-600 text-white' : 'text-gray-400 hover:bg-gray-700'
+            }`}
+          >
+            Cài đặt
+          </button>
         </div>
         
-        {/* Tab content */}
-        {renderTabContent()}
+        {/* Tab Content */}
+        {activeTab === 'account' && renderAccountInfo()}
+        {activeTab === 'history' && renderWatchHistory()}
+        {activeTab === 'favorites' && renderFavorites()}
+        {activeTab === 'settings' && renderSettings()}
       </div>
     </div>
+  );
+};
+
+// Wrapper component with Suspense boundary
+const ProfilePage = () => {
+  return (
+    <Suspense fallback={<ProfilePageLoader />}>
+      <ProfileContent />
+    </Suspense>
   );
 };
 

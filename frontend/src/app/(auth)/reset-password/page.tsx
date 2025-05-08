@@ -1,11 +1,12 @@
 'use client'
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, Suspense } from 'react';
 import Link from 'next/link';
 import Image from 'next/image';
 import { useRouter, useSearchParams } from 'next/navigation';
 
-const ResetPasswordPage = () => {
+// Create a component that uses useSearchParams
+const ResetPasswordForm = () => {
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [token, setToken] = useState('');
@@ -14,7 +15,6 @@ const ResetPasswordPage = () => {
   const [success, setSuccess] = useState(false);
   const [invalidToken, setInvalidToken] = useState(false);
   
-  const router = useRouter();
   const searchParams = useSearchParams();
   
   useEffect(() => {
@@ -206,6 +206,37 @@ const ResetPasswordPage = () => {
         )}
       </div>
     </div>
+  );
+};
+
+// Loading component
+const LoadingForm = () => {
+  return (
+    <div className="min-h-screen bg-gray-900 py-16 px-4 sm:px-6 flex items-center justify-center">
+      <div className="max-w-md w-full space-y-8 bg-gray-800 p-8 rounded-xl shadow-2xl">
+        <div className="text-center">
+          <div className="w-16 h-16 bg-gray-700 animate-pulse rounded-full mx-auto" />
+          <div className="mt-4 h-8 bg-gray-700 animate-pulse rounded-lg w-3/4 mx-auto" />
+          <div className="mt-2 h-4 bg-gray-700 animate-pulse rounded-lg w-1/2 mx-auto" />
+        </div>
+        <div className="mt-8 space-y-6">
+          <div className="space-y-4">
+            <div className="h-20 bg-gray-700 animate-pulse rounded-lg" />
+            <div className="h-20 bg-gray-700 animate-pulse rounded-lg" />
+          </div>
+          <div className="h-12 bg-gray-700 animate-pulse rounded-full" />
+        </div>
+      </div>
+    </div>
+  );
+};
+
+// Main component with Suspense
+const ResetPasswordPage = () => {
+  return (
+    <Suspense fallback={<LoadingForm />}>
+      <ResetPasswordForm />
+    </Suspense>
   );
 };
 

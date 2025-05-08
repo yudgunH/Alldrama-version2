@@ -6,21 +6,32 @@ import {
   setRefreshingStatus,
   refreshAccessToken,
   onTokenRefreshed,
-  notifySubscribers
+  onTokenRefreshFailed,
+  notifySubscribers,
+  clearAuthHelperState
 } from './authHelper';
 import { useAuthStore } from '@/store/authStore';
 
-// Cấu hình môi trường
-const API_URL = process.env.NEXT_PUBLIC_API_URL || 'https://alldramaz.com';
+// In development, use relative URLs to leverage Next.js API proxy
+// In production, can use absolute URLs
+const isProduction = process.env.NODE_ENV === 'production';
+const API_URL = isProduction 
+  ? (process.env.NEXT_PUBLIC_API_URL || 'https://alldramaz.com')
+  : '';  // Empty string makes axios use relative URLs
+
+// Log the API URL being used
+console.log('API client using baseURL:', API_URL || 'Relative URLs (using Next.js proxy)');
 
 // Mở rộng InternalAxiosRequestConfig để hỗ trợ _retry property
 interface ExtendedAxiosRequestConfig extends InternalAxiosRequestConfig {
   _retry?: boolean;
+  _retryCount?: number;
 }
 
 class ApiClient {
   private client: AxiosInstance;
   private static instance: ApiClient;
+  private readonly MAX_RETRIES = 3;
 
   private constructor() {
     this.client = axios.create({
@@ -50,6 +61,16 @@ class ApiClient {
         // Lấy token từ authStore
         const token = useAuthStore.getState().token;
         
+        // Bỏ qua debug logging với môi trường production
+        if (process.env.NODE_ENV !== 'production') {
+          console.log(`API Request:`, {
+            url: config.url, 
+            baseURL: config.baseURL || '(none)',
+            fullUrl: config.baseURL ? `${config.baseURL}${config.url}` : config.url,
+            hasToken: !!token
+          });
+        }
+        
         // Thêm token vào header nếu có
         if (token) {
           config.headers.Authorization = `Bearer ${token}`;
@@ -69,18 +90,35 @@ class ApiClient {
       async (error: AxiosError) => {
         const originalRequest = error.config as ExtendedAxiosRequestConfig;
         
-        // Chỉ xử lý lỗi 401 và request chưa được retry
-        if (error.response?.status === 401 && originalRequest && !originalRequest._retry) {
-          originalRequest._retry = true;
+        if (!originalRequest) {
+          console.error('Original request configuration is undefined', error);
+          return Promise.reject(error);
+        }
+
+        // Khởi tạo số lần retry nếu chưa có
+        if (originalRequest._retryCount === undefined) {
+          originalRequest._retryCount = 0;
+        }
+        
+        // Chỉ xử lý lỗi 401 và request chưa quá số lần retry tối đa
+        const isUnauthorized = error.response?.status === 401;
+        const canRetry = originalRequest._retryCount < this.MAX_RETRIES;
+
+        if (isUnauthorized && originalRequest && canRetry) {
+          originalRequest._retryCount++;
           
-          // Nếu đang refresh token, thêm request hiện tại vào hàng đợi
+          // Nếu đang refresh token, chờ quá trình hoàn thành
           if (getRefreshingStatus()) {
             try {
-              // Tạo promise đợi token mới
-              const newToken = await new Promise<string>((resolve) => {
-                // Đăng ký callback để nhận token mới khi refresh xong
+              // Đợi token mới từ quá trình refresh đang diễn ra
+              const newToken = await new Promise<string>((resolve, reject) => {
                 onTokenRefreshed((token) => {
                   resolve(token);
+                });
+                
+                // Xử lý khi refresh thất bại
+                onTokenRefreshFailed((error) => {
+                  reject(error);
                 });
               });
               
@@ -103,8 +141,8 @@ class ApiClient {
             // Gọi API refresh token
             const newToken = await refreshAccessToken();
             
-            // Lưu token mới
-            localStorage.setItem('token', newToken);
+            // Lưu token mới vào store
+            useAuthStore.getState().setToken(newToken);
             
             // Cập nhật token cho request hiện tại
             if (originalRequest.headers) {
@@ -125,6 +163,16 @@ class ApiClient {
           }
         }
 
+        // Xử lý các lỗi network hoặc timeout - có thể retry
+        if (error.code === 'ECONNABORTED' || error.code === 'ERR_NETWORK') {
+          if (canRetry) {
+            // Thử lại với exponential backoff
+            const delay = Math.pow(2, originalRequest._retryCount) * 1000;
+            await new Promise(resolve => setTimeout(resolve, delay));
+            return this.client(originalRequest);
+          }
+        }
+
         // Xử lý các lỗi khác
         const errorResponse = error.response?.data as ErrorResponse;
         const status = error.response?.status;
@@ -133,7 +181,7 @@ class ApiClient {
         const errorMessage = errorResponse?.message || 'Đã xảy ra lỗi không xác định';
         
         // Chỉ hiển thị toast cho các lỗi không phải 401
-        if (status !== 401) {
+        if (!isUnauthorized) {
           toast.error(errorMessage);
         }
 
@@ -146,16 +194,16 @@ class ApiClient {
    * Xử lý khi refresh token thất bại (refresh token hết hạn hoặc không hợp lệ)
    */
   private handleTokenRefreshFailed(): Promise<never> {
-    // Xóa token trong localStorage
-    localStorage.removeItem('token');
+    // Xóa token trong store
+    useAuthStore.getState().logout();
     
-    // Đặt lại trạng thái refresh
-    setRefreshingStatus(false);
+    // Xóa toàn bộ trạng thái auth helper
+    clearAuthHelperState();
     
     // Hiển thị thông báo
     toast.error('Phiên đăng nhập đã hết hạn. Vui lòng đăng nhập lại.');
     
-    // Chuyển hướng đến trang đăng nhập (nếu không sử dụng SPA, có thể cần reload)
+    // Chuyển hướng đến trang đăng nhập
     window.location.href = '/login';
     
     return Promise.reject(new Error('Phiên đăng nhập đã hết hạn'));
@@ -194,6 +242,11 @@ class ApiClient {
   // Hỗ trợ hủy request với AbortController
   public createAbortController(): AbortController {
     return new AbortController();
+  }
+
+  // Reset instance cho testing hoặc hot reload
+  public static resetInstance(): void {
+    ApiClient.instance = undefined as any;
   }
 }
 

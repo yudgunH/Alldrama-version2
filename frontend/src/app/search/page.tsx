@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, Suspense } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
 import MovieCard from '@/components/features/movie/MovieCard';
 import { Movie, Genre } from '@/types';
@@ -22,7 +22,34 @@ const debounce = (func: Function, delay: number) => {
   };
 };
 
-const SearchPage = () => {
+// Loading component for Suspense
+const SearchPageLoader = () => {
+  return (
+    <div className="min-h-screen bg-gray-900 pt-20 pb-16">
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+        <div className="py-6">
+          <div className="flex flex-col md:flex-row md:items-center justify-between mb-6">
+            <div className="h-10 w-48 bg-gray-800 rounded-lg animate-pulse mb-4 md:mb-0"></div>
+            <div className="h-10 w-32 bg-gray-800 rounded-lg animate-pulse"></div>
+          </div>
+          
+          <div className="mb-6">
+            <div className="bg-gray-800 rounded-lg h-16 w-full animate-pulse"></div>
+          </div>
+          
+          <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-4">
+            {[...Array(10)].map((_, i) => (
+              <div key={i} className="bg-gray-800 rounded-lg h-64 animate-pulse"></div>
+            ))}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+// Main component that uses useSearchParams
+const SearchContent = () => {
   const searchParams = useSearchParams();
   const router = useRouter();
   const { clearCache } = useApiCache();
@@ -513,6 +540,15 @@ const SearchPage = () => {
         </div>
       </div>
     </div>
+  );
+};
+
+// Main component with Suspense boundary
+const SearchPage = () => {
+  return (
+    <Suspense fallback={<SearchPageLoader />}>
+      <SearchContent />
+    </Suspense>
   );
 };
 

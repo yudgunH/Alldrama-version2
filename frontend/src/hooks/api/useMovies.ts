@@ -4,6 +4,7 @@ import { MovieSearchParams, MovieListResponse, Movie } from '@/types';
 import { toast } from 'react-hot-toast';
 import { API_ENDPOINTS } from '@/lib/api/endpoints';
 import { movieService } from '@/lib/api/services/movieService';
+import { apiClient } from '@/lib/api/apiClient';
 
 export const useMovies = (initialParams?: MovieSearchParams) => {
   const [searchParams, setSearchParams] = useState<MovieSearchParams>(initialParams || {});
@@ -51,16 +52,12 @@ export const useMovies = (initialParams?: MovieSearchParams) => {
     }
   }, []);
 
-  // Fetcher function for SWR - sử dụng URL tương đối (không có API_BASE_URL)
+  // Fetcher function for SWR - sử dụng apiClient
   const fetcher = useCallback(async (url: string) => {
     console.log('Fetching movies from:', url);
     
     try {
-      const response = await fetch(url);
-      if (!response.ok) {
-        throw new Error('Failed to fetch movies');
-      }
-      return await response.json();
+      return await apiClient.get<MovieListResponse>(url);
     } catch (error) {
       console.error('Error fetching movies:', error);
       throw error;

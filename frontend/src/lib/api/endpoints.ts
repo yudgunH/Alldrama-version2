@@ -68,6 +68,7 @@ export const API_ENDPOINTS = {
     LIST: '/api/favorites',
     ADD: '/api/favorites',
     REMOVE: (movieId: string | number) => `/api/favorites/${movieId}`,
+    CHECK: (movieId: string | number) => `/api/favorites/check/${movieId}`,
   },
   
   // Watch History
