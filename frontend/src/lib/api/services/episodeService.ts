@@ -1,4 +1,12 @@
-import { Episode, EpisodeListResponse } from '@/types';
+import { 
+  Episode, 
+  PaginatedEpisodeResponse, 
+  CreateEpisodeDto, 
+  UpdateEpisodeDto,
+  EpisodeViewRequest,
+  ProcessingStatusResponse,
+  ViewResponse
+} from '@/types';
 import { apiClient } from '../apiClient';
 import { API_ENDPOINTS } from '../endpoints';
 
@@ -6,85 +14,75 @@ export const episodeService = {
   /**
    * Lấy danh sách tập phim theo Movie ID
    * @param movieId ID của phim
-   * @param page Số trang
-   * @param limit Số lượng mỗi trang
    */
-  async getEpisodesByMovieId(
-    movieId: string,
-    page: number = 1,
-    limit: number = 20
-  ): Promise<EpisodeListResponse> {
-    return apiClient.get<EpisodeListResponse>(API_ENDPOINTS.EPISODES.LIST_BY_MOVIE(movieId), {
-      params: { page, limit },
-    });
+  async getEpisodesByMovieId(movieId: string | number): Promise<Episode[]> {
+    return apiClient.get<Episode[]>(API_ENDPOINTS.EPISODES.LIST_BY_MOVIE(movieId));
   },
-
+  
   /**
    * Lấy chi tiết tập phim theo ID
-   * @param id ID của tập phim
+   * @param episodeId ID của tập phim
    */
-  async getEpisodeById(id: string): Promise<Episode> {
-    return apiClient.get<Episode>(API_ENDPOINTS.EPISODES.DETAIL(id));
+  async getEpisodeById(episodeId: string | number): Promise<Episode> {
+    return apiClient.get<Episode>(API_ENDPOINTS.EPISODES.DETAIL(episodeId));
   },
-
+  
   /**
-   * Tạo tập phim mới (Admin)
-   * @param data Dữ liệu tập phim
+   * Tạo tập phim mới (chỉ Admin)
+   * @param data Dữ liệu tạo tập phim
    */
-  async createEpisode(data: {
-    title: string;
-    episodeNumber: number;
-    movieId: string;
-    videoUrl: string;
-    duration: number;
-  }): Promise<Episode> {
-    return apiClient.post<Episode>(API_ENDPOINTS.EPISODES.CREATE, data);
+  async createEpisode(data: CreateEpisodeDto): Promise<{ message: string; episode: Episode }> {
+    return apiClient.post<{ message: string; episode: Episode }>(
+      API_ENDPOINTS.EPISODES.CREATE,
+      data
+    );
   },
-
+  
   /**
-   * Cập nhật tập phim (Admin)
-   * @param id ID của tập phim
+   * Cập nhật tập phim (chỉ Admin)
+   * @param episodeId ID của tập phim
    * @param data Dữ liệu cập nhật
    */
   async updateEpisode(
-    id: string,
-    data: Partial<{
-      title: string;
-      videoUrl: string;
-      duration: number;
-    }>
-  ): Promise<Episode> {
-    return apiClient.put<Episode>(API_ENDPOINTS.EPISODES.UPDATE(id), data);
+    episodeId: string | number, 
+    data: UpdateEpisodeDto
+  ): Promise<{ message: string; episode: Episode }> {
+    return apiClient.put<{ message: string; episode: Episode }>(
+      API_ENDPOINTS.EPISODES.UPDATE(episodeId),
+      data
+    );
   },
-
+  
   /**
-   * Xóa tập phim (Admin)
-   * @param id ID của tập phim
+   * Xóa tập phim (chỉ Admin)
+   * @param episodeId ID của tập phim
    */
-  async deleteEpisode(id: string): Promise<{ message: string }> {
-    return apiClient.delete<{ message: string }>(API_ENDPOINTS.EPISODES.DELETE(id));
+  async deleteEpisode(episodeId: string | number): Promise<{ message: string }> {
+    return apiClient.delete<{ message: string }>(API_ENDPOINTS.EPISODES.DELETE(episodeId));
   },
-
+  
   /**
    * Tăng lượt xem cho tập phim
    * @param episodeId ID của tập phim
+   * @param data Dữ liệu xem phim
    */
-  async incrementView(episodeId: string): Promise<{ message: string; views: number }> {
-    return apiClient.post<{ message: string; views: number }>(
-      API_ENDPOINTS.VIEWS.INCREMENT_EPISODE(episodeId)
+  async incrementView(
+    episodeId: string | number, 
+    data: EpisodeViewRequest
+  ): Promise<ViewResponse> {
+    return apiClient.post<ViewResponse>(
+      API_ENDPOINTS.VIEWS.INCREMENT_EPISODE(episodeId),
+      data
     );
   },
-
+  
   /**
    * Kiểm tra trạng thái xử lý video của tập phim
    * @param episodeId ID của tập phim
    */
-  async getProcessingStatus(episodeId: string): Promise<{
-    episodeId: string;
-    status: 'completed' | 'processing' | 'failed';
-    progress: number;
-    message: string;
-  }> {
-    return apiClient.get(API_ENDPOINTS.MEDIA.PROCESSING_STATUS(episodeId));
+  async getProcessingStatus(episodeId: string | number): Promise<ProcessingStatusResponse> {
+    return apiClient.get<ProcessingStatusResponse>(
+      API_ENDPOINTS.MEDIA.PROCESSING_STATUS(String(episodeId))
+    );
   }
-}; 
+};

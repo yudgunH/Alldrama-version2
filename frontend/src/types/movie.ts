@@ -1,45 +1,64 @@
 import { Genre } from './genre';
-import { Episode } from './episode';
 
 export interface Movie {
-  id: string;
+  id: number;
   title: string;
-  description: string;
+  rating: number;
+  views: number;
+  summary: string;
+  duration: number;
+  totalEpisodes: number;
   releaseYear: number;
   posterUrl: string;
   trailerUrl: string;
-  genres: Genre[] | string[];
-  episodes?: Episode[];
-  rating?: number;
-  views?: number;
-  createdAt: string;
-  updatedAt: string;
+  playlistUrl: string;
+  createdAt?: string;
+  updatedAt?: string;
+  backdropUrl?: string;
+  genres: Genre[];
 }
 
 export interface MovieListResponse {
   movies: Movie[];
-  totalPages: number;
-  currentPage: number;
-  totalMovies: number;
+  pagination: {
+    total: number;
+    totalPages: number;
+    currentPage: number;
+    limit: number;
+  }
 }
 
 export interface MovieSearchParams {
-  query?: string;
+  q?: string;
+  genre?: number;
+  year?: number;
   page?: number;
   limit?: number;
-  genre?: string;
-  year?: number;
-  sortBy?: string;
-  sortOrder?: 'asc' | 'desc';
+  sort?: 'title' | 'rating' | 'views' | 'releaseYear' | 'createdAt';
+  order?: 'ASC' | 'DESC';
 }
 
 export interface CreateMovieDto {
   title: string;
-  description: string;
+  summary: string;
+  duration: number;
+  totalEpisodes: number;
   releaseYear: number;
-  posterUrl: string;
-  trailerUrl: string;
-  genres: string[];
+  posterUrl?: string;
+  trailerUrl?: string;
+  playlistUrl?: string;
+  genreIds: number[];
 }
 
-export interface UpdateMovieDto extends Partial<CreateMovieDto> {} 
+export interface UpdateMovieDto {
+  title?: string;
+  summary?: string;
+  duration?: number;
+  totalEpisodes?: number;
+  releaseYear?: number;
+  posterUrl?: string;
+  trailerUrl?: string;
+  playlistUrl?: string;
+  backdropUrl?: string;
+  genreIds?: number[];
+}

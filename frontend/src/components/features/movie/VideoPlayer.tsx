@@ -1,319 +1,343 @@
 'use client'
-import { useState, useRef, useEffect } from 'react';
 
-interface EpisodeInfo {
-  id: string;
-  title: string;
-  number: number;
-  prevEpisode: any | null;
-  nextEpisode: any | null;
-  movieId: string;
-  movieTitle: string;
+import {useState,useRef,useEffect,useCallback,useMemo} from 'react'
+import Hls, {Level, ErrorData} from 'hls.js'
+import {
+  Play, Pause, SkipBack, SkipForward,
+  Volume2, VolumeX, Maximize, Minimize,
+  Settings, Loader2
+} from 'lucide-react'
+import {Button} from '@/components/ui/button'
+import {
+  DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger
+} from '@/components/ui/dropdown-menu'
+import {Tooltip, TooltipProvider, TooltipTrigger, TooltipContent} from '@/components/ui/tooltip'
+import {cn} from '@/lib/utils'
+import type {VideoPlayerProps} from '@/types/media'
+
+/* ------------------------------------------------------------------
+ * constants + helpers
+ * ----------------------------------------------------------------*/
+const TEST_HLS    = 'https://test-streams.mux.dev/x36xhzz/x36xhzz.m3u8'
+const TEST_MP4    = 'https://storage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4'
+const TEST_POSTER = 'https://peach.blender.org/wp-content/uploads/bbb-splash.png'
+
+const isiOS = () =>
+  typeof navigator !== 'undefined' && /iP(hone|od|ad)/.test(navigator.userAgent)
+
+const throttle = <T extends (...args:any)=>void>(fn:T, ms=500) => {
+  let timer = false
+  return (...a:Parameters<T>)=>{
+    if(timer) return
+    timer = true
+    fn(...a)
+    setTimeout(()=>{timer=false}, ms)
+  }
 }
 
-interface VideoPlayerProps {
-  videoUrl?: string;
-  src?: string;
-  title?: string;
-  poster?: string;
-  onTimeUpdate?: (time: number) => void;
-  initialTime?: number;
-  episodeInfo?: EpisodeInfo;
-}
-
-const VideoPlayer = ({ 
-  videoUrl, 
+/* ------------------------------------------------------------------
+ * Video Player component
+ * ----------------------------------------------------------------*/
+export default function VideoPlayer({
   src,
-  title, 
+  videoUrl,
+  title,
   poster,
-  onTimeUpdate,
   initialTime = 0,
-  episodeInfo
-}: VideoPlayerProps) => {
-  const videoRef = useRef<HTMLVideoElement>(null);
-  const [isPlaying, setIsPlaying] = useState(false);
-  const [currentTime, setCurrentTime] = useState(0);
-  const [duration, setDuration] = useState(0);
-  const [volume, setVolume] = useState(1);
-  const [showControls, setShowControls] = useState(true);
-  const [isMuted, setIsMuted] = useState(false);
-  const [isFullscreen, setIsFullscreen] = useState(false);
-  
-  const hideControlsTimer = useRef<NodeJS.Timeout | undefined>(undefined);
-  
-  // Khởi tạo video player
-  useEffect(() => {
-    if (!videoRef.current) return;
-    
-    const video = videoRef.current;
-    video.currentTime = initialTime;
-    
-    const handleDurationChange = () => {
-      setDuration(video.duration);
-    };
-    
-    const handleTimeUpdate = () => {
-      setCurrentTime(video.currentTime);
-      onTimeUpdate?.(video.currentTime);
-    };
-    
-    const handleVolumeChange = () => {
-      setVolume(video.volume);
-      setIsMuted(video.muted);
-    };
-    
-    const handlePlay = () => setIsPlaying(true);
-    const handlePause = () => setIsPlaying(false);
-    
-    video.addEventListener('durationchange', handleDurationChange);
-    video.addEventListener('timeupdate', handleTimeUpdate);
-    video.addEventListener('volumechange', handleVolumeChange);
-    video.addEventListener('play', handlePlay);
-    video.addEventListener('pause', handlePause);
-    
-    return () => {
-      video.removeEventListener('durationchange', handleDurationChange);
-      video.removeEventListener('timeupdate', handleTimeUpdate);
-      video.removeEventListener('volumechange', handleVolumeChange);
-      video.removeEventListener('play', handlePlay);
-      video.removeEventListener('pause', handlePause);
-    };
-  }, [initialTime, onTimeUpdate]);
-  
-  // Ẩn controls sau một khoảng thời gian
-  useEffect(() => {
-    if (hideControlsTimer.current) {
-      clearTimeout(hideControlsTimer.current);
+  onTimeUpdate,
+  autoPlay = false,
+  onEnded,
+  isHLS = true,             // true nếu chuỗi .m3u8
+  useCustomControls = true,  // sẽ tắt trên iOS bên dưới
+  useTestVideo = false,
+  subtitles = []             // [{src,label,lang,default?}]
+}: VideoPlayerProps & {subtitles?: {src:string;label:string;lang:string;default?:boolean}[]}) {
+  /* ----------------------------------------------------------------
+   * decide source & flags
+   * --------------------------------------------------------------*/
+  const videoSrc = useMemo(() => {
+    if (useTestVideo) return TEST_HLS
+    return src || videoUrl || ''
+  }, [useTestVideo, src, videoUrl])
+
+  const testMode = useMemo(() => useTestVideo || !videoSrc, [useTestVideo, videoSrc])
+  const displayTitle = useMemo(() => (
+    testMode ? 'Video Test: Big Buck Bunny' : (title || 'Đang phát')
+  ), [testMode, title])
+
+  const hlsStream = useMemo(() => videoSrc.endsWith('.m3u8'), [videoSrc])
+  const custom = useCustomControls && !isiOS()   // iOS = native control
+
+  /* ----------------------------------------------------------------
+   * refs & basic state
+   * --------------------------------------------------------------*/
+  const vRef = useRef<HTMLVideoElement>(null)
+  const cRef = useRef<HTMLDivElement>(null)
+  const hlsRef = useRef<Hls|null>(null)
+
+  const [playing, setPlaying]   = useState(false)
+  const [dur,     setDur]       = useState(0)
+  const [time,    setTime]      = useState(initialTime)
+  const [wait,    setWait]      = useState(false)
+  const [vol,     setVol]       = useState(1)
+  const [muted,   setMuted]     = useState(false)
+  const [levels,  setLevels]    = useState<Level[]>([])
+  const [level,   setLevel]     = useState(-1)            // -1 = auto
+  const [full,    setFull]      = useState(false)
+  const [fatalErr,setFatalErr]  = useState(false)
+
+  /* ----------------------------------------------------------------
+   * progress callback (throttled)
+   * --------------------------------------------------------------*/
+  const emitProgress = useCallback(throttle((t:number)=>onTimeUpdate?.(t),500),[onTimeUpdate])
+
+  /* ----------------------------------------------------------------
+   * baseline listeners
+   * --------------------------------------------------------------*/
+  useEffect(()=>{
+    const v = vRef.current
+    if(!v) return
+    v.currentTime = initialTime
+
+    const onDur    = () => setDur(v.duration || 0)
+    const onTime   = () => { setTime(v.currentTime); emitProgress(v.currentTime) }
+    const onPlay   = () => setPlaying(true)
+    const onPause  = () => setPlaying(false)
+    const onWait   = () => setWait(true)
+    const onPlayng = () => setWait(false)
+    const onVol    = () => { setVol(v.volume); setMuted(v.muted) }
+    const onEnd    = () => onEnded?.()
+
+    v.addEventListener('durationchange',onDur)
+    v.addEventListener('timeupdate',onTime)
+    v.addEventListener('play',onPlay)
+    v.addEventListener('pause',onPause)
+    v.addEventListener('waiting',onWait)
+    v.addEventListener('playing',onPlayng)
+    v.addEventListener('volumechange',onVol)
+    v.addEventListener('ended',onEnd)
+    return ()=>{
+      v.removeEventListener('durationchange',onDur)
+      v.removeEventListener('timeupdate',onTime)
+      v.removeEventListener('play',onPlay)
+      v.removeEventListener('pause',onPause)
+      v.removeEventListener('waiting',onWait)
+      v.removeEventListener('playing',onPlayng)
+      v.removeEventListener('volumechange',onVol)
+      v.removeEventListener('ended',onEnd)
     }
-    
-    if (isPlaying) {
-      hideControlsTimer.current = setTimeout(() => {
-        setShowControls(false);
-      }, 3000);
-    } else {
-      setShowControls(true);
+  },[initialTime, emitProgress, onEnded])
+
+  /* ----------------------------------------------------------------
+   * init / destroy HLS.js
+   * --------------------------------------------------------------*/
+  useEffect(()=>{
+    const v = vRef.current
+    if(!v || !videoSrc) return
+    if(hlsRef.current){ hlsRef.current.destroy(); hlsRef.current=null }
+
+    // Native HLS (Safari / iOS)
+    if(!hlsStream || v.canPlayType('application/vnd.apple.mpegurl')){
+      v.src = testMode ? TEST_MP4 : videoSrc
+      return
     }
+
+    if(Hls.isSupported()){
+      const h = new Hls({ startLevel:-1, backBufferLength:60, enableWorker:true })
+      h.attachMedia(v)
+      h.loadSource(videoSrc)
+      h.on(Hls.Events.MANIFEST_PARSED,(_,d)=> setLevels(d.levels))
+      h.on(Hls.Events.LEVEL_SWITCHED,(_,d)=> setLevel(d.level))
+      h.on(Hls.Events.ERROR,(_e,d:ErrorData)=>{
+        if(!d.fatal) return
+        if(d.type === Hls.ErrorTypes.MEDIA_ERROR){ h.recoverMediaError(); return }
+        setFatalErr(true); h.destroy()
+      })
+      hlsRef.current = h
+    }
+    return ()=>{ hlsRef.current?.destroy(); hlsRef.current=null }
+  },[videoSrc, hlsStream, testMode])
+
+  /* ----------------------------------------------------------------
+   * helpers UI
+   * --------------------------------------------------------------*/
+  const jump = (s:number)=>{ const v=vRef.current; if(!v) return; v.currentTime=Math.min(Math.max(0,v.currentTime+s), dur) }
+  const fmt  = (s:number)=>{ const m=Math.floor(s/60), ss=Math.floor(s%60); return `${m}:${ss.toString().padStart(2,'0')}` }
+
+  const togglePlay = ()=>{ const v=vRef.current; if(!v) return; v.paused? v.play(): v.pause() }
+  const toggleMute = ()=>{ const v=vRef.current; if(!v) return; v.muted = !v.muted }
+  
+  // Hàm tính toán độ rộng của buffer đã tải
+  const getBuferredWidth = (): number => {
+    const v = vRef.current
+    if (!v || !dur || dur <= 0) return 0
     
-    return () => {
-      if (hideControlsTimer.current) {
-        clearTimeout(hideControlsTimer.current);
+    try {
+      if (v.buffered && v.buffered.length > 0) {
+        return (v.buffered.end(v.buffered.length - 1) / dur) * 100
       }
-    };
-  }, [isPlaying]);
-  
-  // Xử lý sự kiện play/pause
-  const togglePlay = () => {
-    if (!videoRef.current) return;
-    
-    if (isPlaying) {
-      videoRef.current.pause();
-    } else {
-      videoRef.current.play();
-    }
-  };
-  
-  // Xử lý sự kiện mute/unmute
-  const toggleMute = () => {
-    if (!videoRef.current) return;
-    
-    videoRef.current.muted = !videoRef.current.muted;
-  };
-  
-  // Xử lý sự kiện fullscreen
-  const toggleFullscreen = () => {
-    if (!videoRef.current) return;
-    
-    if (!document.fullscreenElement) {
-      videoRef.current.requestFullscreen()
-        .then(() => setIsFullscreen(true))
-        .catch(err => console.error(err));
-    } else {
-      document.exitFullscreen()
-        .then(() => setIsFullscreen(false))
-        .catch(err => console.error(err));
-    }
-  };
-  
-  // Cập nhật seekbar
-  const handleSeek = (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (!videoRef.current) return;
-    
-    const time = parseFloat(e.target.value);
-    videoRef.current.currentTime = time;
-    setCurrentTime(time);
-  };
-  
-  // Cập nhật volume
-  const handleVolumeChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (!videoRef.current) return;
-    
-    const vol = parseFloat(e.target.value);
-    videoRef.current.volume = vol;
-    videoRef.current.muted = vol === 0;
-  };
-  
-  // Format thời gian
-  const formatTime = (seconds: number): string => {
-    const hours = Math.floor(seconds / 3600);
-    const minutes = Math.floor((seconds % 3600) / 60);
-    const secs = Math.floor(seconds % 60);
-    
-    if (hours > 0) {
-      return `${hours}:${minutes < 10 ? '0' : ''}${minutes}:${secs < 10 ? '0' : ''}${secs}`;
+    } catch (e) {
+      console.error('Lỗi khi tính toán buffer:', e)
     }
     
-    return `${minutes}:${secs < 10 ? '0' : ''}${secs}`;
-  };
-  
+    return 0
+  }
+
+  const setLvl = (idx:number)=>{
+    if(!hlsRef.current) return
+    if(idx===-1){ hlsRef.current.currentLevel = -1; setLevel(-1); return }
+    hlsRef.current.currentLevel = idx
+  }
+
+  const fullScreen = ()=>{
+    const el = cRef.current
+    if(!el) return
+    if(!document.fullscreenElement){ el.requestFullscreen(); setFull(true) }
+    else { document.exitFullscreen(); setFull(false) }
+  }
+
+  /* ----------------------------------------------------------------
+   * JSX
+   * --------------------------------------------------------------*/
   return (
-    <div 
-      className="relative w-full aspect-video bg-black rounded-lg overflow-hidden"
-      onMouseMove={() => {
-        setShowControls(true);
-        
-        if (hideControlsTimer.current) {
-          clearTimeout(hideControlsTimer.current);
-        }
-        
-        if (isPlaying) {
-          hideControlsTimer.current = setTimeout(() => {
-            setShowControls(false);
-          }, 3000);
-        }
-      }}
-    >
+    <div ref={cRef} className="relative w-full aspect-video bg-black overflow-hidden rounded-lg group">
+      {/* ----------------- video tag ----------------- */}
       <video
-        ref={videoRef}
-        src={src || videoUrl}
-        className="w-full h-full"
-        poster={poster}
-        onClick={togglePlay}
+        ref={vRef}
+        className="absolute inset-0 w-full h-full object-contain bg-black"
+        poster={''}
+        controls={!custom}
         playsInline
-      />
-      
-      {/* Video title */}
-      {title && showControls && (
-        <div className="absolute top-0 left-0 right-0 p-4 bg-gradient-to-b from-black/80 to-transparent">
-          <h2 className="text-white font-medium">{title}</h2>
-        </div>
-      )}
-      
-      {/* Play button overlay (hiển thị khi video đang pause) */}
-      {!isPlaying && (
-        <button
-          onClick={togglePlay}
-          className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 w-20 h-20 bg-red-600/80 rounded-full flex items-center justify-center"
-          aria-label="Play"
-        >
-          <svg className="w-10 h-10 text-white" fill="currentColor" viewBox="0 0 24 24">
-            <path d="M8 5v14l11-7z" />
-          </svg>
-        </button>
-      )}
-      
-      {/* Controls */}
-      {showControls && (
-        <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/80 to-transparent p-4">
-          {/* Seekbar */}
-          <div className="mb-2">
-            <input
-              type="range"
-              min="0"
-              max={duration || 0}
-              value={currentTime}
-              onChange={handleSeek}
-              className="w-full h-1 bg-gray-600 rounded-full appearance-none cursor-pointer"
-              style={{
-                backgroundImage: `linear-gradient(to right, #ef4444 ${(currentTime / (duration || 1)) * 100}%, #4b5563 ${(currentTime / (duration || 1)) * 100}%)`,
-              }}
-            />
-          </div>
-          
-          <div className="flex items-center justify-between">
-            <div className="flex items-center space-x-4">
-              {/* Play/Pause button */}
-              <button
-                onClick={togglePlay}
-                className="text-white hover:text-red-500 transition-colors"
-                aria-label={isPlaying ? 'Pause' : 'Play'}
-              >
-                {isPlaying ? (
-                  <svg className="w-6 h-6" fill="currentColor" viewBox="0 0 24 24">
-                    <path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z" />
-                  </svg>
-                ) : (
-                  <svg className="w-6 h-6" fill="currentColor" viewBox="0 0 24 24">
-                    <path d="M8 5v14l11-7z" />
-                  </svg>
-                )}
-              </button>
-              
-              {/* Volume control */}
-              <div className="flex items-center space-x-1">
-                <button
-                  onClick={toggleMute}
-                  className="text-white hover:text-red-500 transition-colors"
-                  aria-label={isMuted ? 'Unmute' : 'Mute'}
-                >
-                  {isMuted || volume === 0 ? (
-                    <svg className="w-6 h-6" fill="currentColor" viewBox="0 0 24 24">
-                      <path d="M16.5 12c0-1.77-1.02-3.29-2.5-4.03v2.21l2.45 2.45c.03-.2.05-.41.05-.63zm2.5 0c0 .94-.2 1.82-.54 2.64l1.51 1.51A8.796 8.796 0 0021 12c0-4.28-2.99-7.86-7-8.77v2.06c2.89.86 5 3.54 5 6.71zM4.27 3L3 4.27 7.73 9H3v6h4l5 5v-6.73l4.25 4.25c-.67.52-1.42.93-2.25 1.18v2.06a8.99 8.99 0 003.69-1.81L19.73 21 21 19.73l-9-9L4.27 3zM12 4L9.91 6.09 12 8.18V4z" />
-                    </svg>
-                  ) : volume < 0.5 ? (
-                    <svg className="w-6 h-6" fill="currentColor" viewBox="0 0 24 24">
-                      <path d="M18.5 12c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02zM5 9v6h4l5 5V4L9 9H5z" />
-                    </svg>
-                  ) : (
-                    <svg className="w-6 h-6" fill="currentColor" viewBox="0 0 24 24">
-                      <path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02zM14 3.23v2.06c2.89.86 5 3.54 5 6.71s-2.11 5.85-5 6.71v2.06c4.01-.91 7-4.49 7-8.77s-2.99-7.86-7-8.77z" />
-                    </svg>
-                  )}
-                </button>
-                <input
-                  type="range"
-                  min="0"
-                  max="1"
-                  step="0.01"
-                  value={isMuted ? 0 : volume}
-                  onChange={handleVolumeChange}
-                  className="w-20 h-1 bg-gray-600 rounded-full appearance-none cursor-pointer"
-                  style={{
-                    backgroundImage: `linear-gradient(to right, #ef4444 ${(isMuted ? 0 : volume) * 100}%, #4b5563 ${(isMuted ? 0 : volume) * 100}%)`,
-                  }}
-                />
+        autoPlay={autoPlay}
+        preload="auto"
+        title={displayTitle}
+        onClick={custom?togglePlay:undefined}
+      >
+        {subtitles.map((t,i)=>(
+          <track key={i} src={t.src} label={t.label} kind="subtitles" srcLang={t.lang} default={t.default} />
+        ))}
+      </video>
+
+      {/* badge & error */}
+      {testMode && <span className="absolute top-2 right-2 bg-yellow-500 text-black text-xs font-semibold px-2 py-0.5 rounded">Test</span>}
+      {fatalErr && <div className="absolute inset-0 bg-black/75 flex items-center justify-center text-red-400">Không phát được video</div>}
+
+      {/* ----------------- Custom controls ----------------- */}
+      {custom && (
+        <>
+          {/*   CENTER overlay play / pause   */}
+          {!playing && !wait && (
+            <button onClick={togglePlay} className="absolute inset-0 flex items-center justify-center text-white/70 hover:text-white transition-colors">
+              <Play className="h-20 w-20 drop-shadow-xl" />
+            </button>
+          )}
+
+          {/* BUFFER */}
+          {wait && (
+            <div className="absolute inset-0 flex items-center justify-center">
+              <Loader2 className="h-16 w-16 text-amber-400 animate-spin" />
+            </div>
+          )}
+
+          {/* bottom bar */}
+          <div className="absolute bottom-0 left-0 right-0 px-4 py-3 bg-gradient-to-t from-black/85 to-black/0 opacity-0 group-hover:opacity-100 transition-opacity">
+            {/* progress bar container */}
+            <div className="relative mb-1 h-4 flex items-center group/progress">
+              {/* Progress background */}
+              <div className="absolute w-full h-1.5 bg-gray-700/70 rounded-full overflow-hidden">
+                {/* Buffer progress */}
+                <div className="absolute h-full bg-gray-400/30 rounded-full" 
+                     style={{width: `${getBuferredWidth()}%`}}>
+                </div>
+                {/* Played progress */}
+                <div className="absolute h-full bg-amber-500 rounded-full" 
+                     style={{width: `${(time/(dur||1))*100}%`}}></div>
               </div>
               
-              {/* Time */}
-              <div className="text-white text-sm">
-                <span>{formatTime(currentTime)}</span>
-                <span className="mx-1">/</span>
-                <span>{formatTime(duration || 0)}</span>
+              {/* Interactive slider - invisible but covers the progress bar */}
+              <input
+                type="range"
+                className="w-full h-4 absolute opacity-0 cursor-pointer z-10"
+                min={0} max={dur||0} step={0.1}
+                value={time}
+                onChange={e=>{ const v=vRef.current; if(v) v.currentTime=parseFloat(e.target.value) }}
+              />
+              
+              {/* Tooltip showing the current time position on hover */}
+              <div className="absolute h-3 w-3 rounded-full bg-amber-500 top-1/2 transform -translate-y-1/2 opacity-0 group-hover/progress:opacity-100 transition-opacity pointer-events-none"
+                   style={{left: `${(time/(dur||1))*100}%`}}>
               </div>
             </div>
-            
-            <div>
-              {/* Fullscreen button */}
-              <button
-                onClick={toggleFullscreen}
-                className="text-white hover:text-red-500 transition-colors"
-                aria-label={isFullscreen ? 'Exit fullscreen' : 'Enter fullscreen'}
-              >
-                {isFullscreen ? (
-                  <svg className="w-6 h-6" fill="currentColor" viewBox="0 0 24 24">
-                    <path d="M5 16h3v3h2v-5H5v2zm3-8H5v2h5V5H8v3zm6 11h2v-3h3v-2h-5v5zm2-11V5h-2v5h5V8h-3z" />
-                  </svg>
-                ) : (
-                  <svg className="w-6 h-6" fill="currentColor" viewBox="0 0 24 24">
-                    <path d="M7 14H5v5h5v-2H7v-3zm-2-4h2V7h3V5H5v5zm12 7h-3v2h5v-5h-2v3zM14 5v2h3v3h2V5h-5z" />
-                  </svg>
+
+            {/* control row */}
+            <div className="flex justify-between items-center mt-1 text-white select-none">
+              {/* left cluster */}
+              <div className="flex items-center gap-3">
+                <Button size="icon" variant="ghost" className="text-white hover:text-amber-400" aria-label="play" onClick={togglePlay}>
+                  {playing? <Pause className="h-6 w-6"/> : <Play className="h-6 w-6"/>}
+                </Button>
+                <Button size="icon" variant="ghost" className="text-white hover:text-amber-400" onClick={()=>jump(-10)} aria-label="-10s">
+                  <SkipBack className="h-5 w-5"/>
+                </Button>
+                <Button size="icon" variant="ghost" className="text-white hover:text-amber-400" onClick={()=>jump(10)} aria-label="+10s">
+                  <SkipForward className="h-5 w-5"/>
+                </Button>
+                {/* volume */}
+                <div className="flex items-center gap-2 group/volume">
+                  <Button size="icon" variant="ghost" className="text-white hover:text-amber-400" onClick={toggleMute}>
+                    {muted||vol===0? <VolumeX className="h-5 w-5"/> : <Volume2 className="h-5 w-5"/>}
+                  </Button>
+                  
+                  <div className="relative w-20 h-1.5 hidden group-hover/volume:block">
+                    {/* Volume background */}
+                    <div className="absolute w-full h-full bg-gray-700/70 rounded-full"></div>
+                    {/* Volume level */}
+                    <div className="absolute h-full bg-amber-500 rounded-full" 
+                         style={{width: `${(muted ? 0 : vol) * 100}%`}}></div>
+                    {/* Volume slider */}
+                    <input
+                      type="range" min={0} max={1} step={0.01}
+                      value={muted?0:vol}
+                      onChange={e=>{ const v=vRef.current; if(!v) return; v.volume=parseFloat(e.target.value); v.muted=Number(e.target.value)===0 }}
+                      className="absolute w-full h-5 top-1/2 -translate-y-1/2 opacity-0 cursor-pointer"
+                    />
+                    {/* Volume handle */}
+                    <div className="absolute h-3 w-3 top-1/2 transform -translate-y-1/2 rounded-full bg-amber-500"
+                         style={{left: `${(muted ? 0 : vol) * 100}%`}}></div>
+                  </div>
+                  
+                  <span className="text-xs tabular-nums ml-2">{fmt(time)} / {fmt(dur)}</span>
+                </div>
+              </div>
+
+              {/* right cluster */}
+              <div className="flex items-center gap-3">
+                {/* quality */}
+                {levels.length>0 && (
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <Button variant="ghost" size="sm" className="text-xs flex items-center gap-1 hover:text-amber-400">
+                      {level===-1? 'Auto': `${levels[level]?.height}p`} <Settings className="h-4 w-4"/>
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end" className="bg-gray-800 border-gray-700 text-white text-sm">
+                    <DropdownMenuItem onClick={()=>setLvl(-1)} className={cn('cursor-pointer', level===-1 && 'bg-amber-500/20 text-amber-400')}>Auto</DropdownMenuItem>
+                    {levels.map((l,i)=>(
+                      <DropdownMenuItem key={i} onClick={()=>setLvl(i)} className={cn('cursor-pointer', level===i && 'bg-amber-500/20 text-amber-400')}>{l.height}p</DropdownMenuItem>
+                    ))}
+                  </DropdownMenuContent>
+                </DropdownMenu>
                 )}
-              </button>
+
+                {/* fullscreen */}
+                <Button size="icon" variant="ghost" className="text-white hover:text-amber-400" onClick={fullScreen}>
+                  {full? <Minimize className="h-5 w-5"/> : <Maximize className="h-5 w-5"/>}
+                </Button>
+              </div>
             </div>
           </div>
-        </div>
+        </>
       )}
     </div>
-  );
-};
-
-export default VideoPlayer; 
+  )
+}

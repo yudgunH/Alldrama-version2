@@ -1,63 +1,69 @@
 import { useState, useCallback } from 'react';
 import useSWR from 'swr';
-import { FavoriteListResponse } from '@/types';
-import { favoriteService } from '@/lib/api';
+import { Favorite } from '@/types';
+import { favoriteService, FavoriteResponse } from '@/lib/api/services/favoriteService';
 import { toast } from 'react-hot-toast';
 import { useApiCache } from './useApiCache';
 
-export const useFavorites = (initialPage: number = 1, initialLimit: number = 10) => {
-  const [page, setPage] = useState(initialPage);
-  const [limit, setLimit] = useState(initialLimit);
+export const useFavorites = () => {
   const { clearFavoritesCache, clearMoviesCache } = useApiCache();
 
-  // SWR key
-  const key = `favorites?page=${page}&limit=${limit}`;
+  // SWR key for favorites
+  const key = 'favorites';
 
-  // Fetcher function cho SWR
+  // Fetcher function for SWR
   const fetcher = useCallback(
-    async (key: string) => {
-      const url = new URL(key, 'http://example.com');
-      const page = parseInt(url.searchParams.get('page') || '1');
-      const limit = parseInt(url.searchParams.get('limit') || '10');
-
-      return await favoriteService.getFavorites(page, limit);
+    async () => {
+      console.log('Fetching favorites list');
+      try {
+        const result = await favoriteService.getFavorites();
+        console.log('Favorites fetched successfully:', result);
+        return result;
+      } catch (error) {
+        console.error('Error fetching favorites:', error);
+        return [];
+      }
     },
     []
   );
 
-  // Sử dụng SWR hook
-  const { data, error, isLoading, isValidating, mutate } = useSWR<FavoriteListResponse>(
+  // Use SWR hook
+  const { data, error, isLoading, isValidating, mutate } = useSWR<Favorite[]>(
     key,
     fetcher
   );
 
-  // Thêm phim vào yêu thích
+  // Add movie to favorites
   const addToFavorites = useCallback(
-    async (movieId: string) => {
+    async (movieId: string | number) => {
       try {
-        await favoriteService.addFavorite(movieId);
-        // Refresh danh sách yêu thích sau khi thêm
+        console.log('Adding movie to favorites:', movieId);
+        const response = await favoriteService.addToFavorites(movieId);
+        console.log('Add favorite response:', response);
         await mutate();
-        toast.success('Đã thêm vào danh sách yêu thích');
-        return true;
+        toast.success(response.message);
+        return response.favorite;
       } catch (err) {
+        console.error('Error adding to favorites:', err);
         toast.error('Không thể thêm vào danh sách yêu thích');
-        return false;
+        return null;
       }
     },
     [mutate]
   );
 
-  // Xóa phim khỏi yêu thích
+  // Remove movie from favorites
   const removeFromFavorites = useCallback(
-    async (movieId: string) => {
+    async (movieId: string | number) => {
       try {
-        await favoriteService.removeFavorite(movieId);
-        // Refresh danh sách yêu thích sau khi xóa
+        console.log('Removing movie from favorites:', movieId);
+        const response = await favoriteService.removeFromFavorites(movieId);
+        console.log('Remove favorite response:', response);
         await mutate();
-        toast.success('Đã xóa khỏi danh sách yêu thích');
+        toast.success(response.message);
         return true;
       } catch (err) {
+        console.error('Error removing from favorites:', err);
         toast.error('Không thể xóa khỏi danh sách yêu thích');
         return false;
       }
@@ -65,54 +71,51 @@ export const useFavorites = (initialPage: number = 1, initialLimit: number = 10)
     [mutate]
   );
 
-  // Kiểm tra phim có trong yêu thích không
-  const checkIsFavorite = useCallback(async (movieId: string) => {
-    try {
-      return await favoriteService.checkIsFavorite(movieId);
-    } catch (err) {
-      return false;
-    }
-  }, []);
-
-  // Toggle trạng thái yêu thích
-  const toggleFavorite = useCallback(
-    async (movieId: string, currentStatus?: boolean) => {
-      // Nếu không biết trạng thái hiện tại, kiểm tra
-      if (currentStatus === undefined) {
-        currentStatus = await checkIsFavorite(movieId);
+  // Check if movie is in favorites
+  const isFavorite = useCallback(
+    async (movieId: string | number) => {
+      try {
+        console.log('Checking if movie is favorite:', movieId);
+        // Lấy danh sách yêu thích và kiểm tra movieId có trong danh sách không
+        const result = await favoriteService.isFavorite(movieId);
+        console.log('Is favorite result:', result);
+        return result;
+      } catch (err) {
+        console.error('Error checking favorite status:', err);
+        return false;
       }
-
-      if (currentStatus) {
-        return removeFromFavorites(movieId);
-      } else {
-        return addToFavorites(movieId);
-      }
-    },
-    [addToFavorites, checkIsFavorite, removeFromFavorites]
-  );
-
-  // Phân trang
-  const goToPage = useCallback(
-    (newPage: number) => {
-      setPage(newPage);
     },
     []
   );
 
+  // Toggle favorite status
+  const toggleFavorite = useCallback(
+    async (movieId: string | number) => {
+      try {
+        console.log('Toggling favorite for movie:', movieId);
+        const result = await favoriteService.toggleFavorite(movieId);
+        console.log('Toggle favorite result:', result);
+        await mutate();
+        toast.success(result.message);
+        return result.favorited;
+      } catch (err) {
+        console.error('Error toggling favorite:', err);
+        toast.error('Không thể thay đổi trạng thái yêu thích');
+        return null;
+      }
+    },
+    [mutate]
+  );
+
   return {
-    favorites: data?.favorites || [],
-    totalPages: data?.totalPages || 0,
-    currentPage: data?.currentPage || page,
-    totalFavorites: data?.totalFavorites || 0,
+    favorites: data || [],
     loading: isLoading,
     isValidating,
     error,
     addToFavorites,
     removeFromFavorites,
+    isFavorite,
     toggleFavorite,
-    checkIsFavorite,
-    goToPage,
-    setLimit,
     refreshFavorites: mutate,
   };
-}; 
+};

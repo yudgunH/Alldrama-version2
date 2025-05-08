@@ -1,6 +1,9 @@
 import { useSWRConfig } from 'swr';
 import { useCallback } from 'react';
 
+// Định nghĩa kiểu cho matcher của cache key
+export type CacheMatcher = string | RegExp | ((key: string) => boolean);
+
 /**
  * Hook quản lý cache của API
  */
@@ -16,18 +19,11 @@ export const useApiCache = () => {
   }, [mutate]);
 
   /**
-   * Xóa cache theo key cụ thể
-   * @param key Key cache cần xóa
+   * Xóa cache theo key cụ thể hoặc theo function matcher
+   * @param matcher Key cache cần xóa hoặc hàm kiểm tra key
    */
-  const clearCache = useCallback((key: string | RegExp) => {
-    if (typeof key === 'string') {
-      // Xóa cache với key cụ thể
-      mutate(key, undefined, { revalidate: false });
-    } else {
-      // Hiện không có API trực tiếp để xóa cache theo pattern trong SWR
-      // Nếu cần thiết, có thể sử dụng hệ thống quản lý cache riêng
-      console.warn('Clearing cache by RegExp pattern is not supported directly in SWR');
-    }
+  const clearCache = useCallback((matcher: CacheMatcher) => {
+    mutate(matcher as any, undefined, { revalidate: false });
   }, [mutate]);
 
   /**

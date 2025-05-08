@@ -1,227 +1,347 @@
-"use client"
+'use client'
 
-import { useState, useRef, useEffect } from "react"
+import Link from "next/link"
 import type { Movie } from "@/types"
 import MovieCard from "./MovieCard"
-import { ChevronLeft, ChevronRight, ArrowRight } from "lucide-react"
-import Link from "next/link"
-// Tạm thời loại bỏ framer-motion để khắc phục lỗi
-// import { motion } from "framer-motion"
+import { Button } from "@/components/ui/button"
+import { generateMovieUrl } from "@/utils/url"
+import { cn } from "@/lib/utils"
+import { motion } from "framer-motion"
+import { ChevronLeft, ChevronRight } from "lucide-react"
+import MoviePopover from "./MoviePopover"
+import { useState, useEffect, useCallback } from "react"
+import { useMobile } from "@/hooks/use-mobile"
+import { useMovies } from "@/hooks/api/useMovies"
+import { Skeleton } from "@/components/ui/skeleton"
 
 interface MovieSliderProps {
   title: string
-  movies: Movie[]
-  viewMoreLink?: string
+  movies?: Movie[]
+  endpoint?: "newest" | "popular" | "trending" | "featured" | "topRated"
+  genreId?: number | string
+  variant?: "default" | "popular" | "trending" | "new" | "top"
+  className?: string
+  maxItems?: number
+  size?: 'sm' | 'md' | 'lg'
+  showPopover?: boolean
+  limit?: number
 }
 
-const MovieSlider = ({ title, movies, viewMoreLink }: MovieSliderProps) => {
-  const sliderRef = useRef<HTMLDivElement>(null)
-  const [currentIndex, setCurrentIndex] = useState(0)
-  const [visibleItems, setVisibleItems] = useState(5)
-  const [isHovering, setIsHovering] = useState(false)
-  const [touchStart, setTouchStart] = useState(0)
-  const [touchEnd, setTouchEnd] = useState(0)
-
-  // Xử lý đa phương tiện và tối ưu responsive
-  useEffect(() => {
-    const updateVisibleItems = () => {
-      if (!sliderRef.current) return
-
-      const containerWidth = sliderRef.current.clientWidth
-      let calculatedItems = 5
-
-      if (containerWidth < 640) {
-        calculatedItems = 2.5 // Mobile
-      } else if (containerWidth < 768) {
-        calculatedItems = 3.5 // Tablet
-      } else if (containerWidth < 1024) {
-        calculatedItems = 4 // Small laptop
-      } else if (containerWidth < 1280) {
-        calculatedItems = 5 // Standard laptop
-      } else {
-        calculatedItems = 6 // Large screen
+const MovieSlider = ({ 
+  title, 
+  movies, 
+  endpoint,
+  genreId,
+  variant = "default",
+  className = "",
+  maxItems = 5,
+  size = 'md',
+  showPopover = true,
+  limit = 10
+}: MovieSliderProps) => {
+  const [currentPage, setCurrentPage] = useState(0);
+  const isMobileSmall = useMobile(768);
+  const isMobileLarge = useMobile(1024);
+  
+  // Determine device type from breakpoints
+  const isMobile = isMobileSmall;
+  const isTablet = isMobileLarge && !isMobileSmall;
+  
+  // State cho dữ liệu phim từ API
+  const [movieData, setMovieData] = useState<Movie[]>([]);
+  const [loading, setLoading] = useState(!movies);
+  const [error, setError] = useState<string | null>(null);
+  
+  // Sử dụng hooks API
+  const { 
+    getFeaturedMovies,
+    getPopularMovies,
+    getTrendingMovies,
+    getNewestMovies,
+    getSimilarMovies,
+  } = useMovies();
+  
+  // Fetch dữ liệu từ API
+  const fetchMovies = useCallback(async () => {
+    // Nếu đã truyền movies thì sử dụng chúng, không cần gọi API
+    if (movies && movies.length > 0) {
+      setMovieData(movies);
+      setLoading(false);
+      return;
+    }
+    
+    // Nếu không có endpoint và genreId thì không gọi API
+    if (!endpoint && !genreId) {
+      setMovieData([]);
+      setLoading(false);
+      return;
+    }
+    
+    setLoading(true);
+    setError(null);
+    
+    try {
+      let result: Movie[] = [];
+      
+      if (genreId) {
+        // Khi có genreId, sử dụng getSimilarMovies hoặc getMoviesByGenre
+        const genreIdValue = typeof genreId === 'string' ? genreId : String(genreId);
+        result = await getSimilarMovies(genreIdValue);
+      } else if (endpoint) {
+        // Fetch movies theo endpoint
+        switch (endpoint) {
+          case "newest":
+            result = await getNewestMovies();
+            break;
+          case "popular":
+            result = await getPopularMovies();
+            break;
+          case "trending":
+            result = await getTrendingMovies();
+            break;
+          case "featured":
+            result = await getFeaturedMovies();
+            break;
+          case "topRated":
+            // Sử dụng getTrendingMovies để thay thế topRated
+            result = await getTrendingMovies();
+            break;
+          default:
+            result = [];
+        }
       }
-
-      setVisibleItems(calculatedItems)
+      
+      // Nếu kết quả là null, đặt thành mảng rỗng để tránh lỗi
+      if (!result) {
+        result = [];
+      }
+      
+      setMovieData(result);
+    } catch (err) {
+      console.error("Error fetching movies:", err);
+      setError("Không thể tải dữ liệu phim");
+    } finally {
+      setLoading(false);
     }
-
-    // Khởi tạo
-    updateVisibleItems()
-    
-    // Cập nhật khi thay đổi kích thước màn hình
-    const handleResize = () => {
-      updateVisibleItems()
-    }
-    
-    window.addEventListener("resize", handleResize)
-    return () => window.removeEventListener("resize", handleResize)
-  }, [])
-
-  // Điều hướng qua lại
-  const navigate = (direction: "prev" | "next") => {
-    if (direction === "prev") {
-      setCurrentIndex((prev) => Math.max(0, prev - Math.floor(visibleItems)))
-    } else {
-      const maxIndex = Math.max(0, movies.length - Math.ceil(visibleItems))
-      setCurrentIndex((prev) => Math.min(maxIndex, prev + Math.floor(visibleItems)))
-    }
-  }
-
-  // Điều hướng bằng cử chỉ chạm (touch gestures)
+  }, [endpoint, movies, genreId, getFeaturedMovies, getPopularMovies, getTrendingMovies, getNewestMovies, getSimilarMovies]);
+  
+  // Fetch data when component mounts or dependencies change
+  useEffect(() => {
+    fetchMovies();
+  }, [fetchMovies]);
+  
+  // Tính toán các thông số pagination và hiển thị
+  const moviesForDisplay = movieData && movieData.length > 0 ? movieData : [];
+  const responsiveMaxItems = isTablet ? 4 : maxItems;
+  const totalPages = Math.ceil(moviesForDisplay.length / responsiveMaxItems);
+  const startIndex = currentPage * responsiveMaxItems;
+  const displayMovies = moviesForDisplay.slice(startIndex, startIndex + responsiveMaxItems);
+  
+  const handlePrevPage = () => {
+    setCurrentPage(prev => Math.max(0, prev - 1));
+  };
+  
+  const handleNextPage = () => {
+    setCurrentPage(prev => Math.min(totalPages - 1, prev + 1));
+  };
+  
+  // Handle touch events for mobile scrolling
+  const [touchStart, setTouchStart] = useState(0);
+  const [touchEnd, setTouchEnd] = useState(0);
+  
   const handleTouchStart = (e: React.TouchEvent) => {
-    setTouchStart(e.targetTouches[0].clientX)
-  }
+    setTouchStart(e.targetTouches[0].clientX);
+  };
   
   const handleTouchMove = (e: React.TouchEvent) => {
-    setTouchEnd(e.targetTouches[0].clientX)
-  }
+    setTouchEnd(e.targetTouches[0].clientX);
+  };
   
   const handleTouchEnd = () => {
-    if (!touchStart || !touchEnd) return
-    
-    const distance = touchStart - touchEnd
-    const isLeftSwipe = distance > 50
-    const isRightSwipe = distance < -50
-    
-    if (isLeftSwipe && currentIndex < movies.length - visibleItems) {
-      navigate("next")
-    }
-    
-    if (isRightSwipe && currentIndex > 0) {
-      navigate("prev")
-    }
-    
-    setTouchStart(0)
-    setTouchEnd(0)
-  }
-
-  // Kiểm tra điều kiện hiển thị nút điều hướng
-  const canNavigatePrev = currentIndex > 0
-  const canNavigateNext = currentIndex + visibleItems < movies.length
-
-  // Phân trang
-  const pageCount = Math.ceil(movies.length / Math.floor(visibleItems))
-  const currentPage = Math.floor(currentIndex / Math.floor(visibleItems))
-
+    // No action needed - we're using native scroll behavior instead of pagination
+    // Reset values
+    setTouchStart(0);
+    setTouchEnd(0);
+  };
+  
+  // Chlu1ec9 mu1ed9t return duy nhu1ea5t u1edf cuu1ed1i cu1ee7a component
   return (
-    <div 
-      className="relative py-8"
-      // Loại bỏ các thuộc tính của motion
-      // initial={{ opacity: 0, y: 20 }}
-      // animate={{ opacity: 1, y: 0 }}
-      // transition={{ duration: 0.6, ease: "easeOut" }}
-      onMouseEnter={() => setIsHovering(true)}
-      onMouseLeave={() => setIsHovering(false)}
-    >
-      {/* Header với tiêu đề và nút xem thêm */}
-      <div className="flex justify-between items-center mb-6">
-        <div className="flex items-center group">
-          <div className="h-5 w-1 bg-amber-500 rounded-full mr-3 group-hover:h-6 transition-all duration-300"></div>
-          <h2 className="text-xl md:text-2xl font-bold text-white group-hover:text-amber-500 transition-colors duration-300">{title}</h2>
-          <div className="ml-4 hidden md:flex space-x-1 items-center">
-            {pageCount > 1 &&
-              Array.from({ length: pageCount }).map((_, index) => (
-                <button
-                  key={index}
-                  onClick={() => setCurrentIndex(index * Math.floor(visibleItems))}
-                  className={`h-2 rounded-full transition-all duration-300 ${
-                    index === currentPage
-                      ? "bg-amber-500 w-6"
-                      : "bg-gray-700 w-2 hover:bg-gray-600"
-                  }`}
-                  aria-label={`Đến trang ${index + 1}`}
-                />
-              ))}
-          </div>
+    <div className={cn("w-full mb-8 md:mb-12", className)}>
+      <div className="flex justify-between items-center mb-4">
+        <div className="flex items-center gap-2">
+          <div className={`w-1 h-6 bg-indigo-500 rounded-full`}></div>
+          <h2 className="text-lg sm:text-xl md:text-2xl font-bold text-indigo-400">
+            {title}
+          </h2>
         </div>
-
-        {viewMoreLink && (
-          <Link
-            href={viewMoreLink}
-            className="group flex items-center text-amber-500 hover:text-amber-400 text-sm font-medium transition-colors"
-          >
-            <span>Xem thêm</span>
-            <ArrowRight className="ml-1 w-4 h-4 transform group-hover:translate-x-1 transition-transform" />
-          </Link>
-        )}
-      </div>
-
-      {/* Container slider chính */}
-      <div className="relative"
-        onTouchStart={handleTouchStart}
-        onTouchMove={handleTouchMove}
-        onTouchEnd={handleTouchEnd}
-      >
-        {/* Nút điều hướng trái */}
-        <button
-          onClick={() => navigate("prev")}
-          className={`absolute -left-4 md:-left-6 top-1/2 -translate-y-1/2 z-30 w-10 h-10 md:w-12 md:h-12 rounded-full bg-black/80 border border-gray-700 flex items-center justify-center transition-all duration-300 focus:outline-none focus:ring-2 focus:ring-amber-500/50 ${
-            canNavigatePrev 
-              ? "opacity-0 hover:opacity-100 md:opacity-0 md:group-hover:opacity-100 hover:bg-gray-800 hover:border-gray-600" 
-              : "opacity-0 cursor-default"
-          }`}
-          disabled={!canNavigatePrev}
-          aria-label="Các mục trước"
-        >
-          <ChevronLeft className="h-5 w-5 md:h-6 md:w-6 text-white" />
-        </button>
-
-        {/* Vùng hiển thị slider */}
-        <div className="relative overflow-hidden rounded-xl">
-          <div
-            ref={sliderRef}
-            className="flex gap-4 transition-transform duration-500 ease-out pb-4"
-            style={{
-              transform: `translateX(-${(currentIndex / movies.length) * 100 * (movies.length / visibleItems)}%)`,
-            }}
-          >
-            {movies.map((movie, index) => (
-              <div
-                key={movie.id}
-                className="flex-shrink-0"
-                style={{ width: `calc(${100 / visibleItems}% - ${(4 * (visibleItems - 1)) / visibleItems}rem)` }}
+        
+        <div className="flex items-center gap-2">
+          {totalPages > 1 && !isMobile && movieData && movieData.length > 0 && !loading && !error && (
+            <div className="flex items-center space-x-2">
+              <Button 
+                size="icon"
+                variant="outline"
+                onClick={handlePrevPage} 
+                disabled={currentPage === 0}
+                className={`rounded-full ${
+                  currentPage > 0 
+                    ? 'bg-black/80 hover:bg-black/60 border-gray-700' 
+                    : 'bg-black/50 cursor-not-allowed border-transparent opacity-50'
+                } flex items-center justify-center w-8 h-8 sm:w-9 sm:h-9`}
               >
-                <MovieCard movie={movie} index={index} />
-              </div>
-            ))}
-          </div>
+                <ChevronLeft size={16} className="sm:w-5 sm:h-5" />
+              </Button>
 
-          {/* Hiệu ứng mờ dần ở phía bên phải */}
-          <div className="absolute top-0 bottom-0 right-0 w-16 bg-gradient-to-l from-gray-900 to-transparent pointer-events-none"></div>
+              <Button 
+                size="icon"
+                variant="outline"
+                onClick={handleNextPage} 
+                disabled={currentPage >= totalPages - 1}
+                className={`rounded-full ${
+                  currentPage < totalPages - 1 
+                    ? 'bg-black/80 hover:bg-black/60 border-gray-700' 
+                    : 'bg-black/50 cursor-not-allowed border-transparent opacity-50'
+                } flex items-center justify-center w-8 h-8 sm:w-9 sm:h-9`}
+              >
+                <ChevronRight size={16} className="sm:w-5 sm:h-5" />
+              </Button>
+            </div>
+          )}
         </div>
-
-        {/* Nút điều hướng phải */}
-        <button
-          onClick={() => navigate("next")}
-          className={`absolute -right-4 md:-right-6 top-1/2 -translate-y-1/2 z-30 w-10 h-10 md:w-12 md:h-12 rounded-full bg-black/80 border border-gray-700 flex items-center justify-center transition-all duration-300 focus:outline-none focus:ring-2 focus:ring-amber-500/50 ${
-            canNavigateNext 
-              ? "opacity-0 hover:opacity-100 md:opacity-0 md:group-hover:opacity-100 hover:bg-gray-800 hover:border-gray-600" 
-              : "opacity-0 cursor-default"
-          }`}
-          disabled={!canNavigateNext}
-          aria-label="Các mục kế tiếp"
-        >
-          <ChevronRight className="h-5 w-5 md:h-6 md:w-6 text-white" />
-        </button>
       </div>
 
-      {/* Chấm phân trang trên thiết bị di động */}
-      <div className="flex justify-center mt-5 gap-1 md:hidden">
-        {pageCount > 1 &&
-          Array.from({ length: pageCount }).map((_, index) => (
-            <button
-              key={index}
-              onClick={() => setCurrentIndex(index * Math.floor(visibleItems))}
-              className={`w-2 h-2 rounded-full transition-all duration-300 ${
-                index === currentPage ? "bg-amber-500 w-4" : "bg-gray-700"
-              }`}
-              aria-label={`Đến trang ${index + 1}`}
-            />
+      {/* Case 1: Loading */}
+      {loading && (
+        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4 md:gap-5">
+          {Array.from({ length: 5 }).map((_, index) => (
+            <div key={index} className="flex flex-col gap-2">
+              <Skeleton className="w-full aspect-[2/3] rounded-md h-64 sm:h-72" />
+              <Skeleton className="h-4 w-3/4" />
+              <Skeleton className="h-3 w-1/2" />
+            </div>
           ))}
-      </div>
+        </div>
+      )}
+      
+      {/* Case 2: Error */}
+      {!loading && error && (
+        <div className="bg-red-900/30 border border-red-700 rounded-md p-4">
+          <p className="text-red-300">{error}</p>
+        </div>
+      )}
+      
+      {/* Case 3: Clu00f3 du1eef liu1ec7u */}
+      {!loading && !error && movieData && movieData.length > 0 && (
+        <>
+          {isMobile ? (
+            // Mobile/tablet view with horizontal scrolling
+            <div 
+              className="overflow-x-auto flex gap-3 snap-x snap-mandatory scrollbar-hide pb-4"
+              style={{ 
+                scrollbarWidth: 'none', 
+                WebkitOverflowScrolling: 'touch',
+                scrollSnapType: 'x mandatory'
+              }}
+            >
+              {displayMovies.map((movie, index) => (
+                <div 
+                  key={String(movie.id)}
+                  className="flex-shrink-0 snap-start" 
+                  style={{ 
+                    width: isMobile ? 'calc(50% - 0.75rem)' : 'calc(33.333% - 1rem)',
+                    scrollSnapAlign: 'start'
+                  }}
+                >
+                  <motion.div
+                    initial={{ opacity: 0, y: 20 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ 
+                      duration: 0.3,
+                      delay: index * 0.05,
+                      ease: "easeOut"
+                    }}
+                  >
+                    <MoviePopover
+                      movie={movie}
+                      trigger={
+                        <Link 
+                          href={generateMovieUrl(movie.id, movie.title)} 
+                          className="transition-transform hover:scale-[1.03] duration-300 block w-full h-full"
+                          onClick={() => console.log(`Clicked movie: ${movie.title} (ID: ${movie.id}), URL: ${generateMovieUrl(movie.id, movie.title)}`)}
+                        >
+                          <MovieCard
+                            movie={movie}
+                            index={index}
+                            variant={variant === "trending" ? "trending" : "slider"}
+                            trapezoid={false}
+                            fullWidth={true}
+                            className="h-full"
+                          />
+                        </Link>
+                      }
+                      size={size}
+                      showPopover={showPopover}
+                    />
+                  </motion.div>
+                </div>
+              ))}
+            </div>
+          ) : (
+            // Desktop view with grid layout
+            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4 md:gap-5">
+              {displayMovies.map((movie, index) => (
+                <motion.div
+                  key={String(movie.id)}
+                  initial={{ opacity: 0, y: 20 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ 
+                    duration: 0.3,
+                    delay: index * 0.05,
+                    ease: "easeOut"
+                  }}
+                >
+                  <MoviePopover
+                    movie={movie}
+                    trigger={
+                      <Link 
+                        href={generateMovieUrl(movie.id, movie.title)} 
+                        className="transition-transform hover:scale-[1.03] duration-300 block w-full h-full"
+                        onClick={() => console.log(`Clicked movie: ${movie.title} (ID: ${movie.id}), URL: ${generateMovieUrl(movie.id, movie.title)}`)}
+                      >
+                        <MovieCard
+                          movie={movie}
+                          index={index}
+                          variant={variant === "trending" ? "trending" : "slider"}
+                          trapezoid={false}
+                          fullWidth={true}
+                          className="h-full"
+                        />
+                      </Link>
+                    }
+                    size={size}
+                    showPopover={showPopover}
+                  />
+                </motion.div>
+              ))}
+            </div>
+          )}
+        </>
+      )}
+
+      {/* Case 4: Non data */}
+      {!loading && !error && (!movieData || movieData.length === 0) && (
+        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4 md:gap-5">
+          {Array.from({ length: 5 }).map((_, index) => (
+            <div key={index} className="flex flex-col gap-2">
+              <Skeleton className="w-full aspect-[2/3] rounded-md h-64 sm:h-72" />
+              <Skeleton className="h-4 w-3/4" />
+              <Skeleton className="h-3 w-1/2" />
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   )
 }
 
 export default MovieSlider
-

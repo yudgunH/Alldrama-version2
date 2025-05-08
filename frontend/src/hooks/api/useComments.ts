@@ -1,58 +1,62 @@
 import { useState, useCallback } from 'react';
 import useSWR from 'swr';
-import { CommentListResponse, AddCommentDto, UpdateCommentDto } from '@/types';
-import { commentService } from '@/lib/api';
+import { Comment } from '@/types';
+import { commentService, CreateCommentRequest, UpdateCommentRequest } from '@/lib/api/services/commentService';
 import { toast } from 'react-hot-toast';
+import { API_ENDPOINTS } from '@/lib/api/endpoints';
 
-export const useComments = (movieId: string, initialPage: number = 1, initialLimit: number = 10) => {
+export const useComments = (movieId: string | number, initialPage: number = 1, initialLimit: number = 10) => {
   const [page, setPage] = useState(initialPage);
   const [limit, setLimit] = useState(initialLimit);
+  const [sort, setSort] = useState<string>('createdAt');
+  const [order, setOrder] = useState<'ASC' | 'DESC'>('DESC');
 
   // SWR key
-  const key = movieId ? `comments/movie/${movieId}?page=${page}&limit=${limit}` : null;
+  const key = movieId ? 
+    `${API_ENDPOINTS.COMMENTS.BY_MOVIE(movieId)}?page=${page}&limit=${limit}&sort=${sort}&order=${order}` 
+    : null;
 
-  // Fetcher function cho SWR
+  // Fetcher function for SWR
   const fetcher = useCallback(
-    async (key: string) => {
-      const match = key.match(/comments\/movie\/(.+?)\?/);
-      if (!match) throw new Error('Invalid key format');
-      
-      const movieId = match[1];
-      const url = new URL(key.replace(/^comments\/movie\/[^?]+/, ''), 'http://example.com');
-      const page = parseInt(url.searchParams.get('page') || '1');
-      const limit = parseInt(url.searchParams.get('limit') || '10');
-
-      return await commentService.getCommentsByMovieId(movieId, page, limit);
+    async () => {
+      if (!movieId) return [];
+      try {
+        return await commentService.getCommentsByMovieId(movieId, page, limit, sort, order);
+      } catch (error) {
+        console.error('Error fetching comments:', error);
+        throw error;
+      }
     },
-    []
+    [movieId, page, limit, sort, order]
   );
 
-  // Sử dụng SWR hook
-  const { data, error, isLoading, isValidating, mutate } = useSWR<CommentListResponse>(
+  // Use SWR hook
+  const { data, error, isLoading, isValidating, mutate } = useSWR<Comment[]>(
     key,
     fetcher
   );
 
-  // Thêm bình luận mới
+  // Add a new comment
   const addComment = useCallback(
-    async (content: string, parentId?: string) => {
+    async (commentText: string, parentId?: string | number) => {
       if (!movieId) {
         toast.error('Không thể thêm bình luận');
         return null;
       }
 
       try {
-        const commentData: AddCommentDto = {
-          content,
-          movieId,
+        const commentData: CreateCommentRequest = {
+          movieId: movieId,
+          comment: commentText,
           parentId: parentId || null,
         };
 
-        const result = await commentService.addComment(commentData);
-        // Refresh bình luận
+        const result = await commentService.createComment(commentData);
+        
+        // Refresh comments
         await mutate();
         toast.success('Đã thêm bình luận');
-        return result;
+        return result.comment;
       } catch (err) {
         toast.error('Không thể thêm bình luận');
         return null;
@@ -61,16 +65,17 @@ export const useComments = (movieId: string, initialPage: number = 1, initialLim
     [movieId, mutate]
   );
 
-  // Cập nhật bình luận
+  // Update comment
   const updateComment = useCallback(
-    async (commentId: string, content: string) => {
+    async (commentId: string | number, commentText: string) => {
       try {
-        const updateData: UpdateCommentDto = { content };
+        const updateData: UpdateCommentRequest = { comment: commentText };
         const result = await commentService.updateComment(commentId, updateData);
-        // Refresh bình luận
+        
+        // Refresh comments
         await mutate();
         toast.success('Đã cập nhật bình luận');
-        return result;
+        return result.comment;
       } catch (err) {
         toast.error('Không thể cập nhật bình luận');
         return null;
@@ -79,12 +84,13 @@ export const useComments = (movieId: string, initialPage: number = 1, initialLim
     [mutate]
   );
 
-  // Xóa bình luận
+  // Delete comment
   const deleteComment = useCallback(
-    async (commentId: string) => {
+    async (commentId: string | number) => {
       try {
         await commentService.deleteComment(commentId);
-        // Refresh bình luận
+        
+        // Refresh comments
         await mutate();
         toast.success('Đã xóa bình luận');
         return true;
@@ -96,50 +102,44 @@ export const useComments = (movieId: string, initialPage: number = 1, initialLim
     [mutate]
   );
 
-  // Phản hồi bình luận
-  const replyToComment = useCallback(
-    async (parentId: string, content: string) => {
-      if (!movieId) {
-        toast.error('Không thể thêm phản hồi');
-        return null;
-      }
-
+  // Get comment by ID
+  const getComment = useCallback(
+    async (commentId: string | number) => {
       try {
-        const result = await commentService.addReply(parentId, movieId, content);
-        // Refresh bình luận
-        await mutate();
-        toast.success('Đã thêm phản hồi');
-        return result;
+        return await commentService.getCommentById(commentId);
       } catch (err) {
-        toast.error('Không thể thêm phản hồi');
+        toast.error('Không thể lấy thông tin bình luận');
         return null;
       }
-    },
-    [movieId, mutate]
-  );
-
-  // Phân trang
-  const goToPage = useCallback(
-    (newPage: number) => {
-      setPage(newPage);
     },
     []
   );
 
+  // Pagination
+  const goToPage = useCallback((newPage: number) => {
+    setPage(newPage);
+  }, []);
+
+  // Change sort
+  const changeSort = useCallback((newSort: string, newOrder: 'ASC' | 'DESC' = 'DESC') => {
+    setSort(newSort);
+    setOrder(newOrder);
+  }, []);
+
   return {
-    comments: data?.comments || [],
-    totalPages: data?.totalPages || 0,
-    currentPage: data?.currentPage || page,
-    totalComments: data?.totalComments || 0,
+    comments: data || [],
     loading: isLoading,
     isValidating,
     error,
     addComment,
     updateComment,
     deleteComment,
-    replyToComment,
-    goToPage,
-    setLimit,
+    getComment,
     refreshComments: mutate,
+    goToPage,
+    changeSort,
+    currentPage: page,
+    totalPages: Math.ceil((data?.length || 0) / limit),
+    setLimit,
   };
-}; 
+};

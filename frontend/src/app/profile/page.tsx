@@ -1,20 +1,20 @@
 'use client'
 
 import { useState, useEffect } from 'react';
-import { getUserWatchHistory } from '@/mocks/watchHistory';
-import { getUserFavorites } from '@/mocks/favorites';
 import Image from 'next/image';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { useAuthStore } from '@/store/auth';
+import { useFavorites } from '@/hooks/api/useFavorites';
+import { useWatchHistory } from '@/hooks/api/useWatchHistory';
+import { useAuth } from '@/hooks/api/useAuth';
+import { Favorite, WatchHistory } from '@/types';
 
 // Tabs
 type TabType = 'account' | 'history' | 'favorites' | 'settings';
 
 const ProfilePage = () => {
   const [activeTab, setActiveTab] = useState<TabType>('account');
-  const [watchHistory, setWatchHistory] = useState<any[]>([]);
-  const [favorites, setFavorites] = useState<any[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [currentPassword, setCurrentPassword] = useState('');
   const [newPassword, setNewPassword] = useState('');
@@ -24,15 +24,35 @@ const ProfilePage = () => {
   const searchParams = useSearchParams();
   const router = useRouter();
   
-  // Lấy thông tin người dùng từ auth store
-  const { user, isAuthenticated } = useAuthStore();
+  // Sử dụng auth hook
+  const { user, isAuthenticated, changePassword, fetchCurrentUser } = useAuth();
+
+  // Sử dụng API hooks
+  const { 
+    favorites, 
+    loading: loadingFavorites, 
+    removeFromFavorites 
+  } = useFavorites();
+  
+  const { 
+    watchHistory, 
+    loading: loadingWatchHistory 
+  } = useWatchHistory();
 
   // Kiểm tra nếu chưa đăng nhập, chuyển hướng đến trang đăng nhập
   useEffect(() => {
-    if (!isAuthenticated || !user) {
-      router.push('/login');
-    }
-  }, [isAuthenticated, user, router]);
+    const checkAuth = async () => {
+      if (!isAuthenticated) {
+        // Thử lấy thông tin user trước khi chuyển hướng
+        const currentUser = await fetchCurrentUser();
+        if (!currentUser) {
+          router.push('/login');
+        }
+      }
+    };
+    
+    checkAuth();
+  }, [isAuthenticated, router, fetchCurrentUser]);
 
   // Lấy tab từ URL nếu có
   useEffect(() => {
@@ -50,25 +70,13 @@ const ProfilePage = () => {
     }
   }, [searchParams]);
 
-  // Lấy dữ liệu khi component được mount và người dùng đã đăng nhập
-  useEffect(() => {
-    if (user) {
-      // Giả lập gọi API để lấy dữ liệu
-      const history = getUserWatchHistory(user.id);
-      const favs = getUserFavorites(user.id);
-      
-      setWatchHistory(history.history);
-      setFavorites(favs.favorites);
-    }
-  }, [user]);
-
   // Nếu chưa đăng nhập hoặc đang chuyển hướng, hiển thị màn hình loading
   if (!isAuthenticated || !user) {
     return (
       <div className="min-h-screen bg-gray-900 flex items-center justify-center">
         <div className="text-center">
           <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-red-500 mx-auto"></div>
-          <p className="mt-4 text-white">Đang chuyển hướng đến trang đăng nhập...</p>
+          <p className="mt-4 text-white">Đang tải thông tin người dùng...</p>
         </div>
       </div>
     );
@@ -76,6 +84,8 @@ const ProfilePage = () => {
 
   const handleTabClick = (tab: TabType) => {
     setActiveTab(tab);
+    // Cập nhật URL để phản ánh tab hiện tại, giúp cho việc reload trang
+    router.push(`/profile?tab=${tab}`, { scroll: false });
   };
 
   const handleChangePassword = async (e: React.FormEvent) => {
@@ -103,15 +113,15 @@ const ProfilePage = () => {
     
     setIsLoading(true);
     
-    // Giả lập gọi API
     try {
-      await new Promise(resolve => setTimeout(resolve, 1000));
-      
-      // Giả lập thành công
-      setPasswordSuccess('Mật khẩu đã được cập nhật thành công!');
-      setCurrentPassword('');
-      setNewPassword('');
-      setConfirmPassword('');
+      // Gọi API đổi mật khẩu
+      if (user?.id) {
+        await changePassword(user.id, currentPassword, newPassword);
+        setPasswordSuccess('Mật khẩu đã được cập nhật thành công!');
+        setCurrentPassword('');
+        setNewPassword('');
+        setConfirmPassword('');
+      }
     } catch (error) {
       setPasswordError('Có lỗi xảy ra khi đổi mật khẩu. Vui lòng thử lại sau.');
     } finally {
@@ -119,8 +129,19 @@ const ProfilePage = () => {
     }
   };
 
+  const handleRemoveFavorite = async (movieId: number) => {
+    if (!removeFromFavorites) return;
+    
+    try {
+      await removeFromFavorites(movieId);
+    } catch (error) {
+      console.error('Lỗi khi xóa phim yêu thích:', error);
+    }
+  };
+
   // Format timestamp to local date time
-  const formatDate = (dateString: string) => {
+  const formatDate = (dateString: string | undefined) => {
+    if (!dateString) return "N/A";
     const date = new Date(dateString);
     return date.toLocaleString('vi-VN', {
       day: '2-digit',
@@ -143,10 +164,10 @@ const ProfilePage = () => {
     <div className="bg-gray-800 rounded-lg shadow-lg p-6">
       <div className="flex flex-col sm:flex-row items-start sm:items-center mb-8">
         <div className="w-24 h-24 bg-gray-700 rounded-full flex items-center justify-center text-white text-3xl font-bold mb-4 sm:mb-0 sm:mr-6">
-          {user.full_name.charAt(0)}
+          {user.full_name?.charAt(0) || user.email?.charAt(0) || 'U'}
         </div>
         <div>
-          <h2 className="text-2xl font-bold text-white">{user.full_name}</h2>
+          <h2 className="text-2xl font-bold text-white">{user.full_name || 'Người dùng'}</h2>
           <p className="text-gray-400">{user.email}</p>
           <p className="text-gray-400 mt-1">
             Loại tài khoản: <span className="capitalize">{user.role}</span>
@@ -163,11 +184,11 @@ const ProfilePage = () => {
           <div className="space-y-3">
             <div className="flex justify-between">
               <span className="text-gray-400">Phim đã xem:</span>
-              <span className="text-white font-medium">{watchHistory.length}</span>
+              <span className="text-white font-medium">{watchHistory?.length || 0}</span>
             </div>
             <div className="flex justify-between">
               <span className="text-gray-400">Phim yêu thích:</span>
-              <span className="text-white font-medium">{favorites.length}</span>
+              <span className="text-white font-medium">{favorites?.length || 0}</span>
             </div>
             <div className="flex justify-between">
               <span className="text-gray-400">Bình luận:</span>
@@ -180,7 +201,7 @@ const ProfilePage = () => {
           <h3 className="text-white font-semibold text-lg mb-4">Cài đặt nhanh</h3>
           <div className="space-y-4">
             <button 
-              onClick={() => setActiveTab('settings')}
+              onClick={() => handleTabClick('settings')}
               className="w-full bg-red-600 hover:bg-red-700 text-white py-2 rounded-md transition-colors"
             >
               Đổi mật khẩu
@@ -199,7 +220,12 @@ const ProfilePage = () => {
     <div className="bg-gray-800 rounded-lg shadow-lg p-6">
       <h2 className="text-2xl font-bold text-white mb-6">Lịch sử xem phim</h2>
       
-      {watchHistory.length === 0 ? (
+      {loadingWatchHistory ? (
+        <div className="bg-gray-700 rounded-lg p-8 text-center">
+          <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-red-500 mx-auto"></div>
+          <p className="text-lg text-gray-400 mt-4">Đang tải lịch sử xem phim...</p>
+        </div>
+      ) : watchHistory?.length === 0 ? (
         <div className="bg-gray-700 rounded-lg p-8 text-center">
           <p className="text-lg text-gray-400">Bạn chưa xem phim nào.</p>
           <Link 
@@ -211,27 +237,31 @@ const ProfilePage = () => {
         </div>
       ) : (
         <div className="space-y-4">
-          {watchHistory.map((item: any) => (
+          {watchHistory?.map((item) => (
             <div key={item.id} className="bg-gray-700 rounded-lg p-4 flex flex-col sm:flex-row">
               <div className="w-full sm:w-32 h-44 sm:h-44 mb-4 sm:mb-0 sm:mr-4 relative">
                 <Image 
-                  src={item.movie.posterUrl || '/placeholders/movie.png'} 
-                  alt={item.movie.title}
+                  src={ '/placeholders/movie.png'} 
+                  alt={item.movie?.title || 'Movie'}
                   width={128}
                   height={176}
                   className="rounded-md w-full h-full object-cover"
                 />
               </div>
               <div className="flex-1">
-                <Link 
-                  href={`/movie/${item.movie.id}-${item.movie.title.toLowerCase().replace(/\s+/g, '-')}`}
-                  className="text-xl font-semibold text-white hover:text-red-500 transition-colors"
-                >
-                  {item.movie.title}
-                </Link>
-                <p className="text-gray-400 mt-1">
-                  Tập {item.episode.episodeNumber}: {item.episode.title}
-                </p>
+                {item.movie && (
+                  <Link 
+                    href={`/movie/${item.movie.id}-${item.movie.title.toLowerCase().replace(/\s+/g, '-')}`}
+                    className="text-xl font-semibold text-white hover:text-red-500 transition-colors"
+                  >
+                    {item.movie.title}
+                  </Link>
+                )}
+                {item.episode && (
+                  <p className="text-gray-400 mt-1">
+                    Tập {item.episode.episodeNumber}: {item.episode.title}
+                  </p>
+                )}
                 <div className="mt-2 flex items-center text-sm text-gray-400">
                   <svg className="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
@@ -239,7 +269,7 @@ const ProfilePage = () => {
                   Xem lúc: {formatDate(item.watchedAt)}
                 </div>
                 <div className="mt-4">
-                  {item.completed ? (
+                  {item.isCompleted ? (
                     <span className="inline-flex items-center px-3 py-1 rounded-full text-xs font-medium bg-green-900 text-green-300">
                       Đã xem xong
                     </span>
@@ -247,25 +277,27 @@ const ProfilePage = () => {
                     <>
                       <div className="flex justify-between text-sm text-gray-400 mb-1">
                         <span>Tiến độ: {formatTime(item.progress)}</span>
-                        <span>Tiếp tục xem</span>
+                        <span>Tổng thời gian: {formatTime(item.duration)}</span>
                       </div>
                       <div className="w-full bg-gray-600 rounded-full h-2">
                         <div 
                           className="bg-red-600 h-2 rounded-full" 
-                          style={{ width: `${(item.progress / 3600) * 100}%` }}
+                          style={{ width: `${(item.progress / item.duration) * 100}%` }}
                         ></div>
                       </div>
                     </>
                   )}
                 </div>
-                <div className="mt-4">
-                  <Link 
-                    href={`/watch/${item.movie.id}-${item.movie.title.toLowerCase().replace(/\s+/g, '-')}/episode/${item.episode.id}-tap-${item.episode.episodeNumber}`}
-                    className="inline-block bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded-md text-sm transition-colors"
-                  >
-                    {item.completed ? 'Xem lại' : 'Tiếp tục xem'}
-                  </Link>
-                </div>
+                {item.movie && item.episode && (
+                  <div className="mt-4">
+                    <Link 
+                      href={`/watch/${item.movie.id}-${item.movie.title.toLowerCase().replace(/\s+/g, '-')}?episode=${item.episode.id}&ep=${item.episode.episodeNumber}&progress=${item.progress}`}
+                      className="inline-block bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded-md text-sm transition-colors"
+                    >
+                      {item.isCompleted ? 'Xem lại' : 'Tiếp tục xem'}
+                    </Link>
+                  </div>
+                )}
               </div>
             </div>
           ))}
@@ -279,7 +311,12 @@ const ProfilePage = () => {
     <div className="bg-gray-800 rounded-lg shadow-lg p-6">
       <h2 className="text-2xl font-bold text-white mb-6">Phim yêu thích</h2>
       
-      {favorites.length === 0 ? (
+      {loadingFavorites ? (
+        <div className="bg-gray-700 rounded-lg p-8 text-center">
+          <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-red-500 mx-auto"></div>
+          <p className="text-lg text-gray-400 mt-4">Đang tải danh sách phim yêu thích...</p>
+        </div>
+      ) : favorites?.length === 0 ? (
         <div className="bg-gray-700 rounded-lg p-8 text-center">
           <p className="text-lg text-gray-400">Bạn chưa thêm phim yêu thích nào.</p>
           <Link 
@@ -291,11 +328,11 @@ const ProfilePage = () => {
         </div>
       ) : (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
-          {favorites.map((favorite: any) => (
+          {favorites?.map((favorite) => favorite.movie && (
             <div key={favorite.id} className="bg-gray-700 rounded-lg overflow-hidden">
               <div className="relative w-full h-60">
                 <Image 
-                  src={favorite.movie.posterUrl || '/placeholders/movie.png'} 
+                  src={'/placeholders/movie.png'} 
                   alt={favorite.movie.title}
                   width={400}
                   height={240}
@@ -305,6 +342,7 @@ const ProfilePage = () => {
                   <button 
                     className="bg-gray-800/80 hover:bg-red-600/80 p-2 rounded-full transition-colors"
                     aria-label="Remove from favorites"
+                    onClick={() => handleRemoveFavorite(favorite.movieId)}
                   >
                     <svg className="w-5 h-5 text-white" fill="currentColor" viewBox="0 0 20 20" xmlns="http://www.w3.org/2000/svg">
                       <path fillRule="evenodd" d="M3.172 5.172a4 4 0 015.656 0L10 6.343l1.172-1.171a4 4 0 115.656 5.656L10 17.657l-6.828-6.829a4 4 0 010-5.656z" clipRule="evenodd" />
@@ -320,7 +358,7 @@ const ProfilePage = () => {
                   {favorite.movie.title}
                 </Link>
                 <p className="text-gray-400 text-sm mt-1">
-                  Đã thêm vào: {formatDate(favorite.createdAt)}
+                  Đã thêm vào: {formatDate(favorite.favoritedAt)}
                 </p>
                 <div className="mt-4 flex space-x-2">
                   <Link 
@@ -330,7 +368,7 @@ const ProfilePage = () => {
                     Chi tiết
                   </Link>
                   <Link 
-                    href={`/watch/${favorite.movie.id}-${favorite.movie.title.toLowerCase().replace(/\s+/g, '-')}/episode/episode-1-tap-1`}
+                    href={`/watch/${favorite.movie.id}-${favorite.movie.title.toLowerCase().replace(/\s+/g, '-')}/episode/1`}
                     className="flex-1 bg-red-600 hover:bg-red-700 text-white py-2 text-center rounded-md text-sm transition-colors"
                   >
                     Xem ngay

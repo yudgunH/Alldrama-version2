@@ -1,31 +1,31 @@
+import { User } from "./auth";
+import { Movie } from "./movie";
+
 export interface Comment {
-  id: string;
-  content: string;
-  userId: string;
-  user?: {
-    id: string;
-    name: string;
-  };
-  movieId: string;
-  parentId: string | null;
-  replies?: Comment[];
+  id: number;
+  comment: string;
+  movieId: number;
+  userId: number;
+  userName: string;
   createdAt: string;
   updatedAt: string;
+  user?: User
+  movie?: Movie
+  parentId?: number | null;
+  replies?: Comment[];
 }
 
-export interface CommentListResponse {
-  comments: Comment[];
-  totalPages: number;
-  currentPage: number;
-  totalComments: number;
+export interface CommentRequest {
+  movieId: string | number;
+  comment: string;
+  parentId?: string | number | null;
 }
 
-export interface AddCommentDto {
-  content: string;
-  movieId: string;
-  parentId?: string | null;
+export interface UpdateCommentRequest {
+  comment: string;
 }
 
-export interface UpdateCommentDto {
-  content: string;
-} 
+export interface CommentResponse {
+  message: string;
+  comment: Comment;
+}

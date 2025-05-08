@@ -10,15 +10,13 @@ export const useStats = () => {
     clearCache('stats');
   }, [clearCache]);
 
-  // Dashboard stats with custom date range
-  const useDashboardStats = (startDate?: string, endDate?: string) => {
-    const cacheKey = startDate || endDate 
-      ? `stats/dashboard?startDate=${startDate}&endDate=${endDate}` 
-      : 'stats/dashboard';
+  // Top movies hook
+  const useTopMovies = (limit?: number) => {
+    const cacheKey = limit ? `stats/top-movies?limit=${limit}` : 'stats/top-movies';
 
     const { data, error, isLoading, mutate } = useSWR(
       cacheKey,
-      () => statsService.getDashboardStats(startDate, endDate),
+      () => statsService.getTopMovies(limit),
       {
         revalidateOnFocus: false,
         dedupingInterval: 60000, // 1 phút
@@ -26,20 +24,20 @@ export const useStats = () => {
     );
 
     return {
-      stats: data,
+      topMovies: data || [],
       isLoading,
       isError: error,
       mutate,
     };
   };
 
-  // Popular movies stats
-  const usePopularMovies = (limit?: number) => {
-    const cacheKey = limit ? `stats/popular-movies?limit=${limit}` : 'stats/popular-movies';
+  // Top episodes hook
+  const useTopEpisodes = (limit?: number) => {
+    const cacheKey = limit ? `stats/top-episodes?limit=${limit}` : 'stats/top-episodes';
 
     const { data, error, isLoading, mutate } = useSWR(
       cacheKey,
-      () => statsService.getPopularMovies(limit),
+      () => statsService.getTopEpisodes(limit),
       {
         revalidateOnFocus: false,
         dedupingInterval: 60000, // 1 phút
@@ -47,20 +45,20 @@ export const useStats = () => {
     );
 
     return {
-      popularMovies: data,
+      topEpisodes: data || [],
       isLoading,
       isError: error,
       mutate,
     };
   };
 
-  // New users stats
-  const useNewUsers = (limit?: number) => {
-    const cacheKey = limit ? `stats/new-users?limit=${limit}` : 'stats/new-users';
+  // Movie stats hook
+  const useMovieStats = (movieId: string | number | null) => {
+    const cacheKey = movieId ? `stats/movies/${movieId}` : null;
 
     const { data, error, isLoading, mutate } = useSWR(
       cacheKey,
-      () => statsService.getNewUsers(limit),
+      () => movieId ? statsService.getMovieStats(movieId) : null,
       {
         revalidateOnFocus: false,
         dedupingInterval: 60000, // 1 phút
@@ -68,18 +66,20 @@ export const useStats = () => {
     );
 
     return {
-      newUsers: data,
+      movieStats: data,
       isLoading,
       isError: error,
       mutate,
     };
   };
 
-  // Genre stats
-  const useGenreStats = () => {
+  // Episode stats hook
+  const useEpisodeStats = (episodeId: string | number | null) => {
+    const cacheKey = episodeId ? `stats/episodes/${episodeId}` : null;
+
     const { data, error, isLoading, mutate } = useSWR(
-      'stats/genres',
-      () => statsService.getGenreStats(),
+      cacheKey,
+      () => episodeId ? statsService.getEpisodeStats(episodeId) : null,
       {
         revalidateOnFocus: false,
         dedupingInterval: 60000, // 1 phút
@@ -87,7 +87,26 @@ export const useStats = () => {
     );
 
     return {
-      genreStats: data,
+      episodeStats: data,
+      isLoading,
+      isError: error,
+      mutate,
+    };
+  };
+
+  // Keep for backward compatibility - will be removed later
+  const useOverview = () => {
+    const { data, error, isLoading, mutate } = useSWR(
+      'stats/overview',
+      () => statsService.getOverview(),
+      {
+        revalidateOnFocus: false,
+        dedupingInterval: 60000, // 1 phút
+      }
+    );
+
+    return {
+      overview: data,
       isLoading,
       isError: error,
       mutate,
@@ -95,10 +114,11 @@ export const useStats = () => {
   };
 
   return {
-    useDashboardStats,
-    usePopularMovies,
-    useNewUsers,
-    useGenreStats,
-    clearStatsCache,
+    useTopMovies,
+    useTopEpisodes,
+    useMovieStats,
+    useEpisodeStats,
+    useOverview,
+    clearStatsCache
   };
-}; 
+};

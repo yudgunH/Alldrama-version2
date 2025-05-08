@@ -8,9 +8,10 @@ import {
   onTokenRefreshed,
   notifySubscribers
 } from './authHelper';
+import { useAuthStore } from '@/store/authStore';
 
 // Cấu hình môi trường
-const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+const API_URL = process.env.NEXT_PUBLIC_API_URL || 'https://alldramaz.com';
 
 // Mở rộng InternalAxiosRequestConfig để hỗ trợ _retry property
 interface ExtendedAxiosRequestConfig extends InternalAxiosRequestConfig {
@@ -46,10 +47,14 @@ class ApiClient {
     // Request interceptor - thêm token cho mỗi request
     this.client.interceptors.request.use(
       (config) => {
-        const token = localStorage.getItem('token');
+        // Lấy token từ authStore
+        const token = useAuthStore.getState().token;
+        
+        // Thêm token vào header nếu có
         if (token) {
           config.headers.Authorization = `Bearer ${token}`;
         }
+        
         return config;
       },
       (error) => {
@@ -177,6 +182,12 @@ class ApiClient {
   // Phương thức delete generic
   public async delete<T>(url: string, config?: AxiosRequestConfig): Promise<T> {
     const response = await this.client.delete<T>(url, config);
+    return response.data;
+  }
+
+  // Phương thức patch generic
+  public async patch<T>(url: string, data?: any, config?: AxiosRequestConfig): Promise<T> {
+    const response = await this.client.patch<T>(url, data, config);
     return response.data;
   }
 

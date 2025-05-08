@@ -3,7 +3,6 @@ import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import Image from 'next/image';
 import { Movie } from '@/types';
-import { mockMovies } from '@/mocks';
 import { generateMovieUrl } from '@/utils/url';
 import { motion } from 'framer-motion';
 import { Play, Film } from 'lucide-react';
@@ -63,7 +62,7 @@ const Hero = () => {
   useEffect(() => {
     // Tạo hiệu ứng loading
     const timer = setTimeout(() => {
-      setFeaturedMovie(mockMovies[0]);
+      // setFeaturedMovie(mockMovies[0]);
       setIsLoading(false);
     }, 800);
 
@@ -130,7 +129,7 @@ const Hero = () => {
             </h1>
             
             <p className="text-white hero-description sm:text-lg line-clamp-3 md:line-clamp-4 leading-relaxed">
-              {featuredMovie.description}
+              {featuredMovie.summary}
             </p>
             
             <div className="flex flex-wrap gap-2 sm:gap-3 items-center text-sm sm:text-base text-white hero-tag">

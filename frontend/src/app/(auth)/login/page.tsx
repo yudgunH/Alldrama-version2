@@ -4,7 +4,7 @@ import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import Image from 'next/image';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { useAuthStore } from '@/store/auth';
+import { useAuth } from '@/hooks/api/useAuth';
 
 export default function LoginPage() {
   const [email, setEmail] = useState('');
@@ -16,7 +16,7 @@ export default function LoginPage() {
   
   const router = useRouter();
   const searchParams = useSearchParams();
-  const { login, isAuthenticated } = useAuthStore();
+  const { login, isAuthenticated, loading } = useAuth();
   
   // Kiểm tra nếu user vừa đăng ký thành công
   useEffect(() => {
@@ -45,15 +45,15 @@ export default function LoginPage() {
     setError('');
     
     try {
-      const result = await login(email, password);
+      const result = await login({ email, password });
       
-      if (!result.success) {
-        setError(result.message || 'Đăng nhập thất bại');
+      if (!result) {
+        setError('Đăng nhập thất bại. Kiểm tra lại email và mật khẩu.');
         setIsLoading(false);
         return;
       }
       
-      // Login thành công, router.push sẽ được gọi bởi useEffect
+      // Login thành công, router.push sẽ được gọi bởi useEffect trong useAuth hook
     } catch (err) {
       setError('Có lỗi xảy ra, vui lòng thử lại');
       console.error('Login error:', err);
@@ -140,9 +140,9 @@ export default function LoginPage() {
                 type="checkbox"
                 checked={rememberMe}
                 onChange={(e) => setRememberMe(e.target.checked)}
-                className="h-4 w-4 text-red-600 focus:ring-red-500 border-gray-700 rounded bg-gray-700"
+                className="h-4 w-4 text-red-600 focus:ring-red-500 border-gray-700 rounded bg-gray-700/50"
               />
-              <label htmlFor="remember-me" className="ml-2 block text-sm text-gray-300">
+              <label htmlFor="remember-me" className="ml-2 block text-sm text-gray-400">
                 Ghi nhớ đăng nhập
               </label>
             </div>
@@ -157,16 +157,10 @@ export default function LoginPage() {
           <div>
             <button
               type="submit"
-              disabled={isLoading}
-              className={`group relative w-full flex justify-center py-3 px-4 border border-transparent rounded-md text-white text-sm font-medium ${isLoading ? 'bg-red-700 cursor-not-allowed' : 'bg-red-600 hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-red-500'}`}
+              disabled={isLoading || loading}
+              className="group relative w-full flex justify-center py-3 px-4 border border-transparent text-sm font-medium rounded-md text-white bg-red-600 hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-red-500 disabled:opacity-70 disabled:cursor-not-allowed"
             >
-              {isLoading ? (
-                <svg className="animate-spin -ml-1 mr-2 h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                </svg>
-              ) : null}
-              {isLoading ? 'Đang đăng nhập...' : 'Đăng nhập'}
+              {(isLoading || loading) ? 'Đang xử lý...' : 'Đăng nhập'}
             </button>
           </div>
         </form>

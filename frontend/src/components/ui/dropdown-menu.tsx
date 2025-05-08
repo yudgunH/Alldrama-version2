@@ -6,10 +6,61 @@ import { CheckIcon, ChevronRightIcon, CircleIcon } from "lucide-react"
 
 import { cn } from "@/lib/utils"
 
+// Add a function to calculate scrollbar width
+const getScrollbarWidth = () => {
+  // Create a div with scrollbars
+  const outer = document.createElement('div');
+  outer.style.visibility = 'hidden';
+  outer.style.overflow = 'scroll';
+  document.body.appendChild(outer);
+
+  // Create an inner div
+  const inner = document.createElement('div');
+  outer.appendChild(inner);
+
+  // Calculate the scrollbar width
+  const scrollbarWidth = outer.offsetWidth - inner.offsetWidth;
+
+  // Remove the divs
+  outer.parentNode?.removeChild(outer);
+
+  return scrollbarWidth;
+};
+
 function DropdownMenu({
+  onOpenChange,
+  open,
   ...props
 }: React.ComponentProps<typeof DropdownMenuPrimitive.Root>) {
-  return <DropdownMenuPrimitive.Root data-slot="dropdown-menu" {...props} />
+  // Handle adding/removing class when dropdown opens/closes
+  React.useEffect(() => {
+    // Only run in browser
+    if (typeof window !== 'undefined') {
+      // Calculate and set scrollbar width as CSS variable
+      const scrollbarWidth = getScrollbarWidth();
+      document.documentElement.style.setProperty('--scrollbar-width', `${scrollbarWidth}px`);
+      
+      // Update class based on current open state
+      if (open) {
+        document.body.classList.add('has-dropdown-open');
+      } else {
+        document.body.classList.remove('has-dropdown-open');
+      }
+    }
+    
+    return () => {
+      document.body.classList.remove('has-dropdown-open');
+    };
+  }, [open]);
+  
+  return (
+    <DropdownMenuPrimitive.Root 
+      data-slot="dropdown-menu" 
+      onOpenChange={onOpenChange}
+      open={open}
+      {...props} 
+    />
+  )
 }
 
 function DropdownMenuPortal({
@@ -42,7 +93,9 @@ function DropdownMenuContent({
         data-slot="dropdown-menu-content"
         sideOffset={sideOffset}
         className={cn(
-          "bg-popover text-popover-foreground data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 data-[side=bottom]:slide-in-from-top-2 data-[side=left]:slide-in-from-right-2 data-[side=right]:slide-in-from-left-2 data-[side=top]:slide-in-from-bottom-2 z-50 max-h-(--radix-dropdown-menu-content-available-height) min-w-[8rem] origin-(--radix-dropdown-menu-content-transform-origin) overflow-x-hidden overflow-y-auto rounded-md border p-1 shadow-md",
+          "bg-popover text-popover-foreground data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 data-[side=bottom]:slide-in-from-top-2 data-[side=left]:slide-in-from-right-2 data-[side=right]:slide-in-from-left-2 data-[side=top]:slide-in-from-bottom-2 z-50 max-h-(--radix-dropdown-menu-content-available-height) min-w-[8rem] overflow-hidden rounded-md border p-1 shadow-md",
+          "scrollbar-gutter-stable",
+          "left-0 right-0 w-full md:w-auto md:left-auto md:right-auto",
           className
         )}
         {...props}
@@ -74,7 +127,8 @@ function DropdownMenuItem({
       data-inset={inset}
       data-variant={variant}
       className={cn(
-        "focus:bg-accent focus:text-accent-foreground data-[variant=destructive]:text-destructive data-[variant=destructive]:focus:bg-destructive/10 dark:data-[variant=destructive]:focus:bg-destructive/20 data-[variant=destructive]:focus:text-destructive data-[variant=destructive]:*:[svg]:!text-destructive [&_svg:not([class*='text-'])]:text-muted-foreground relative flex cursor-default items-center gap-2 rounded-sm px-2 py-1.5 text-sm outline-hidden select-none data-[disabled]:pointer-events-none data-[disabled]:opacity-50 data-[inset]:pl-8 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
+        "focus:bg-accent focus:text-accent-foreground relative flex cursor-default select-none items-center rounded-sm px-2 py-1.5 text-sm outline-none transition-colors data-[disabled]:pointer-events-none data-[disabled]:opacity-50",
+        inset && "pl-8",
         className
       )}
       {...props}

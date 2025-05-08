@@ -12,10 +12,10 @@ export const useViews = () => {
   }, [clearCache]);
 
   // Hook lấy lượt xem phim
-  const useMovieViews = (movieId: string) => {
+  const useMovieViews = (movieId: string | number | null) => {
     const { data, error, isLoading, mutate } = useSWR(
       movieId ? `views/movie/${movieId}` : null,
-      () => viewService.getMovieViews(movieId),
+      () => movieId ? viewService.getMovieViews(movieId) : null,
       {
         revalidateOnFocus: false,
         dedupingInterval: 60000, // 1 phút
@@ -46,10 +46,10 @@ export const useViews = () => {
   };
 
   // Hook lấy lượt xem tập phim
-  const useEpisodeViews = (episodeId: string) => {
+  const useEpisodeViews = (episodeId: string | number | null) => {
     const { data, error, isLoading, mutate } = useSWR(
       episodeId ? `views/episode/${episodeId}` : null,
-      () => viewService.getEpisodeViews(episodeId),
+      () => episodeId ? viewService.getEpisodeViews(episodeId) : null,
       {
         revalidateOnFocus: false,
         dedupingInterval: 60000, // 1 phút
@@ -84,4 +84,4 @@ export const useViews = () => {
     useEpisodeViews,
     clearViewCache,
   };
-}; 
+};

@@ -4,7 +4,8 @@ import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import Image from 'next/image';
 import { useRouter } from 'next/navigation';
-import { useAuthStore } from '@/store/auth';
+import { useAuth } from '@/hooks/api/useAuth';
+import { toast } from 'react-hot-toast';
 
 export default function RegisterPage() {
   const [fullName, setFullName] = useState('');
@@ -16,7 +17,7 @@ export default function RegisterPage() {
   const [error, setError] = useState('');
   
   const router = useRouter();
-  const { isAuthenticated } = useAuthStore();
+  const { isAuthenticated, register, loading } = useAuth();
   
   // Nếu đã đăng nhập, chuyển hướng về trang chủ
   useEffect(() => {
@@ -67,12 +68,20 @@ export default function RegisterPage() {
     setError('');
     
     try {
-      // Mô phỏng API call
-      await new Promise(resolve => setTimeout(resolve, 1000));
+      // Gọi hàm đăng ký từ useAuth hook
+      const result = await register({
+        full_name: fullName,
+        email,
+        password
+      });
       
-      // Trong thực tế, đây sẽ là API đăng ký
-      // Chuyển hướng đến trang đăng nhập với thông báo đăng ký thành công
-      router.push('/login?registered=success');
+      if (result) {
+        toast.success('Đăng ký thành công!');
+        // Nếu đăng ký thành công, useAuth sẽ tự động đăng nhập và chuyển hướng
+      } else {
+        // Nếu register trả về null, có thể đã có lỗi
+        setError('Có lỗi xảy ra khi đăng ký. Vui lòng thử lại');
+      }
     } catch (err) {
       setError('Có lỗi xảy ra khi đăng ký. Vui lòng thử lại');
       console.error('Register error:', err);
@@ -97,7 +106,7 @@ export default function RegisterPage() {
           <h2 className="text-3xl font-extrabold text-white">Đăng ký tài khoản</h2>
           <p className="mt-2 text-sm text-gray-400">
             Hoặc{' '}
-            <Link href="/login" className="font-medium text-red-500 hover:text-red-400">
+            <Link href="/login" className="font-medium text-amber-500 hover:text-amber-400">
               đăng nhập nếu đã có tài khoản
             </Link>
           </p>
@@ -123,7 +132,7 @@ export default function RegisterPage() {
                 required
                 value={fullName}
                 onChange={(e) => setFullName(e.target.value)}
-                className="appearance-none relative block w-full px-3 py-3 border border-gray-700 placeholder-gray-500 text-white rounded-md bg-gray-700/50 focus:outline-none focus:ring-red-500 focus:border-red-500 focus:z-10 sm:text-sm"
+                className="appearance-none relative block w-full px-3 py-3 border border-gray-700 placeholder-gray-500 text-white rounded-md bg-gray-700/50 focus:outline-none focus:ring-amber-500 focus:border-amber-500 focus:z-10 sm:text-sm"
                 placeholder="Họ và tên"
               />
             </div>
@@ -139,7 +148,7 @@ export default function RegisterPage() {
                 required
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
-                className="appearance-none relative block w-full px-3 py-3 border border-gray-700 placeholder-gray-500 text-white rounded-md bg-gray-700/50 focus:outline-none focus:ring-red-500 focus:border-red-500 focus:z-10 sm:text-sm"
+                className="appearance-none relative block w-full px-3 py-3 border border-gray-700 placeholder-gray-500 text-white rounded-md bg-gray-700/50 focus:outline-none focus:ring-amber-500 focus:border-amber-500 focus:z-10 sm:text-sm"
                 placeholder="Email"
               />
             </div>
@@ -155,7 +164,7 @@ export default function RegisterPage() {
                 required
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
-                className="appearance-none relative block w-full px-3 py-3 border border-gray-700 placeholder-gray-500 text-white rounded-md bg-gray-700/50 focus:outline-none focus:ring-red-500 focus:border-red-500 focus:z-10 sm:text-sm"
+                className="appearance-none relative block w-full px-3 py-3 border border-gray-700 placeholder-gray-500 text-white rounded-md bg-gray-700/50 focus:outline-none focus:ring-amber-500 focus:border-amber-500 focus:z-10 sm:text-sm"
                 placeholder="Mật khẩu"
               />
             </div>
@@ -171,7 +180,7 @@ export default function RegisterPage() {
                 required
                 value={confirmPassword}
                 onChange={(e) => setConfirmPassword(e.target.value)}
-                className="appearance-none relative block w-full px-3 py-3 border border-gray-700 placeholder-gray-500 text-white rounded-md bg-gray-700/50 focus:outline-none focus:ring-red-500 focus:border-red-500 focus:z-10 sm:text-sm"
+                className="appearance-none relative block w-full px-3 py-3 border border-gray-700 placeholder-gray-500 text-white rounded-md bg-gray-700/50 focus:outline-none focus:ring-amber-500 focus:border-amber-500 focus:z-10 sm:text-sm"
                 placeholder="Xác nhận mật khẩu"
               />
             </div>
@@ -184,15 +193,15 @@ export default function RegisterPage() {
               type="checkbox"
               checked={agreeTerms}
               onChange={(e) => setAgreeTerms(e.target.checked)}
-              className="h-4 w-4 text-red-600 focus:ring-red-500 border-gray-700 rounded bg-gray-700"
+              className="h-4 w-4 text-amber-600 focus:ring-amber-500 border-gray-700 rounded bg-gray-700"
             />
             <label htmlFor="agree-terms" className="ml-2 block text-sm text-gray-300">
               Tôi đồng ý với{' '}
-              <Link href="/terms" className="text-red-500 hover:text-red-400">
+              <Link href="/terms" className="text-amber-500 hover:text-amber-400">
                 điều khoản dịch vụ
               </Link>{' '}
               và{' '}
-              <Link href="/privacy" className="text-red-500 hover:text-red-400">
+              <Link href="/privacy" className="text-amber-500 hover:text-amber-400">
                 chính sách bảo mật
               </Link>
             </label>
@@ -201,16 +210,16 @@ export default function RegisterPage() {
           <div>
             <button
               type="submit"
-              disabled={isLoading}
-              className={`group relative w-full flex justify-center py-3 px-4 border border-transparent rounded-md text-white text-sm font-medium ${isLoading ? 'bg-red-700 cursor-not-allowed' : 'bg-red-600 hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-red-500'}`}
+              disabled={isLoading || loading}
+              className={`group relative w-full flex justify-center py-3 px-4 border border-transparent rounded-md text-white text-sm font-medium ${(isLoading || loading) ? 'bg-amber-700 cursor-not-allowed' : 'bg-amber-600 hover:bg-amber-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-amber-500'}`}
             >
-              {isLoading ? (
+              {(isLoading || loading) ? (
                 <svg className="animate-spin -ml-1 mr-2 h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
                   <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
                   <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
                 </svg>
               ) : null}
-              {isLoading ? 'Đang đăng ký...' : 'Đăng ký'}
+              {(isLoading || loading) ? 'Đang đăng ký...' : 'Đăng ký'}
             </button>
           </div>
         </form>
