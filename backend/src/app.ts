@@ -42,13 +42,39 @@ app.use(globalLimiter);
 //   allowedHeaders: ['Origin', 'X-Requested-With', 'Content-Type', 'Accept', 'Authorization', 'X-Worker-Secret', 'XSRF-TOKEN']
 // }));
 
+const allowedOrigins = [
+  'http://localhost:3000',
+  'https://alldrama.tech',
+  'https://alldrama2-urhb.vercel.app'
+];
+
 app.use(cors({
-  origin: 'http://localhost:3000',
+  origin: function (origin, callback) {
+    if (!origin || allowedOrigins.includes(origin)) {
+      callback(null, true);
+    } else {
+      callback(new Error('Not allowed by CORS'));
+    }
+  },
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Origin', 'X-Requested-With', 'Content-Type', 'Accept', 'Authorization', 'X-Worker-Secret', 'XSRF-TOKEN']
+  allowedHeaders: [
+    'Origin', 'X-Requested-With', 'Content-Type', 'Accept',
+    'Authorization', 'X-Worker-Secret', 'XSRF-TOKEN'
+  ]
 }));
-app.options('*', cors({ origin: 'http://localhost:3000', credentials: true }));
+
+app.options('*', cors({
+  origin: function (origin, callback) {
+    if (!origin || allowedOrigins.includes(origin)) {
+      callback(null, true);
+    } else {
+      callback(new Error('Not allowed by CORS'));
+    }
+  },
+  credentials: true
+}));
+
 
 // Swagger Documentation
 app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(swaggerSpec, {
