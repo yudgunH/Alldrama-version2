@@ -318,14 +318,49 @@ Authorization: Bearer {accessToken}
 - 404: Không tìm thấy phim
 - 500: Lỗi máy chủ
 
+### Kiểm tra trạng thái xử lý video
+
+```
+GET /api/media/episodes/:episodeId/processing-status
+```
+
+**Mô tả**: Kiểm tra trạng thái xử lý HLS cho video của tập phim
+
+**Headers**:
+
+```
+Authorization: Bearer {accessToken}
+```
+
+**Path Parameters**:
+
+- `episodeId`: ID của tập phim
+
+**Response (200 - OK)**:
+
+```json
+{
+  "episodeId": 456,
+  "isProcessed": true,
+  "processingError": null,
+  "playlistUrl": "https://cdn.example.com/episodes/123/456/hls/master.m3u8",
+  "thumbnailUrl": "https://cdn.example.com/episodes/123/456/thumbnail.jpg"
+}
+```
+
+**Lỗi**:
+
+- 401: Không được xác thực
+- 404: Không tìm thấy tập phim
+- 500: Lỗi máy chủ
 
 ### Xử lý video (từ worker)
 
 ```
-POST /api/media/process-video
+POST /api/media/worker/process-video
 ```
 
-**Mô tả**: API nội bộ được gọi bởi Cloudflare Worker để bắt đầu quá trình xử lý HLS
+**Mô tả**: API nội bộ được gọi bởi Cloudflare Worker để bắt đầu quá trình xử lý HLS thông qua Docker container
 
 **Headers**:
 
@@ -341,8 +376,7 @@ Content-Type: application/json
   "videoKey": "episodes/123/456/original.mp4",
   "movieId": 123,
   "episodeId": 456,
-  "jobId": "job-12345",
-  "callbackUrl": "https://worker.example.com/api/hls-callback/job-12345"
+  "callbackUrl": "https://worker.example.com/api/media/hls-processor/callback"
 }
 ```
 
@@ -353,6 +387,50 @@ Content-Type: application/json
   "success": true,
   "jobId": "job-12345",
   "error": null
+}
+```
+
+**Lỗi**:
+
+- 400: Thiếu thông tin cần thiết
+- 401: Không được xác thực
+- 500: Lỗi máy chủ
+
+### Callback sau khi xử lý HLS
+
+```
+POST /api/media/hls-processor/callback
+```
+
+**Mô tả**: API được gọi bởi Docker container sau khi xử lý HLS hoàn tất
+
+**Headers**:
+
+```
+X-Processor-Secret: {processorSecret}
+Content-Type: application/json
+```
+
+**Request Body**:
+
+```json
+{
+  "status": "completed",
+  "movieId": 123,
+  "episodeId": 456,
+  "error": null,
+  "duration": 1800,
+  "jobId": "job-12345",
+  "resolutions": ["240p", "360p", "480p", "720p", "1080p"]
+}
+```
+
+**Response (200 - OK)**:
+
+```json
+{
+  "success": true,
+  "message": "Cập nhật trạng thái xử lý video thành công"
 }
 ```
 
@@ -402,10 +480,50 @@ Content-Type: multipart/form-data
 - 401: Không được xác thực
 - 500: Lỗi máy chủ
 
+### Upload video cho tập phim (qua Worker)
+
+```
+POST https://worker.example.com/upload-episode-video
+```
+
+**Mô tả**: Upload file video cho tập phim và khởi động xử lý HLS
+
+**Headers**:
+
+```
+X-Worker-Secret: {workerSecret}
+Content-Type: multipart/form-data
+```
+
+**Form Data**:
+
+- `movieId`: ID của phim
+- `episodeId`: ID của tập phim
+- `video`: File video cần upload (MP4, WebM)
+
+**Response (200 - OK)**:
+
+```json
+{
+  "success": true,
+  "message": "Upload thành công, đang xử lý HLS",
+  "url": "https://cdn.example.com/episodes/123/456/original.mp4",
+  "key": "episodes/123/456/original.mp4",
+  "processingId": "job-12345",
+  "status": "processing"
+}
+```
+
+**Lỗi**:
+
+- 400: Thiếu thông tin hoặc không tìm thấy file
+- 401: Không được xác thực
+- 500: Lỗi máy chủ
+
 ### Tạo job chuyển đổi HLS
 
 ```
-POST https://media.alldrama.tech/api/convert-hls
+POST https://worker.example.com/api/convert-hls
 ```
 
 **Mô tả**: Tạo job để chuyển đổi video gốc sang định dạng HLS
@@ -588,77 +706,3 @@ GET https://worker.example.com/hls/:path
 
 - 404: Không tìm thấy file
 - 500: Lỗi máy chủ
-
-
-Quy trình upload video tập phim(thường từ 10-20p) lên cloudflare R2 và hls
-Bước 1: Lấy presigned link để upload trực tiếp video lên cloudflare R2 :
-### Lấy presigned URL để upload trực tiếp
-```
-POST /api/media/presigned-url
-```
-**Mô tả**: Tạo presigned URL để upload file trực tiếp lên R2 Storage
-**Headers**:
-```
-Authorization: Bearer {accessToken}
-Content-Type: application/json
-```
-**Request Body**:
-```json
-{
-  "movieId": 123,
-  "episodeId": 456,
-  "fileType": "video"
-}
-```
-**Loại fileType hỗ trợ**:
-- `video`: Video của tập phim (cần thêm episodeId)
-- `thumbnail`: Thumbnail của tập phim (cần thêm episodeId)
-**Response (200 - OK)**:
-```json
-{
-  "presignedUrl": "https://storage.example.com/upload-url?token=xyz",
-  "contentType": "video/mp4",
-  "cdnUrl": "https://cdn.example.com/",
-  "expiresIn": 10800
-}
-```
-**Lỗi**:
-- 400: Thiếu thông tin cần thiết
-- 401: Không được xác thực
-- 403: Không có quyền
-- 500: Lỗi máy chủ
-
-Sau khi lấy được presigned link thì Request đến presignedUrl với header chứa Content-Type : video/mp4 và body binary gán video được up.
-Sau khi video được upload lên r2 thì gọi hàm hls từ cf-worker để xử lý hls cho video : 
-POST https://media.alldrama.tech/api/convert-hls
-Headers chứa Content-Type : application/json và Authorization : Bearer alldrama-production-token
-Body chứa {
-     "videoKey": "episodes/5/2/original.mp4",
-     "movieId": "5",
-     "episodeId": "2"
-   }
-**Response (200 - OK)**:
-
-```json
-{
-  "success": true,
-  "jobId": "job-12345",
-  "error": null
-}
-```
-Sau đó backend sẽ xử lý hls video, có thể kiểm tra tình trạng xem hls hoàn thành hay chưa bằng api
-GET https://media.alldrama.tech/api/hls-status/hls-job-1744386090785-767/:movieId/:episodeNumber (ví dụ url thôi)
-
-**Response (200 - OK)**:
-{
-    "success": true,
-    "jobId": "hls-job-1744386090785-767",
-    "status": "completed",
-    "videoKey": "episodes/5/2/original.mp4",
-    "movieId": "5",
-    "episodeId": "2",
-    "hlsPath": "episodes/5/2/hls/master.m3u8",
-    "hlsUrl": "https://alldrama.tech/hls/episodes/5/2/hls/master.m3u8",
-    "createdAt": "2025-04-11T15:41:30.785Z",
-    "updatedAt": "2025-04-11T15:43:37.441Z"
-}

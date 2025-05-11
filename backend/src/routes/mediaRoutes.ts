@@ -99,7 +99,7 @@ router.get('/episodes/:episodeId/processing-status',
 );
 
 // Thêm route cho xử lý video từ worker
-router.post('/process-video', processVideo);
+router.post('/process-video', runAsyncWrapper(processVideoFromWorker));
 
 // Xử lý webhook từ Cloudflare Worker
 router.post('/worker/process-video', runAsyncWrapper(processVideoFromWorker));

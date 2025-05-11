@@ -219,7 +219,7 @@ app.post("/api/convert-hls", async (c) => {
         console.log(`Gửi yêu cầu xử lý HLS đến backend API`);
         
         // URL của backend API
-        const backendUrl = `${c.env.BACKEND_URL}/api/media/process-video`;
+        const backendUrl = `${c.env.BACKEND_URL}/api/media/worker/process-video`;
         
         // Gửi request đến backend API
         const backendResponse = await fetch(backendUrl, {
