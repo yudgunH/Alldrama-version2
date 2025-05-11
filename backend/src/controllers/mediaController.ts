@@ -224,8 +224,8 @@ export const getPresignedUploadUrl = async (req: Request, res: Response): Promis
       presignedUrl = await mediaService.getPresignedUploadUrl(type, id, fileName);
     }
     
-    // Xác định CDN URL
-    const cdnUrl = `https://${process.env.CLOUDFLARE_DOMAIN}/`;
+    // Xác định CDN URL - sử dụng tên miền Worker
+    const cdnUrl = `https://${process.env.CLOUDFLARE_WORKER_DOMAIN || process.env.WORKER_DOMAIN}/`;
     
     res.status(200).json({
       presignedUrl,
@@ -250,17 +250,19 @@ export const deleteMedia = async (req: Request, res: Response): Promise<void> =>
     let url: string;
     let updateField: string | null = null;
     
+    const workerDomain = process.env.CLOUDFLARE_WORKER_DOMAIN || process.env.WORKER_DOMAIN;
+    
     switch (mediaType) {
       case 'poster':
-        url = `https://${process.env.CLOUDFLARE_DOMAIN}/movies/${movieId}/poster.jpg`;
+        url = `https://${workerDomain}/movies/${movieId}/poster.jpg`;
         updateField = 'posterUrl';
         break;
       case 'backdrop':
-        url = `https://${process.env.CLOUDFLARE_DOMAIN}/movies/${movieId}/backdrop.jpg`;
+        url = `https://${workerDomain}/movies/${movieId}/backdrop.jpg`;
         updateField = 'backdropUrl';
         break;
       case 'trailer':
-        url = `https://${process.env.CLOUDFLARE_DOMAIN}/movies/${movieId}/trailer.mp4`;
+        url = `https://${workerDomain}/movies/${movieId}/trailer.mp4`;
         updateField = 'trailerUrl';
         break;
       default:

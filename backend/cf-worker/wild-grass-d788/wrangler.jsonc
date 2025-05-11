@@ -40,6 +40,7 @@
 		"WORKER_DOMAIN": "media.alldrama.tech",
 		"BACKEND_URL": "https://alldramaz.com"
 	},
+
 	/**
 	 * Note: Use secrets to store sensitive data.
 	 * https://developers.cloudflare.com/workers/configuration/secrets/

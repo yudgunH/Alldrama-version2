@@ -43,8 +43,8 @@ export const uploadFileToR2 = async (
     
     await r2Client.send(new PutObjectCommand(params));
     
-    // Trả về URL công khai
-    return `https://${process.env.CLOUDFLARE_DOMAIN}/${key}`;
+    // Trả về URL công khai với domain Worker
+    return `https://${process.env.CLOUDFLARE_WORKER_DOMAIN || process.env.WORKER_DOMAIN}/${key}`;
   } catch (error) {
     logger.error('Lỗi khi upload file lên R2:', error);
     throw error;
