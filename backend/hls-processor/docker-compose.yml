@@ -1,0 +1,14 @@
+version: '3'
+
+services:
+  hls-processor:
+    build:
+      context: .
+    volumes:
+      - ./temp:/input
+      - ./output:/output
+    environment:
+      - NODE_ENV=production
+    restart: "no"
+    # Sẽ chạy thông qua command line, không tự động start
+    command: ["echo", "HLS processor container is ready"] 

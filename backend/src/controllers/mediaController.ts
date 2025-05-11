@@ -23,6 +23,7 @@ import { Movie } from '../models/Movie';
 import { UserWatchHistory } from '../models/UserWatchHistory';
 import sequelize from '../config/database';
 import { MediaService } from '../services/media/mediaService';
+import { execSync, spawn } from 'child_process';
 
 const logger = Logger.getLogger('mediaController');
 // Tạo instance mediaService trực tiếp thay vì dùng getMediaService để tránh lỗi khi chạy test
@@ -474,6 +475,230 @@ export const processVideo = async (req: Request, res: Response): Promise<void> =
     }
   } catch (error: unknown) {
     logger.error('Error processing video:', error);
+    res.status(500).json({ 
+      success: false, 
+      error: error instanceof Error ? error.message : 'Unknown error'
+    });
+  }
+};
+
+// Webhook từ Cloudflare Worker để xử lý video
+export const processVideoFromWorker = async (req: Request, res: Response): Promise<void> => {
+  try {
+    logger.debug("Received process-video request from Worker");
+    
+    // Xác thực Worker Secret
+    const workerSecret = req.header('X-Worker-Secret');
+    if (workerSecret !== process.env.WORKER_SECRET && workerSecret !== 'alldrama-worker-secret') {
+      logger.debug("Unauthorized request - invalid worker secret");
+      res.status(401).json({ error: 'Unauthorized' });
+      return;
+    }
+    
+    const { videoKey, movieId, episodeId } = req.body;
+    
+    if (!videoKey || !movieId || !episodeId) {
+      logger.debug("Missing required fields");
+      res.status(400).json({ 
+        success: false,
+        error: "Missing required fields: videoKey, movieId, or episodeId" 
+      });
+      return;
+    }
+    
+    // Tạo callback URL cho container để gọi lại khi xử lý xong
+    const backendUrl = process.env.BACKEND_URL || 'http://localhost:8080';
+    const callbackUrl = `${backendUrl}/api/media/hls-processor/callback`;
+    
+    // Tạo job ID
+    const jobId = `hls-job-${Date.now()}`;
+    
+    // Tải video từ R2 về thư mục tạm thời
+    logger.debug(`Downloading video from R2: ${videoKey}`);
+    const tempDir = path.join(process.cwd(), 'hls-processor/temp');
+    if (!fs.existsSync(tempDir)) {
+      fs.mkdirSync(tempDir, { recursive: true });
+    }
+    
+    const tempFilePath = path.join(tempDir, 'original.mp4');
+    
+    // Thực hiện tải video
+    try {
+      await downloadFromR2(videoKey, tempFilePath);
+      logger.debug(`Video downloaded successfully to ${tempFilePath}`);
+    } catch (error) {
+      logger.error(`Failed to download video: ${error}`);
+      res.status(500).json({ 
+        success: false, 
+        error: 'Failed to download video from storage' 
+      });
+      return;
+    }
+    
+    // Cập nhật trạng thái episode
+    await Episode.update(
+      { processingStatus: 'processing' },
+      { where: { id: episodeId } }
+    );
+    
+    // Tạo thư mục output
+    const outputDir = path.join(process.cwd(), 'hls-processor/output');
+    if (!fs.existsSync(outputDir)) {
+      fs.mkdirSync(outputDir, { recursive: true });
+    }
+    
+    // Khởi chạy Docker container để xử lý
+    try {
+      // Đảm bảo image đã được build
+      try {
+        logger.debug('Building HLS processor Docker image...');
+        execSync('cd hls-processor && docker build -t alldrama-hls-processor .', { stdio: 'inherit' });
+      } catch (buildError) {
+        logger.error('Failed to build Docker image:', buildError);
+        throw new Error('Failed to build Docker image');
+      }
+      
+      // Khởi động container mới để xử lý
+      logger.info(`Starting HLS processor container for episode ${episodeId}`);
+      
+      // Chuẩn bị các tham số chạy docker
+      const r2AccountId = process.env.R2_ACCOUNT_ID || '';
+      const r2AccessKey = process.env.R2_ACCESS_KEY || '';
+      const r2SecretKey = process.env.R2_SECRET_KEY || '';
+      const r2BucketName = process.env.R2_BUCKET_NAME || '';
+      
+      // Khởi chạy container và thoát ngay để không block request
+      const containerName = `hls-processor-${episodeId}-${Date.now()}`;
+      
+      const dockerCommand = spawn('docker', [
+        'run',
+        '--name', containerName,
+        '--rm',  // Tự động xóa container sau khi chạy xong
+        '-v', `${tempDir}:/input`,
+        '-v', `${outputDir}:/output`,
+        'alldrama-hls-processor',
+        '/input/original.mp4',
+        '/output',
+        movieId,
+        episodeId,
+        r2AccountId,
+        r2AccessKey,
+        r2SecretKey,
+        r2BucketName,
+        callbackUrl
+      ], { detached: true });
+      
+      // Không đợi container hoàn thành
+      dockerCommand.unref();
+      
+      logger.debug(`Container ${containerName} started in detached mode`);
+      
+      // Trả về response ngay để Worker không phải đợi
+      res.json({ 
+        success: true,
+        jobId,
+        message: `HLS processing started in container ${containerName}`
+      });
+    } catch (error) {
+      logger.error('Error starting Docker container:', error);
+      
+      // Cập nhật trạng thái thất bại
+      await Episode.update(
+        { processingStatus: 'failed' },
+        { where: { id: episodeId } }
+      );
+      
+      res.status(500).json({ 
+        success: false, 
+        error: error instanceof Error ? error.message : 'Unknown error with Docker'
+      });
+    }
+  } catch (error: unknown) {
+    logger.error('Error processing video with Docker:', error);
+    res.status(500).json({ 
+      success: false, 
+      error: error instanceof Error ? error.message : 'Unknown error'
+    });
+  }
+};
+
+// Callback từ HLS Processor Container
+export const hlsProcessorCallback = async (req: Request, res: Response): Promise<void> => {
+  try {
+    logger.debug("Received callback from HLS processor container");
+    
+    // Xác thực Secret từ header nếu cần
+    const backendSecret = req.header('X-Backend-Secret');
+    if (backendSecret !== 'alldrama-backend-secret') {
+      logger.warn("Unauthorized callback - invalid backend secret");
+      res.status(401).json({ error: 'Unauthorized' });
+      return;
+    }
+    
+    const { status, movieId, episodeId, error } = req.body;
+    
+    if (!status || !movieId || !episodeId) {
+      logger.warn("Missing required fields in callback");
+      res.status(400).json({ 
+        success: false,
+        error: "Missing required fields in callback request"
+      });
+      return;
+    }
+    
+    logger.info(`HLS processing ${status} for movie ${movieId}, episode ${episodeId}`);
+    
+    if (status === 'completed') {
+      // Cập nhật trạng thái và URL playlist
+      const workerDomain = process.env.CLOUDFLARE_WORKER_DOMAIN || process.env.WORKER_DOMAIN;
+      const playlistUrl = `https://${workerDomain}/episodes/${movieId}/${episodeId}/hls/master.m3u8`;
+      
+      await Episode.update(
+        { 
+          processingStatus: 'completed',
+          playlistUrl: playlistUrl
+        },
+        { where: { id: episodeId } }
+      );
+      
+      logger.info(`HLS processing completed for episode ${episodeId}, updated playlist URL: ${playlistUrl}`);
+    } else if (status === 'error') {
+      // Cập nhật trạng thái lỗi
+      await Episode.update(
+        { 
+          processingStatus: 'failed',
+          processingError: error || 'Unknown error in HLS processing'
+        },
+        { where: { id: episodeId } }
+      );
+      
+      logger.error(`HLS processing failed for episode ${episodeId}: ${error}`);
+    }
+    
+    // Xóa các file tạm khi đã xử lý xong
+    const tempFile = path.join(process.cwd(), 'hls-processor/temp/original.mp4');
+    if (fs.existsSync(tempFile)) {
+      fs.unlinkSync(tempFile);
+      logger.debug(`Removed temporary file: ${tempFile}`);
+    }
+    
+    // Xóa thư mục output nếu còn tồn tại
+    const outputDir = path.join(process.cwd(), 'hls-processor/output');
+    if (fs.existsSync(outputDir)) {
+      try {
+        fs.rmSync(outputDir, { recursive: true, force: true });
+        logger.debug(`Removed output directory: ${outputDir}`);
+      } catch (err) {
+        logger.warn(`Could not remove output directory: ${err}`);
+      }
+    }
+    
+    res.json({ 
+      success: true,
+      message: `HLS processing callback processed for episode ${episodeId}`
+    });
+  } catch (error: unknown) {
+    logger.error('Error handling HLS processor callback:', error);
     res.status(500).json({ 
       success: false, 
       error: error instanceof Error ? error.message : 'Unknown error'

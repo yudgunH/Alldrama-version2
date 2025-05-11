@@ -16,4 +16,5 @@ export interface Env {
   CLOUDFLARE_DOMAIN: string;
   WORKER_DOMAIN: string;
   BACKEND_URL: string;
+  WORKER_SECRET: string;
 }

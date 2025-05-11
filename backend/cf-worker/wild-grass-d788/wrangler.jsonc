@@ -38,7 +38,8 @@
 	"vars": { 
 		"CLOUDFLARE_DOMAIN": "alldrama.tech",
 		"WORKER_DOMAIN": "media.alldrama.tech",
-		"BACKEND_URL": "https://alldramaz.com"
+		"BACKEND_URL": "https://alldramaz.com",
+		"WORKER_SECRET": "alldrama-worker-secret"
 	},
 
 	/**

@@ -9,10 +9,13 @@ import {
   getVideoProcessingStatus,
   processVideo,
   deleteEpisode,
-  deleteMovie
+  deleteMovie,
+  processVideoFromWorker,
+  hlsProcessorCallback
 } from '../controllers/mediaController';
 import { imageUpload, videoUpload, validateFileType, authenticate, requireAdmin } from '../middleware';
 import { uploadLimiter } from '../middleware/rateLimit';
+import { runAsyncWrapper } from '../utils/runAsyncWrapper';
 
 const router = express.Router();
 
@@ -97,5 +100,15 @@ router.get('/episodes/:episodeId/processing-status',
 
 // Thêm route cho xử lý video từ worker
 router.post('/process-video', processVideo);
+
+// Xử lý webhook từ Cloudflare Worker
+router.post('/worker/process-video', runAsyncWrapper(processVideoFromWorker));
+
+// Route xóa phương tiện của phim
+router.delete('/movies/:movieId/:mediaType', authenticate, runAsyncWrapper(deleteMedia));
+
+// Thêm route mới
+// Callback từ container HLS processor
+router.post('/hls-processor/callback', runAsyncWrapper(hlsProcessorCallback));
 
 export default router; 

@@ -15,7 +15,9 @@
     "lint:fix": "eslint \"src/**/*.ts\" --fix",
     "security:audit": "node scripts/security_audit.js",
     "security:fix": "npm audit fix",
-    "security:fix-logs": "node scripts/replace_console_logs.js"
+    "security:fix-logs": "node scripts/replace_console_logs.js",
+    "hls:build": "cd hls-processor && docker build -t alldrama-hls-processor .",
+    "hls:test": "cd hls-processor && docker run --rm -v \"$(pwd)/temp:/input\" -v \"$(pwd)/output:/output\" alldrama-hls-processor /input/test.mp4 /output 1 1 your-account-id your-access-key your-secret-key your-bucket-name http://localhost:8080/api/media/hls-processor/callback"
   },
   "keywords": [],
   "author": "",

@@ -72,6 +72,104 @@ app.post("/api/upload", async (c) => {
   }
 });
 
+app.post('/upload-episode-video', async (c) => {
+  try {
+    // Xác thực thông qua header
+    const secret = c.req.header('X-Worker-Secret');
+    if (secret !== c.env.WORKER_SECRET) {
+      return c.json({ error: 'Unauthorized' }, 401);
+    }
+
+    // Nhận và xử lý formData
+    const formData = await c.req.formData();
+    
+    // Lấy movieId và episodeId từ formData
+    const movieId = formData.get('movieId') as string;
+    const episodeId = formData.get('episodeId') as string;
+    const file = formData.get('video') as File;
+    
+    if (!movieId || !episodeId) {
+      return c.json({ error: 'Thiếu thông tin phim hoặc tập phim' }, 400);
+    }
+    
+    if (!file || !file.type.startsWith('video/')) {
+      return c.json({ error: 'Không tìm thấy file video hợp lệ' }, 400);
+    }
+    
+    // Tạo key cho file trong R2
+    const fileKey = `episodes/${movieId}/${episodeId}/original.mp4`;
+    
+    // Upload file lên R2
+    await c.env.MEDIA_BUCKET.put(fileKey, await file.arrayBuffer(), {
+      httpMetadata: {
+        contentType: file.type,
+      }
+    });
+    
+    // Sử dụng domain Worker cho URL
+    const fileUrl = `https://${c.env.WORKER_DOMAIN}/${fileKey}`;
+    
+    // Gọi webhook đến backend để bắt đầu xử lý HLS trong container
+    try {
+      const backendUrl = c.env.BACKEND_URL || 'https://alldramaz.com';
+      const response = await fetch(`${backendUrl}/api/media/worker/process-video`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Worker-Secret': c.env.WORKER_SECRET || 'alldrama-worker-secret'
+        },
+        body: JSON.stringify({
+          videoKey: fileKey,
+          movieId,
+          episodeId,
+          callbackUrl: `${backendUrl}/api/media/hls-processor/callback`
+        })
+      });
+      
+      const result = await response.json() as { error?: string, jobId?: string };
+      
+      if (!response.ok) {
+        console.error(`Error from backend: ${JSON.stringify(result)}`);
+        return c.json({
+          success: true,
+          message: "Upload thành công nhưng có lỗi khi khởi động xử lý HLS",
+          url: fileUrl,
+          key: fileKey,
+          processingError: result.error || 'Unknown error from backend',
+          status: 'warning'
+        });
+      }
+      
+      return c.json({
+        success: true,
+        message: "Upload thành công, đang xử lý HLS",
+        url: fileUrl,
+        key: fileKey,
+        processingId: result.jobId,
+        status: 'processing'
+      });
+    } catch (error) {
+      console.error('Error calling backend:', error);
+      
+      // Nếu lỗi khi gọi backend, vẫn trả về thành công nhưng với cảnh báo
+      return c.json({
+        success: true,
+        message: "Upload thành công nhưng có lỗi khi khởi động xử lý HLS",
+        url: fileUrl,
+        key: fileKey,
+        error: error instanceof Error ? error.message : 'Unknown error',
+        status: 'warning'
+      });
+    }
+  } catch (error) {
+    console.error('Upload error:', error);
+    return c.json({ 
+      success: false, 
+      error: error instanceof Error ? error.message : 'Unknown error' 
+    }, 500);
+  }
+});
+
 app.post("/api/convert-hls", async (c) => {
   try {
     // Xác thực request

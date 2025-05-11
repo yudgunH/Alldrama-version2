@@ -357,10 +357,10 @@ Authorization: Bearer {accessToken}
 ### Xử lý video (từ worker)
 
 ```
-POST /api/media/process-video
+POST /api/media/worker/process-video
 ```
 
-**Mô tả**: API nội bộ được gọi bởi Cloudflare Worker để bắt đầu quá trình xử lý HLS
+**Mô tả**: API nội bộ được gọi bởi Cloudflare Worker để bắt đầu quá trình xử lý HLS thông qua Docker container
 
 **Headers**:
 
@@ -376,8 +376,7 @@ Content-Type: application/json
   "videoKey": "episodes/123/456/original.mp4",
   "movieId": 123,
   "episodeId": 456,
-  "jobId": "job-12345",
-  "callbackUrl": "https://worker.example.com/api/hls-callback/job-12345"
+  "callbackUrl": "https://worker.example.com/api/media/hls-processor/callback"
 }
 ```
 
@@ -388,6 +387,50 @@ Content-Type: application/json
   "success": true,
   "jobId": "job-12345",
   "error": null
+}
+```
+
+**Lỗi**:
+
+- 400: Thiếu thông tin cần thiết
+- 401: Không được xác thực
+- 500: Lỗi máy chủ
+
+### Callback sau khi xử lý HLS
+
+```
+POST /api/media/hls-processor/callback
+```
+
+**Mô tả**: API được gọi bởi Docker container sau khi xử lý HLS hoàn tất
+
+**Headers**:
+
+```
+X-Processor-Secret: {processorSecret}
+Content-Type: application/json
+```
+
+**Request Body**:
+
+```json
+{
+  "status": "completed",
+  "movieId": 123,
+  "episodeId": 456,
+  "error": null,
+  "duration": 1800,
+  "jobId": "job-12345",
+  "resolutions": ["240p", "360p", "480p", "720p", "1080p"]
+}
+```
+
+**Response (200 - OK)**:
+
+```json
+{
+  "success": true,
+  "message": "Cập nhật trạng thái xử lý video thành công"
 }
 ```
 
@@ -434,6 +477,46 @@ Content-Type: multipart/form-data
 **Lỗi**:
 
 - 400: Không tìm thấy file
+- 401: Không được xác thực
+- 500: Lỗi máy chủ
+
+### Upload video cho tập phim (qua Worker)
+
+```
+POST https://worker.example.com/upload-episode-video
+```
+
+**Mô tả**: Upload file video cho tập phim và khởi động xử lý HLS
+
+**Headers**:
+
+```
+X-Worker-Secret: {workerSecret}
+Content-Type: multipart/form-data
+```
+
+**Form Data**:
+
+- `movieId`: ID của phim
+- `episodeId`: ID của tập phim
+- `video`: File video cần upload (MP4, WebM)
+
+**Response (200 - OK)**:
+
+```json
+{
+  "success": true,
+  "message": "Upload thành công, đang xử lý HLS",
+  "url": "https://cdn.example.com/episodes/123/456/original.mp4",
+  "key": "episodes/123/456/original.mp4",
+  "processingId": "job-12345",
+  "status": "processing"
+}
+```
+
+**Lỗi**:
+
+- 400: Thiếu thông tin hoặc không tìm thấy file
 - 401: Không được xác thực
 - 500: Lỗi máy chủ
 
