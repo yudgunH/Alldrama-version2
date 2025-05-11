@@ -573,27 +573,61 @@ export const processVideoFromWorker = async (req: Request, res: Response): Promi
       
       // Tạo lệnh Docker dưới dạng chuỗi
       const dockerCommand = [
-        'docker run',
+        'docker', 'run',
         '-d', // Chạy ở chế độ detached
         '--name', containerName,
         '--rm', // Tự động xóa container sau khi chạy xong
-        '-v', `"${tempDir}:/input"`,
-        '-v', `"${outputDir}:/output"`,
+        '-v', `${tempDir}:/input`,
+        '-v', `${outputDir}:/output`,
         'alldrama-hls-processor',
         '/input/original.mp4',
         '/output',
-        movieId,
-        episodeId,
-        r2AccountId,
-        r2AccessKey,
-        r2SecretKey,
-        r2BucketName,
-        `"${callbackUrl}"`
+        `${movieId}`,
+        `${episodeId}`,
+        `${r2AccountId}`,
+        `${r2AccessKey}`,
+        `${r2SecretKey}`,
+        `${r2BucketName}`,
+        `${callbackUrl}`
       ].join(' ');
       
       logger.debug(`Executing Docker command: ${dockerCommand}`);
       
-      // Thực thi lệnh và bắt kết quả
+      // Thử chạy container trực tiếp trước khi chạy ở chế độ detached để kiểm tra lỗi
+      try {
+        logger.debug("Testing container with direct run before detached mode...");
+        const testCommand = [
+          'docker', 'run',
+          '--rm',
+          '-v', `${tempDir}:/input`,
+          '-v', `${outputDir}:/output`,
+          'alldrama-hls-processor',
+          '/input/original.mp4',
+          '/output',
+          `${movieId}`,
+          `${episodeId}`,
+          `${r2AccountId}`,
+          `${r2AccessKey}`,
+          `${r2SecretKey}`,
+          `${r2BucketName}`,
+          `${callbackUrl}`
+        ].join(' ');
+        
+        // Thực thi lệnh test và ghi log kết quả
+        exec(testCommand + " > /tmp/hls-test.log 2>&1", (error, stdout, stderr) => {
+          if (error) {
+            logger.warn(`Test container exited with error: ${error.message}`);
+            logger.debug("Check /tmp/hls-test.log for details");
+          } else {
+            logger.debug("Test container executed successfully");
+          }
+        });
+      } catch (testError) {
+        logger.error('Error testing container:', testError);
+      }
+      
+      // Thực thi lệnh chính và bắt kết quả
+      logger.debug("Executing detached container now...");
       const { stdout, stderr } = await new Promise<{stdout: string, stderr: string}>((resolve, reject) => {
         exec(dockerCommand, (error, stdout, stderr) => {
           if (error && !stdout) {
