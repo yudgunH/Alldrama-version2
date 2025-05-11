@@ -24,6 +24,7 @@ import { UserWatchHistory } from '../models/UserWatchHistory';
 import sequelize from '../config/database';
 import { MediaService } from '../services/media/mediaService';
 import { execSync, spawn } from 'child_process';
+import { exec } from 'child_process';
 
 const logger = Logger.getLogger('mediaController');
 // Tạo instance mediaService trực tiếp thay vì dùng getMediaService để tránh lỗi khi chạy test
@@ -567,15 +568,17 @@ export const processVideoFromWorker = async (req: Request, res: Response): Promi
       const r2SecretKey = process.env.R2_SECRET_KEY || '';
       const r2BucketName = process.env.R2_BUCKET_NAME || '';
       
-      // Khởi chạy container và thoát ngay để không block request
+      // Khởi chạy container sử dụng exec thay vì spawn
       const containerName = `hls-processor-${episodeId}-${Date.now()}`;
       
-      const dockerCommand = spawn('docker', [
-        'run',
+      // Tạo lệnh Docker dưới dạng chuỗi
+      const dockerCommand = [
+        'docker run',
+        '-d', // Chạy ở chế độ detached
         '--name', containerName,
-        '--rm',  // Tự động xóa container sau khi chạy xong
-        '-v', `${tempDir}:/input`,
-        '-v', `${outputDir}:/output`,
+        '--rm', // Tự động xóa container sau khi chạy xong
+        '-v', `"${tempDir}:/input"`,
+        '-v', `"${outputDir}:/output"`,
         'alldrama-hls-processor',
         '/input/original.mp4',
         '/output',
@@ -585,13 +588,58 @@ export const processVideoFromWorker = async (req: Request, res: Response): Promi
         r2AccessKey,
         r2SecretKey,
         r2BucketName,
-        callbackUrl
-      ], { detached: true });
+        `"${callbackUrl}"`
+      ].join(' ');
       
-      // Không đợi container hoàn thành
-      dockerCommand.unref();
+      logger.debug(`Executing Docker command: ${dockerCommand}`);
       
-      logger.debug(`Container ${containerName} started in detached mode`);
+      // Thực thi lệnh và bắt kết quả
+      const { stdout, stderr } = await new Promise<{stdout: string, stderr: string}>((resolve, reject) => {
+        exec(dockerCommand, (error, stdout, stderr) => {
+          if (error && !stdout) {
+            logger.error(`Error executing Docker command: ${error.message}`);
+            reject(error);
+            return;
+          }
+          
+          resolve({ stdout, stderr });
+        });
+      });
+      
+      // Ghi log kết quả thực thi
+      logger.debug(`Container ID: ${stdout.trim()}`);
+      
+      if (stderr) {
+        logger.warn(`Docker warnings: ${stderr}`);
+      }
+      
+      // Kiểm tra xem container đã thực sự chạy chưa
+      logger.debug(`Verifying container is running...`);
+      try {
+        const { stdout: psOutput } = await new Promise<{stdout: string, stderr: string}>((resolve, reject) => {
+          exec(`docker ps --filter "name=${containerName}" --format "{{.ID}}"`, (error, stdout, stderr) => {
+            if (error) {
+              logger.warn(`Error checking container status: ${error.message}`);
+              // Không reject vì đây chỉ là kiểm tra
+            }
+            resolve({ stdout, stderr });
+          });
+        });
+        
+        if (psOutput.trim()) {
+          logger.info(`Container ${containerName} is running with ID: ${psOutput.trim()}`);
+        } else {
+          logger.warn(`Container ${containerName} may not be running. Checking docker ps -a...`);
+          const { stdout: psAllOutput } = await new Promise<{stdout: string, stderr: string}>((resolve) => {
+            exec(`docker ps -a --filter "name=${containerName}" --format "{{.ID}} {{.Status}}"`, (error, stdout, stderr) => {
+              resolve({ stdout, stderr });
+            });
+          });
+          logger.info(`Container status: ${psAllOutput.trim() || 'Not found'}`);
+        }
+      } catch (verifyError) {
+        logger.warn(`Error verifying container: ${verifyError instanceof Error ? verifyError.message : String(verifyError)}`);
+      }
       
       // Trả về response ngay để Worker không phải đợi
       res.json({ 
