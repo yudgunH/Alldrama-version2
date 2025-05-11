@@ -122,7 +122,32 @@ export const mediaApi = {
     });
   },
   
-  // Thông báo cho backend là đã upload video thành công
+  // Gọi API CF-Worker để xử lý HLS (đúng quy trình)
+  convertToHLS: (movieId: string | number, episodeId: string | number, videoKey: string) => {
+    return axios.post(
+      "https://media.alldrama.tech/api/convert-hls",
+      {
+        videoKey,
+        movieId,
+        episodeId
+      },
+      {
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": "Bearer alldrama-production-token"
+        }
+      }
+    );
+  },
+  
+  // Kiểm tra trạng thái xử lý HLS
+  checkHLSStatus: (jobId: string, movieId: string | number, episodeId: string | number) => {
+    return axios.get(
+      `https://media.alldrama.tech/api/hls-status/${jobId}/${movieId}/${episodeId}`
+    );
+  },
+  
+  // Thông báo cho backend là đã upload video thành công (phương thức cũ)
   notifyVideoUploaded: (movieId: number, episodeId: number) => {
     return api.post(`/api/media/episodes/${movieId}/${episodeId}/video-uploaded`);
   },

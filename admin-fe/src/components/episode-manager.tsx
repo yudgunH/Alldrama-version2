@@ -80,6 +80,7 @@ export function EpisodeManager({ movieId, movieTitle }: EpisodeManagerProps) {
   
   // Polling for processing status
   const [processingPollingIds, setProcessingPollingIds] = useState<number[]>([])
+  const [hlsJobIds, setHlsJobIds] = useState<{[episodeId: number]: string}>({})
 
   // Fetch episodes
   const fetchEpisodes = useCallback(async () => {
@@ -135,41 +136,99 @@ export function EpisodeManager({ movieId, movieTitle }: EpisodeManagerProps) {
     const pollingInterval = setInterval(async () => {
       for (const episodeId of processingPollingIds) {
         try {
-          const response = await episodeApi.getProcessingStatus(episodeId)
-          
-          const { isProcessed, progress, playlistUrl, thumbnailUrl, estimatedTimeRemaining, steps } = response.data
-          
-          if (isProcessed) {
-            // Xóa khỏi danh sách polling
-            setProcessingPollingIds(prev => prev.filter(id => id !== episodeId))
-            toast.success(`Tập phim đã xử lý xong`)
+          // Nếu có jobId, sử dụng API mới để kiểm tra trạng thái
+          if (hlsJobIds[episodeId]) {
+            const jobId = hlsJobIds[episodeId];
+            console.log(`Kiểm tra trạng thái HLS theo jobId: ${jobId} cho episodeId: ${episodeId}`);
             
-            // Cập nhật danh sách tập phim
-            fetchEpisodes()
-          } else if (selectedEpisode?.id === episodeId) {
-            // Cập nhật trạng thái xử lý nếu đang xem chi tiết
-            setProcessingStatus({
-              isProcessed,
-              progress: progress || 0,
-              playlistUrl,
-              thumbnailUrl,
-              estimatedTimeRemaining: estimatedTimeRemaining || "Đang tính...",
-              steps: steps || [
-                { name: "Tải lên video gốc", status: "completed", completedAt: new Date().toISOString() },
-                { name: "Tạo thumbnail", status: "processing", progress: progress || 30 },
-                { name: "Chuyển đổi sang HLS", status: "pending" },
-                { name: "Tạo playlist", status: "pending" }
-              ]
-            })
+            const response = await mediaApi.checkHLSStatus(jobId, movieId, episodeId);
+            
+            if (response.data && response.data.success) {
+              const { status, hlsUrl, hlsPath, createdAt, updatedAt } = response.data;
+              
+              if (status === 'completed') {
+                // Xử lý hoàn thành
+                setProcessingPollingIds(prev => prev.filter(id => id !== episodeId));
+                toast.success(`Tập phim đã xử lý HLS thành công`);
+                
+                // Cập nhật danh sách tập phim
+                fetchEpisodes();
+                
+                if (selectedEpisode?.id === episodeId) {
+                  // Cập nhật trạng thái hiển thị nếu đang xem chi tiết tập này
+                  setProcessingStatus({
+                    isProcessed: true,
+                    progress: 100,
+                    playlistUrl: hlsUrl,
+                    completedAt: updatedAt
+                  });
+                }
+                
+                // Xóa jobId đã hoàn thành
+                const newHlsJobIds = {...hlsJobIds};
+                delete newHlsJobIds[episodeId];
+                setHlsJobIds(newHlsJobIds);
+              } else {
+                // Đang xử lý
+                const progress = 50; // Không có thông tin progress chi tiết từ API
+                
+                if (selectedEpisode?.id === episodeId) {
+                  // Cập nhật trạng thái hiển thị nếu đang xem chi tiết
+                  setProcessingStatus({
+                    isProcessed: false,
+                    progress: progress,
+                    status: status,
+                    playlistUrl: hlsUrl,
+                    createdAt: createdAt,
+                    updatedAt: updatedAt,
+                    estimatedTimeRemaining: "Đang xử lý...",
+                    steps: [
+                      { name: "Tải lên video gốc", status: "completed", completedAt: createdAt },
+                      { name: "Xử lý HLS", status: "processing", progress: progress },
+                      { name: "Tạo playlist", status: status === "processing" ? "processing" : "pending" }
+                    ]
+                  });
+                }
+              }
+            }
+          } else {
+            // Sử dụng API cũ nếu không có jobId
+            const response = await episodeApi.getProcessingStatus(episodeId);
+            
+            const { isProcessed, progress, playlistUrl, thumbnailUrl, estimatedTimeRemaining, steps } = response.data;
+            
+            if (isProcessed) {
+              // Xóa khỏi danh sách polling
+              setProcessingPollingIds(prev => prev.filter(id => id !== episodeId));
+              toast.success(`Tập phim đã xử lý xong`);
+              
+              // Cập nhật danh sách tập phim
+              fetchEpisodes();
+            } else if (selectedEpisode?.id === episodeId) {
+              // Cập nhật trạng thái xử lý nếu đang xem chi tiết
+              setProcessingStatus({
+                isProcessed,
+                progress: progress || 0,
+                playlistUrl,
+                thumbnailUrl,
+                estimatedTimeRemaining: estimatedTimeRemaining || "Đang tính...",
+                steps: steps || [
+                  { name: "Tải lên video gốc", status: "completed", completedAt: new Date().toISOString() },
+                  { name: "Tạo thumbnail", status: "processing", progress: progress || 30 },
+                  { name: "Chuyển đổi sang HLS", status: "pending" },
+                  { name: "Tạo playlist", status: "pending" }
+                ]
+              });
+            }
           }
         } catch (error) {
-          console.error(`Error checking processing status for episode ${episodeId}:`, error)
+          console.error(`Error checking processing status for episode ${episodeId}:`, error);
         }
       }
     }, 5000) // Kiểm tra mỗi 5 giây
     
     return () => clearInterval(pollingInterval)
-  }, [processingPollingIds, selectedEpisode, fetchEpisodes])
+  }, [processingPollingIds, selectedEpisode, fetchEpisodes, movieId, hlsJobIds])
 
   // Handle input change
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
@@ -260,52 +319,46 @@ export function EpisodeManager({ movieId, movieTitle }: EpisodeManagerProps) {
         throw uploadError;
       }
       
-      console.log("uploadWithPresignedUrl: Đã tải video lên R2 storage thành công, đang thông báo cho backend...");
+      console.log("uploadWithPresignedUrl: Đã tải video lên R2 storage thành công, đang kích hoạt xử lý HLS...");
       
-      // Bước 2: Thông báo cho backend rằng file đã được upload thành công
-      let notificationSuccess = false;
-      
-      // Phương pháp 1: Thông báo video đã upload
+      // Xử lý HLS theo quy trình chuẩn
       try {
-        console.log("uploadWithPresignedUrl: Gọi notifyVideoUploaded", { movieId, episodeId });
-        await mediaApi.notifyVideoUploaded(movieId, episodeId);
-        notificationSuccess = true;
-        console.log("uploadWithPresignedUrl: Đã thông báo backend bằng phương thức notifyVideoUploaded");
-      } catch (notifyError) {
-        console.warn("uploadWithPresignedUrl: Không thể gọi API thông báo upload", notifyError);
-      }
-      
-      // Phương pháp 2: Kích hoạt xử lý HLS trực tiếp
-      if (!notificationSuccess) {
-        try {
-          console.log("uploadWithPresignedUrl: Gọi startHLSProcessing", { movieId, episodeId });
-          await mediaApi.startHLSProcessing(movieId, episodeId);
-          notificationSuccess = true;
-          console.log("uploadWithPresignedUrl: Đã thông báo backend bằng phương thức startHLSProcessing");
-        } catch (processError) {
-          console.warn("uploadWithPresignedUrl: Không thể gọi API kích hoạt xử lý HLS", processError);
+        // Tạo videoKey theo cấu trúc chuẩn R2
+        const videoKey = `episodes/${movieId}/${episodeId}/original.mp4`;
+        
+        console.log("uploadWithPresignedUrl: Gọi API convert-hls", { movieId, episodeId, videoKey });
+        const response = await mediaApi.convertToHLS(
+          movieId,
+          episodeId,
+          videoKey
+        );
+        
+        if (response.data && response.data.success) {
+          const jobId = response.data.jobId;
+          console.log(`uploadWithPresignedUrl: Yêu cầu xử lý HLS thành công, jobId: ${jobId}`);
+          
+          // Lưu jobId vào state để theo dõi tiến trình
+          setHlsJobIds(prev => ({...prev, [episodeId]: jobId}));
+          
+          // Thêm episodeId vào danh sách theo dõi tiến trình
+          if (!processingPollingIds.includes(episodeId)) {
+            setProcessingPollingIds(prev => [...prev, episodeId]);
+          }
+        } else {
+          console.warn("uploadWithPresignedUrl: Phản hồi không mong đợi từ API convert-hls", response.data);
         }
-      }
-      
-      // Phương pháp 3: Sử dụng API cũ
-      if (!notificationSuccess) {
+      } catch (convertError) {
+        console.error("uploadWithPresignedUrl: Lỗi khi gọi API convert-hls", convertError);
+        
+        // Thử phương pháp dự phòng nếu không thể gọi API convert-hls trực tiếp
         try {
-          console.log("uploadWithPresignedUrl: Gọi uploadEpisodeVideo với file rỗng", { movieId, episodeId });
-          await mediaApi.uploadEpisodeVideo(
-            movieId, 
-            episodeId, 
-            new File([new Uint8Array(0)], "uploaded-via-presigned-url.txt", { type: "text/plain" })
-          );
-          notificationSuccess = true;
-          console.log("uploadWithPresignedUrl: Đã thông báo backend bằng phương thức uploadEpisodeVideo");
-        } catch (uploadError) {
-          console.error("uploadWithPresignedUrl: Tất cả các phương thức thông báo đều thất bại", uploadError);
-          throw new Error("Không thể thông báo cho backend về việc đã upload video");
+          console.log("uploadWithPresignedUrl: Thử phương pháp dự phòng - gọi notifyVideoUploaded");
+          await mediaApi.notifyVideoUploaded(movieId, episodeId);
+          console.log("uploadWithPresignedUrl: Đã thông báo backend bằng phương thức dự phòng");
+        } catch (backupError) {
+          console.error("uploadWithPresignedUrl: Cả hai phương pháp đều thất bại", backupError);
+          throw new Error("Không thể kích hoạt quá trình xử lý HLS cho video");
         }
-      }
-      
-      if (notificationSuccess) {
-        console.log(`uploadWithPresignedUrl: Video đã được tải lên thành công và thông báo xử lý cho tập phim ${episodeId}`);
       }
       
       return `${cdnUrl}episodes/${movieId}/${episodeId}/hls/master.m3u8`
@@ -350,7 +403,7 @@ export function EpisodeManager({ movieId, movieTitle }: EpisodeManagerProps) {
         description: formData.description,
       })
       
-      const episodeId = episodeResponse.data.id
+      const episodeId = episodeResponse.data.episode.id
       console.log("Đã tạo tập phim với ID:", episodeId)
       
       if (!episodeId) {

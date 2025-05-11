@@ -52,7 +52,7 @@ export function MediaUploader({
       
       // Bước 1: Lấy presigned URL
       const presignedResponse = await mediaApi.getPresignedUrl({
-        movieId: movieId || null,
+        movieId: movieId || 0,
         episodeId,
         fileType,
       })
