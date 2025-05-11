@@ -31,13 +31,13 @@ services:
       - ENABLE_FULL_LOGGING=true
       - NODE_OPTIONS=--enable-source-maps --unhandled-rejections=strict --trace-warnings
       - R2_ACCOUNT_ID=${R2_ACCOUNT_ID}
-      - R2_ACCESS_KEY=${R2_ACCESS_KEY}
-      - R2_SECRET_KEY=${R2_SECRET_KEY}
-      - R2_BUCKET_NAME=${R2_BUCKET_NAME}
-      - CLOUDFLARE_WORKER_DOMAIN=media.alldrama.tech
-      - WORKER_DOMAIN=media.alldrama.tech
-      - BACKEND_URL=${BACKEND_URL}
-      - WORKER_SECRET=alldrama-worker-secret
+      - R2_ACCESS_KEY=${R2_ACCESS_KEY_ID}
+      - R2_SECRET_KEY=${R2_SECRET_ACCESS_KEY}
+      - R2_BUCKET_NAME=${R2_BUCKET}
+      - CLOUDFLARE_DOMAIN=${CLOUDFLARE_DOMAIN}
+      - CLOUDFLARE_WORKER_DOMAIN=${CLOUDFLARE_WORKER_DOMAIN}
+      - WORKER_SECRET=${WORKER_SECRET}
+      - BACKEND_SECRET=${BACKEND_SECRET}
     networks:
       - alldrama-network
     healthcheck:
