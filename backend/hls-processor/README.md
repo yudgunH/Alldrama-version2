@@ -1,118 +1,130 @@
-# HLS Processor Container
+# HLS Processor cho Alldrama
 
-Container Docker chuyên dụng để xử lý video HLS cho Alldrama, hoạt động độc lập với backend.
+Container chuyên dụng để xử lý video thành HLS (HTTP Live Streaming) cho ứng dụng Alldrama.
 
-## Tính năng
+## Cách sử dụng
 
-- Xử lý video MP4 thành định dạng HLS
-- Hỗ trợ nhiều độ phân giải khác nhau (240p, 360p, 480p, 720p, 1080p)
-- Tối ưu hóa bitrate cho mỗi độ phân giải
-- Tự động upload các file HLS lên Cloudflare R2
-- Gửi callback về backend khi hoàn thành
-- Tự động xóa container sau khi xử lý xong để tiết kiệm tài nguyên
-
-## Cài đặt và cấu hình
-
-### 1. Biến môi trường
-
-Đảm bảo các biến môi trường sau đã được đặt trong file `.env` của backend:
-
-```
-# Cloudflare R2 Configuration
-R2_ACCOUNT_ID=your-cloudflare-account-id
-R2_ACCESS_KEY=your-r2-access-key
-R2_SECRET_KEY=your-r2-secret-key
-R2_BUCKET_NAME=your-bucket-name
-
-# Worker Configuration
-WORKER_DOMAIN=media.alldrama.tech
-
-# Backend Configuration
-BACKEND_URL=https://alldramaz.com
-WORKER_SECRET=alldrama-worker-secret
-```
-
-### 2. Xây dựng image Docker
-
-Vào thư mục `hls-processor` và xây dựng Docker image:
+### Xây dựng image
 
 ```bash
 cd hls-processor
 docker build -t alldrama-hls-processor .
 ```
 
-Hoặc sử dụng script npm từ thư mục gốc:
+### Chạy container
 
 ```bash
-npm run hls:build
+docker run --rm \
+  -v /đường/dẫn/đến/thư_mục/chứa/video:/input \
+  -v /đường/dẫn/đến/thư_mục/đầu_ra:/output \
+  --network host \
+  --add-host=host.docker.internal:host-gateway \
+  alldrama-hls-processor \
+  /input/original.mp4 \
+  /output \
+  123 \
+  456 \
+  r2_account_id \
+  r2_access_key \
+  r2_secret_key \
+  r2_bucket \
+  http://127.0.0.1:5000/api/media/hls-processor/callback
 ```
 
-## Quy trình làm việc
+### Các tham số
 
-### 1. Upload video qua CF-Worker
+1. `/input/original.mp4`: Đường dẫn đến file video trong container
+2. `/output`: Thư mục đầu ra trong container
+3. `123`: Movie ID
+4. `456`: Episode ID
+5. `r2_account_id`: ID của tài khoản Cloudflare R2
+6. `r2_access_key`: Access key của R2
+7. `r2_secret_key`: Secret key của R2
+8. `r2_bucket`: Tên bucket R2
+9. `http://127.0.0.1:5000/api/media/hls-processor/callback`: URL callback khi xử lý xong
 
-Người dùng upload video qua API Worker, video được lưu vào R2 Bucket.
+## Tính năng
 
-### 2. Xử lý HLS tự động
-
-- CF-Worker gọi API backend để bắt đầu xử lý
-- Backend tải video từ R2 về máy chủ
-- Backend khởi động container Docker để xử lý
-- Container xử lý video thành HLS với nhiều độ phân giải
-- Container upload kết quả lên R2
-- Container gửi callback về backend khi hoàn thành
-- Backend cập nhật trạng thái tập phim
-
-### 3. Theo dõi trạng thái
-
-Trạng thái xử lý có thể được kiểm tra qua endpoint:
-`/api/media/episodes/:episodeId/processing-status`
+- Chuyển đổi video thành định dạng HLS với fMP4 segments
+- Tạo nhiều độ phân giải: 240p, 360p, 480p, 720p, 1080p
+- Tự động giảm số lượng độ phân giải cho video dài (>20 phút)
+- Upload kết quả lên Cloudflare R2
+- Gửi callback khi hoàn tất hoặc gặp lỗi
 
 ## Khắc phục sự cố
 
-### Docker không chạy
+### 1. File không tìm thấy
 
-Đảm bảo Docker Desktop đang chạy trên máy chủ. Nếu không, khởi động với:
+Nếu xuất hiện lỗi "No such file or directory":
 
-```bash
-# Windows
-start "Docker Desktop"
-
-# Linux
-systemctl start docker
+```
+[ffprobe] /input/original.mp4: No such file or directory
 ```
 
-### Vấn đề quyền truy cập
+**Giải pháp**:
 
-Nếu có lỗi quyền truy cập thư mục, đảm bảo các thư mục `temp` và `output` có quyền ghi:
+- Kiểm tra file có tồn tại trong thư mục nguồn trên máy chủ không
+- Kiểm tra đường dẫn mount volume trong Docker có chính xác không
+- Sử dụng đường dẫn tuyệt đối khi mount volume
 
-```bash
-# Windows
-icacls hls-processor\temp /grant:r Everyone:(OI)(CI)F
-icacls hls-processor\output /grant:r Everyone:(OI)(CI)F
+### 2. Vấn đề kết nối callback
 
-# Linux
-chmod -R 777 hls-processor/temp
-chmod -R 777 hls-processor/output
+Nếu xuất hiện lỗi:
+
+```
+[HLS Processor] Lỗi gửi callback: getaddrinfo ENOTFOUND host.docker.internal
 ```
 
-### Kiểm tra logs
+**Giải pháp**:
 
-Để xem logs của container:
+- Sử dụng tham số `--add-host=host.docker.internal:host-gateway`
+- Sử dụng IP cục bộ (127.0.0.1) thay vì hostname
+- Sử dụng `--network host` để container dùng mạng của máy chủ
+
+### 3. Vấn đề quyền truy cập
+
+Nếu container không thể đọc/ghi các file:
+
+**Giải pháp**:
+
+- Chạy container với user `root`
+- Kiểm tra quyền của các thư mục được mount
+
+### 4. Kiểm tra container
+
+Để test container mà không thực sự xử lý:
 
 ```bash
-docker logs $(docker ps -a -q --filter "name=hls-processor")
+# Từ thư mục hls-processor
+docker-compose up test-run
 ```
 
-## Tham số chi tiết
+## Quy trình Debug
 
-Khi chạy container trực tiếp:
+1. Kiểm tra file đầu vào tồn tại:
 
-```bash
-docker run --rm -v "/path/to/input:/input" -v "/path/to/output:/output" alldrama-hls-processor /input/video.mp4 /output movie_id episode_id r2_account_id r2_access_key r2_secret r2_bucket callback_url
-```
+   ```bash
+   ls -la /path/to/temp/original.mp4
+   ```
 
-## Điều chỉnh số lượng độ phân giải
+2. Kiểm tra file có thể đọc được bằng ffprobe:
 
-- Video ngắn (< 20 phút): 240p, 360p, 480p, 720p, 1080p
-- Video dài (> 20 phút): 360p, 720p
+   ```bash
+   ffprobe -v error -show_format -show_streams /path/to/temp/original.mp4
+   ```
+
+3. Thử chạy container với flag -it để debug:
+
+   ```bash
+   docker run -it --rm \
+     -v /path/to/temp:/input \
+     -v /path/to/output:/output \
+     alldrama-hls-processor \
+     /bin/bash
+   ```
+
+4. Từ bên trong container, kiểm tra các thư mục và file:
+   ```bash
+   ls -la /input
+   cat /input/original.mp4 | head -c 100 | hexdump -C
+   ```

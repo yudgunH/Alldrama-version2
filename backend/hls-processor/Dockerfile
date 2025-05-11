@@ -21,8 +21,13 @@ COPY processor.js .
 # Cài đặt dependencies
 RUN npm install
 
-# Tạo thư mục đầu vào và đầu ra
-RUN mkdir -p /input /output
+# Tạo thư mục đầu vào và đầu ra với quyền đầy đủ
+RUN mkdir -p /input /output && chmod 777 /input /output
 
-# Điểm vào
-ENTRYPOINT ["node", "processor.js"] 
+# Sử dụng user root để tránh vấn đề quyền truy cập
+USER root
+
+# Điểm vào với shell script để kiểm tra file trước khi xử lý
+COPY entrypoint.sh /entrypoint.sh
+RUN chmod +x /entrypoint.sh
+ENTRYPOINT ["/entrypoint.sh"] 

@@ -24,6 +24,24 @@ console.log(`- R2 Account: ${r2AccountId}`);
 console.log(`- R2 Bucket: ${r2Bucket}`);
 console.log(`- Callback URL: ${callbackUrl}`);
 
+// Kiểm tra file đầu vào tồn tại
+try {
+  const stats = fs.statSync(inputFile);
+  console.log(`[HLS Processor] File đầu vào tồn tại, kích thước: ${stats.size} bytes`);
+  
+  // Kiểm tra quyền truy cập
+  fs.accessSync(inputFile, fs.constants.R_OK);
+  console.log(`[HLS Processor] Có quyền đọc file đầu vào`);
+} catch (error) {
+  console.error(`[HLS Processor] Lỗi kiểm tra file đầu vào: ${error.message}`);
+  if (callbackUrl) {
+    sendCallback('error', `File không tồn tại hoặc không có quyền truy cập: ${error.message}`)
+      .finally(() => process.exit(1));
+  } else {
+    process.exit(1);
+  }
+}
+
 // Cấu hình R2
 const s3 = new AWS.S3({
   endpoint: `https://${r2AccountId}.r2.cloudflarestorage.com`,
@@ -62,6 +80,7 @@ async function processHLS() {
     }
     
     // Lấy thông tin video để quyết định độ phân giải
+    console.log(`[HLS Processor] Đang lấy thông tin video...`);
     const duration = await getVideoDuration(inputFile);
     console.log(`[HLS Processor] Video có thời lượng: ${duration} giây`);
     
@@ -108,9 +127,16 @@ async function processHLS() {
   }
 }
 
-// Hàm lấy thời lượng video
+// Hàm lấy thông tin video
 function getVideoDuration(file) {
   return new Promise((resolve, reject) => {
+    console.log(`[HLS Processor] Chạy ffprobe: ${file}`);
+    
+    // Kiểm tra file một lần nữa
+    if (!fs.existsSync(file)) {
+      return reject(new Error(`File không tồn tại: ${file}`));
+    }
+    
     const ffprobe = spawn('ffprobe', [
       '-v', 'error',
       '-show_entries', 'format=duration',
@@ -119,9 +145,15 @@ function getVideoDuration(file) {
     ]);
     
     let output = '';
+    let errorOutput = '';
     
     ffprobe.stdout.on('data', (data) => {
       output += data.toString();
+    });
+    
+    ffprobe.stderr.on('data', (data) => {
+      errorOutput += data.toString();
+      console.error(`[ffprobe] ${data.toString()}`);
     });
     
     ffprobe.on('close', (code) => {
@@ -129,12 +161,9 @@ function getVideoDuration(file) {
         const duration = parseFloat(output.trim());
         resolve(duration);
       } else {
-        reject(new Error(`ffprobe exited with code ${code}`));
+        console.error(`[ffprobe] Lỗi code ${code}, stderr: ${errorOutput}`);
+        reject(new Error(`ffprobe exited with code ${code} ${errorOutput}`));
       }
-    });
-    
-    ffprobe.stderr.on('data', (data) => {
-      console.error(`[ffprobe] ${data.toString()}`);
     });
   });
 }
@@ -234,30 +263,52 @@ async function uploadDirectoryToR2(localDir, r2Prefix) {
 async function sendCallback(status, error = null) {
   try {
     console.log(`[HLS Processor] Gửi callback đến ${callbackUrl}`);
+    let retries = 0;
+    const maxRetries = 3;
     
-    const response = await fetch(callbackUrl, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'X-Backend-Secret': 'alldrama-backend-secret'
-      },
-      body: JSON.stringify({
-        status,
-        movieId,
-        episodeId,
-        error
-      })
-    });
-    
-    if (!response.ok) {
-      console.error(`[HLS Processor] Callback thất bại: ${await response.text()}`);
-    } else {
-      console.log('[HLS Processor] Callback thành công');
+    while (retries < maxRetries) {
+      try {
+        const response = await fetch(callbackUrl, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'X-Backend-Secret': 'alldrama-backend-secret'
+          },
+          body: JSON.stringify({
+            status,
+            movieId,
+            episodeId,
+            error
+          }),
+          timeout: 10000 // 10 seconds timeout
+        });
+        
+        if (response.ok) {
+          console.log(`[HLS Processor] Callback gửi thành công, phản hồi: ${response.status}`);
+          return;
+        }
+        
+        console.warn(`[HLS Processor] Callback gửi không thành công, mã phản hồi: ${response.status}`);
+      } catch (err) {
+        console.error(`[HLS Processor] Lỗi gửi callback: ${err.message}`);
+      }
+      
+      retries++;
+      if (retries < maxRetries) {
+        const delayMs = retries * 2000; // 2s, 4s, 6s...
+        console.log(`[HLS Processor] Thử lại lần ${retries} sau ${delayMs}ms...`);
+        await new Promise(resolve => setTimeout(resolve, delayMs));
+      }
     }
+    
+    console.error(`[HLS Processor] Không thể gửi callback sau ${maxRetries} lần thử`);
   } catch (error) {
     console.error(`[HLS Processor] Lỗi gửi callback: ${error.message}`);
   }
 }
 
-// Khởi chạy xử lý
-processHLS(); 
+// Khởi động xử lý
+processHLS().catch(error => {
+  console.error(`[HLS Processor] Lỗi không xử lý được: ${error.message}`);
+  process.exit(1);
+}); 
