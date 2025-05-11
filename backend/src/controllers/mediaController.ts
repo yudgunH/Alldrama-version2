@@ -508,8 +508,9 @@ export const processVideoFromWorker = async (req: Request, res: Response): Promi
     }
     
     // Tạo callback URL cho container để gọi lại khi xử lý xong
-    const backendUrl = process.env.BACKEND_URL || 'http://localhost:8080';
-    const callbackUrl = `${backendUrl}/api/media/hls-processor/callback`;
+    const backendHost = process.env.BACKEND_HOST || 'host.docker.internal';
+    const backendPort = process.env.PORT || '5000';
+    const callbackUrl = `http://${backendHost}:${backendPort}/api/media/hls-processor/callback`;
     
     // Tạo job ID
     const jobId = `hls-job-${Date.now()}`;
@@ -577,6 +578,7 @@ export const processVideoFromWorker = async (req: Request, res: Response): Promi
         '-d', // Chạy ở chế độ detached
         '--name', containerName,
         '--rm', // Tự động xóa container sau khi chạy xong
+        '--network', 'host', // Sử dụng network của host
         '-v', `${tempDir}:/input`,
         '-v', `${outputDir}:/output`,
         'alldrama-hls-processor',
