@@ -508,9 +508,23 @@ export const processVideoFromWorker = async (req: Request, res: Response): Promi
     }
     
     // Tạo callback URL cho container để gọi lại khi xử lý xong
-    const backendHost = process.env.BACKEND_HOST || 'host.docker.internal';
+    // Sử dụng IP thật hoặc tên miền public
+    let backendHost;
+    const isProd = process.env.NODE_ENV === 'production';
+    
+    if (isProd && process.env.PUBLIC_DOMAIN) {
+      // Sử dụng tên miền public trong môi trường production
+      backendHost = process.env.PUBLIC_DOMAIN; // ví dụ: 'alldramaz.com'
+      logger.debug(`Using public domain for callback: ${backendHost}`);
+    } else {
+      // Trong môi trường dev, sử dụng IP cục bộ
+      backendHost = '127.0.0.1';
+      logger.debug(`Using localhost IP for callback: ${backendHost}`);
+    }
+    
     const backendPort = process.env.PORT || '5000';
     const callbackUrl = `http://${backendHost}:${backendPort}/api/media/hls-processor/callback`;
+    logger.debug(`Callback URL: ${callbackUrl}`);
     
     // Tạo job ID
     const jobId = `hls-job-${Date.now()}`;
@@ -579,8 +593,9 @@ export const processVideoFromWorker = async (req: Request, res: Response): Promi
         '--name', containerName,
         '--rm', // Tự động xóa container sau khi chạy xong
         '--network', 'host', // Sử dụng network của host
-        '-v', `${tempDir}:/input`,
-        '-v', `${outputDir}:/output`,
+        '--add-host=host.docker.internal:host-gateway', // Thêm host.docker.internal vào /etc/hosts
+        '-v', `${path.resolve(tempDir)}:/input`,
+        '-v', `${path.resolve(outputDir)}:/output`,
         'alldrama-hls-processor',
         '/input/original.mp4',
         '/output',
@@ -595,14 +610,35 @@ export const processVideoFromWorker = async (req: Request, res: Response): Promi
       
       logger.debug(`Executing Docker command: ${dockerCommand}`);
       
+      // Xác minh file đầu vào tồn tại trước khi chạy container
+      const inputFilePath = path.join(tempDir, 'original.mp4');
+      if (!fs.existsSync(inputFilePath)) {
+        logger.error(`Input file does not exist: ${inputFilePath}`);
+        throw new Error(`Input file does not exist: ${inputFilePath}`);
+      }
+      
+      // Kiểm tra quyền truy cập file
+      try {
+        fs.accessSync(inputFilePath, fs.constants.R_OK);
+        logger.debug(`Input file exists and is readable: ${inputFilePath}`);
+        
+        // Log thông tin chi tiết file để debug
+        const stats = fs.statSync(inputFilePath);
+        logger.debug(`File size: ${stats.size} bytes, last modified: ${stats.mtime}`);
+      } catch (accessError: any) {
+        logger.error(`Cannot access input file: ${accessError}`);
+        throw new Error(`Cannot access input file: ${accessError.message}`);
+      }
+      
       // Thử chạy container trực tiếp trước khi chạy ở chế độ detached để kiểm tra lỗi
       try {
         logger.debug("Testing container with direct run before detached mode...");
         const testCommand = [
           'docker', 'run',
           '--rm',
-          '-v', `${tempDir}:/input`,
-          '-v', `${outputDir}:/output`,
+          '--add-host=host.docker.internal:host-gateway', // Thêm host.docker.internal vào /etc/hosts
+          '-v', `${path.resolve(tempDir)}:/input`,
+          '-v', `${path.resolve(outputDir)}:/output`,
           'alldrama-hls-processor',
           '/input/original.mp4',
           '/output',
