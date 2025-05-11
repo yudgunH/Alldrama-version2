@@ -271,8 +271,8 @@ export class MediaService {
       await convertToHls(localVideoPath, outputDir, movieId, episodeId);
       logger.info('Đã hoàn thành chuyển đổi HLS');
       
-      // Tạo URL playlist - Sửa lại đường dẫn cho đúng
-      const playlistUrl = `https://${process.env.CLOUDFLARE_DOMAIN}/episodes/${movieId}/${episodeId}/hls/master.m3u8`;
+      // Tạo URL playlist - Sử dụng domain Worker
+      const playlistUrl = `https://${process.env.CLOUDFLARE_WORKER_DOMAIN || process.env.WORKER_DOMAIN}/episodes/${movieId}/${episodeId}/hls/master.m3u8`;
       
       // Cập nhật trạng thái episode trong database
       await Episode.update(
