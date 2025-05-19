@@ -531,10 +531,16 @@ export const processVideoFromWorker = async (req: Request, res: Response): Promi
     
     // Tải video từ R2 về thư mục tạm thời
     logger.debug(`Downloading video from R2: ${videoKey}`);
-    const workspaceRoot = process.cwd();
-    const tempDir = path.join(workspaceRoot, 'temp/hls-processor/input');
+    const tempDir = path.join('/tmp', 'hls-processor', 'input');
     if (!fs.existsSync(tempDir)) {
-      fs.mkdirSync(tempDir, { recursive: true, mode: 0o777 });
+      try {
+        fs.mkdirSync(tempDir, { recursive: true, mode: 0o777 });
+        // Đảm bảo quyền truy cập cho thư mục
+        fs.chmodSync(tempDir, 0o777);
+      } catch (mkdirError) {
+        logger.error(`Failed to create temp directory: ${mkdirError}`);
+        throw mkdirError;
+      }
     }
     
     const tempFilePath = path.join(tempDir, 'original.mp4');
@@ -564,9 +570,16 @@ export const processVideoFromWorker = async (req: Request, res: Response): Promi
     );
     
     // Tạo thư mục output
-    const outputDir = path.join(workspaceRoot, 'temp/hls-processor/output');
+    const outputDir = path.join('/tmp', 'hls-processor', 'output');
     if (!fs.existsSync(outputDir)) {
-      fs.mkdirSync(outputDir, { recursive: true, mode: 0o777 });
+      try {
+        fs.mkdirSync(outputDir, { recursive: true, mode: 0o777 });
+        // Đảm bảo quyền truy cập cho thư mục output
+        fs.chmodSync(outputDir, 0o777);
+      } catch (mkdirError) {
+        logger.error(`Failed to create output directory: ${mkdirError}`);
+        throw mkdirError;
+      }
     }
     
     // Khởi chạy Docker container để xử lý
@@ -606,9 +619,8 @@ export const processVideoFromWorker = async (req: Request, res: Response): Promi
         '--rm', // Tự động xóa container sau khi chạy xong
         '--network', 'host', // Sử dụng network của host
         '--add-host=host.docker.internal:host-gateway', // Thêm host.docker.internal vào /etc/hosts
-        '-v', `${tempDir}:/input:rw,z`,
-        '-v', `${outputDir}:/output:rw,z`,
-        '--user', `${process.getuid?.() || 0}:${process.getgid?.() || 0}`, // Chạy với cùng user ID
+        '-v', `${tempDir}:/input`,
+        '-v', `${outputDir}:/output`,
         'alldrama-hls-processor',
         '/input/original.mp4',
         '/output',
