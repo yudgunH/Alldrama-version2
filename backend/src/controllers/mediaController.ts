@@ -531,7 +531,7 @@ export const processVideoFromWorker = async (req: Request, res: Response): Promi
     
     // Tải video từ R2 về thư mục tạm thời
     logger.debug(`Downloading video from R2: ${videoKey}`);
-    const tempDir = path.join(process.cwd(), 'hls-processor/temp');
+    const tempDir = path.join(os.tmpdir(), 'hls-processor-temp');
     if (!fs.existsSync(tempDir)) {
       fs.mkdirSync(tempDir, { recursive: true });
     }
@@ -558,7 +558,7 @@ export const processVideoFromWorker = async (req: Request, res: Response): Promi
     );
     
     // Tạo thư mục output
-    const outputDir = path.join(process.cwd(), 'hls-processor/output');
+    const outputDir = path.join(os.tmpdir(), 'hls-processor-output');
     if (!fs.existsSync(outputDir)) {
       fs.mkdirSync(outputDir, { recursive: true });
     }
@@ -594,8 +594,8 @@ export const processVideoFromWorker = async (req: Request, res: Response): Promi
         '--rm', // Tự động xóa container sau khi chạy xong
         '--network', 'host', // Sử dụng network của host
         '--add-host=host.docker.internal:host-gateway', // Thêm host.docker.internal vào /etc/hosts
-        '-v', `${path.resolve(tempDir)}:/input`,
-        '-v', `${path.resolve(outputDir)}:/output`,
+        '-v', `${tempDir}:/input`,
+        '-v', `${outputDir}:/output`,
         'alldrama-hls-processor',
         '/input/original.mp4',
         '/output',
@@ -637,8 +637,8 @@ export const processVideoFromWorker = async (req: Request, res: Response): Promi
           'docker', 'run',
           '--rm',
           '--add-host=host.docker.internal:host-gateway', // Thêm host.docker.internal vào /etc/hosts
-          '-v', `${path.resolve(tempDir)}:/input`,
-          '-v', `${path.resolve(outputDir)}:/output`,
+          '-v', `${tempDir}:/input`,
+          '-v', `${outputDir}:/output`,
           'alldrama-hls-processor',
           '/input/original.mp4',
           '/output',
