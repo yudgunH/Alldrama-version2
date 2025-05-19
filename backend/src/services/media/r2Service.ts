@@ -1,5 +1,5 @@
 import { Logger } from '../../utils/logger';
-import { S3Client, PutObjectCommand, GetObjectCommand, DeleteObjectCommand, ListObjectsCommand } from '@aws-sdk/client-s3';
+import { S3Client, PutObjectCommand, GetObjectCommand, DeleteObjectCommand, ListObjectsCommand, ListObjectsV2Command } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import fs from 'fs';
 import path from 'path';
@@ -298,5 +298,35 @@ export const deleteHlsFiles = async (movieId: string | number, episodeId: string
   } catch (error) {
     logger.error(`Lỗi khi xóa file HLS: ${error}`);
     throw error;
+  }
+};
+
+export const downloadFromR2AsBuffer = async (key: string): Promise<Buffer> => {
+  try {
+    const command = new GetObjectCommand({
+      Bucket: process.env.R2_BUCKET_NAME || '',
+      Key: key
+    });
+    
+    const object = await r2Client.send(command);
+    
+    if (!object || !object.Body) {
+      throw new Error(`Object not found: ${key}`);
+    }
+    
+    // Chuyển ReadableStream thành Buffer
+    const chunks: Uint8Array[] = [];
+    const reader = object.Body as ReadableStream;
+    const streamReader = reader.getReader();
+    
+    while (true) {
+      const { done, value } = await streamReader.read();
+      if (done) break;
+      chunks.push(value);
+    }
+    
+    return Buffer.concat(chunks);
+  } catch (error) {
+    throw new Error(`Failed to download file from R2: ${error}`);
   }
 }; 

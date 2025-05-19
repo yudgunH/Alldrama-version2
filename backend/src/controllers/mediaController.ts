@@ -11,7 +11,8 @@ import {
   generatePresignedUrl, 
   deleteFileFromR2,
   deleteHlsFiles,
-  uploadDirectoryToR2
+  uploadDirectoryToR2,
+  downloadFromR2AsBuffer
 } from '../services/media/r2Service';
 import { 
   convertToHls, 
@@ -529,38 +530,66 @@ export const processVideoFromWorker = async (req: Request, res: Response): Promi
     // Tạo job ID
     const jobId = `hls-job-${Date.now()}`;
     
-    // Tải video từ R2 về thư mục tạm thời
-    logger.debug(`Downloading video from R2: ${videoKey}`);
-    const tempDir = path.join('/tmp', 'hls-processor', 'input');
-    if (!fs.existsSync(tempDir)) {
-      try {
-        fs.mkdirSync(tempDir, { recursive: true, mode: 0o777 });
-        // Đảm bảo quyền truy cập cho thư mục
-        fs.chmodSync(tempDir, 0o777);
-      } catch (mkdirError) {
-        logger.error(`Failed to create temp directory: ${mkdirError}`);
-        throw mkdirError;
-      }
-    }
-    
-    const tempFilePath = path.join(tempDir, 'original.mp4');
-    
-    // Thực hiện tải video
+    // Tạo volume Docker nếu chưa tồn tại
     try {
-      await downloadFromR2(videoKey, tempFilePath);
-      // Đảm bảo quyền truy cập cho file
-      fs.chmodSync(tempFilePath, 0o666);
-      logger.debug(`Video downloaded successfully to ${tempFilePath}`);
-      
-      // Đợi 1 giây để đảm bảo file được ghi hoàn tất
-      await new Promise(resolve => setTimeout(resolve, 1000));
+      execSync('docker volume create hls-processor-data');
+      logger.debug('Created Docker volume: hls-processor-data');
     } catch (error) {
-      logger.error(`Failed to download video: ${error}`);
+      logger.warn('Docker volume may already exist:', error);
+    }
+
+    // Tạo container tạm thời để copy file vào volume
+    const tempContainer = `temp-copy-${Date.now()}`;
+    try {
+      // Tạo container với volume mount
+      execSync(`docker run -d --name ${tempContainer} -v hls-processor-data:/data node:18-slim tail -f /dev/null`);
+      logger.debug(`Created temporary container: ${tempContainer}`);
+
+      // Tạo thư mục trong container
+      execSync(`docker exec ${tempContainer} mkdir -p /data/input /data/output`);
+      execSync(`docker exec ${tempContainer} chmod 777 /data/input /data/output`);
+
+      // Tải file từ R2 vào buffer
+      logger.debug(`Downloading video from R2 into buffer: ${videoKey}`);
+      const videoData = await downloadFromR2AsBuffer(videoKey);
+      logger.debug(`Downloaded video size: ${videoData.length} bytes`);
+      
+      // Ghi file vào thư mục tạm
+      const tempFile = path.join(os.tmpdir(), 'original.mp4');
+      fs.writeFileSync(tempFile, videoData);
+      logger.debug(`Wrote temporary file: ${tempFile}, size: ${fs.statSync(tempFile).size} bytes`);
+      
+      // Copy file vào container
+      logger.debug(`Copying file to container ${tempContainer}:/data/input/original.mp4`);
+      execSync(`docker cp ${tempFile} ${tempContainer}:/data/input/original.mp4`);
+      execSync(`docker exec ${tempContainer} chmod 666 /data/input/original.mp4`);
+      
+      // Verify file in container
+      try {
+        const result = execSync(`docker exec ${tempContainer} ls -la /data/input/`).toString();
+        logger.debug(`File in container: ${result}`);
+      } catch (verifyError) {
+        logger.warn(`Error verifying file in container: ${verifyError}`);
+      }
+      
+      // Xóa file tạm
+      fs.unlinkSync(tempFile);
+      
+      logger.debug('Successfully copied video to Docker volume');
+    } catch (error) {
+      logger.error('Error preparing Docker volume:', error);
       res.status(500).json({ 
         success: false, 
-        error: 'Failed to download video from storage' 
+        error: error instanceof Error ? error.message : 'Unknown error preparing Docker volume'
       });
       return;
+    } finally {
+      // Dọn dẹp container tạm
+      try {
+        execSync(`docker rm -f ${tempContainer}`);
+      } catch (cleanupError) {
+        logger.warn('Error cleaning up temporary container:', cleanupError);
+      }
     }
     
     // Cập nhật trạng thái episode
@@ -568,19 +597,6 @@ export const processVideoFromWorker = async (req: Request, res: Response): Promi
       { processingStatus: 'processing' },
       { where: { id: episodeId } }
     );
-    
-    // Tạo thư mục output
-    const outputDir = path.join('/tmp', 'hls-processor', 'output');
-    if (!fs.existsSync(outputDir)) {
-      try {
-        fs.mkdirSync(outputDir, { recursive: true, mode: 0o777 });
-        // Đảm bảo quyền truy cập cho thư mục output
-        fs.chmodSync(outputDir, 0o777);
-      } catch (mkdirError) {
-        logger.error(`Failed to create output directory: ${mkdirError}`);
-        throw mkdirError;
-      }
-    }
     
     // Khởi chạy Docker container để xử lý
     try {
@@ -598,18 +614,26 @@ export const processVideoFromWorker = async (req: Request, res: Response): Promi
       
       // Chuẩn bị các tham số chạy docker
       const r2AccountId = process.env.R2_ACCOUNT_ID || '';
-      const r2AccessKey = process.env.R2_ACCESS_KEY || '';
-      const r2SecretKey = process.env.R2_SECRET_KEY || '';
-      const r2BucketName = process.env.R2_BUCKET_NAME || '';
+      const r2AccessKey = process.env.R2_ACCESS_KEY_ID || ''; // Đảm bảo tên biến môi trường đúng
+      const r2SecretKey = process.env.R2_SECRET_ACCESS_KEY || ''; // Đảm bảo tên biến môi trường đúng
+      const r2BucketName = process.env.R2_BUCKET || 'alldrama-storage'; // Đồng bộ tên biến môi trường với r2Service
       
       // Khởi chạy container sử dụng exec thay vì spawn
       const containerName = `hls-processor-${episodeId}-${Date.now()}`;
       
-      // Log thông tin thư mục và quyền truy cập
-      logger.debug(`Checking directory permissions before running container:`);
-      logger.debug(`Input directory (${tempDir}):`, fs.statSync(tempDir));
-      logger.debug(`Input file (${tempFilePath}):`, fs.statSync(tempFilePath));
-      logger.debug(`Output directory (${outputDir}):`, fs.statSync(outputDir));
+      // Tạo lệnh Docker dưới dạng chuỗi - thêm kiểm tra container trước khi chạy
+      try {
+        // Kiểm tra xem image có tồn tại không
+        execSync('docker image inspect alldrama-hls-processor');
+        logger.debug('HLS processor image exists and is ready');
+        
+        // Kiểm tra xem volume có dữ liệu không
+        const volumeCheck = execSync(`docker run --rm -v hls-processor-data:/data alpine ls -la /data/input/original.mp4`).toString();
+        logger.debug(`Volume data check: ${volumeCheck.trim()}`);
+      } catch (checkError) {
+        logger.warn(`Pre-run check failed: ${checkError}`);
+        // Tiếp tục vì có thể image chưa được pull nhưng vẫn có thể build
+      }
       
       // Tạo lệnh Docker dưới dạng chuỗi
       const dockerCommand = [
@@ -619,11 +643,10 @@ export const processVideoFromWorker = async (req: Request, res: Response): Promi
         '--rm', // Tự động xóa container sau khi chạy xong
         '--network', 'host', // Sử dụng network của host
         '--add-host=host.docker.internal:host-gateway', // Thêm host.docker.internal vào /etc/hosts
-        '-v', `${tempDir}:/input`,
-        '-v', `${outputDir}:/output`,
+        '-v', 'hls-processor-data:/data',
         'alldrama-hls-processor',
-        '/input/original.mp4',
-        '/output',
+        '/data/input/original.mp4',
+        '/data/output',
         `${movieId}`,
         `${episodeId}`,
         `${r2AccountId}`,
@@ -635,26 +658,6 @@ export const processVideoFromWorker = async (req: Request, res: Response): Promi
       
       // Log lệnh Docker để debug
       logger.debug(`Executing Docker command: ${dockerCommand}`);
-      
-      // Xác minh file đầu vào tồn tại trước khi chạy container
-      const inputFilePath = path.join(tempDir, 'original.mp4');
-      if (!fs.existsSync(inputFilePath)) {
-        logger.error(`Input file does not exist: ${inputFilePath}`);
-        throw new Error(`Input file does not exist: ${inputFilePath}`);
-      }
-      
-      // Kiểm tra quyền truy cập file
-      try {
-        fs.accessSync(inputFilePath, fs.constants.R_OK | fs.constants.W_OK);
-        logger.debug(`Input file exists and is readable/writable: ${inputFilePath}`);
-        
-        // Log thông tin chi tiết file để debug
-        const stats = fs.statSync(inputFilePath);
-        logger.debug(`File size: ${stats.size} bytes, mode: ${stats.mode.toString(8)}, last modified: ${stats.mtime}`);
-      } catch (accessError: any) {
-        logger.error(`Cannot access input file: ${accessError}`);
-        throw new Error(`Cannot access input file: ${accessError.message}`);
-      }
       
       // Thực thi lệnh chính và bắt kết quả
       logger.debug("Executing detached container now...");
@@ -788,21 +791,11 @@ export const hlsProcessorCallback = async (req: Request, res: Response): Promise
     }
     
     // Xóa các file tạm khi đã xử lý xong
-    const tempFile = path.join(process.cwd(), 'hls-processor/temp/original.mp4');
-    if (fs.existsSync(tempFile)) {
-      fs.unlinkSync(tempFile);
-      logger.debug(`Removed temporary file: ${tempFile}`);
-    }
-    
-    // Xóa thư mục output nếu còn tồn tại
-    const outputDir = path.join(process.cwd(), 'hls-processor/output');
-    if (fs.existsSync(outputDir)) {
-      try {
-        fs.rmSync(outputDir, { recursive: true, force: true });
-        logger.debug(`Removed output directory: ${outputDir}`);
-      } catch (err) {
-        logger.warn(`Could not remove output directory: ${err}`);
-      }
+    try {
+      execSync('docker volume rm -f hls-processor-data');
+      logger.debug('Removed temporary Docker volume');
+    } catch (err) {
+      logger.warn(`Could not remove Docker volume: ${err}`);
     }
     
     res.json({ 
