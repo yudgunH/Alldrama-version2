@@ -533,7 +533,7 @@ export const processVideoFromWorker = async (req: Request, res: Response): Promi
     logger.debug(`Downloading video from R2: ${videoKey}`);
     const tempDir = path.join(os.tmpdir(), 'hls-processor-temp');
     if (!fs.existsSync(tempDir)) {
-      fs.mkdirSync(tempDir, { recursive: true });
+      fs.mkdirSync(tempDir, { recursive: true, mode: 0o777 });
     }
     
     const tempFilePath = path.join(tempDir, 'original.mp4');
@@ -541,6 +541,8 @@ export const processVideoFromWorker = async (req: Request, res: Response): Promi
     // Thực hiện tải video
     try {
       await downloadFromR2(videoKey, tempFilePath);
+      // Đảm bảo quyền truy cập cho file
+      fs.chmodSync(tempFilePath, 0o666);
       logger.debug(`Video downloaded successfully to ${tempFilePath}`);
     } catch (error) {
       logger.error(`Failed to download video: ${error}`);
@@ -560,7 +562,7 @@ export const processVideoFromWorker = async (req: Request, res: Response): Promi
     // Tạo thư mục output
     const outputDir = path.join(os.tmpdir(), 'hls-processor-output');
     if (!fs.existsSync(outputDir)) {
-      fs.mkdirSync(outputDir, { recursive: true });
+      fs.mkdirSync(outputDir, { recursive: true, mode: 0o777 });
     }
     
     // Khởi chạy Docker container để xử lý
@@ -586,6 +588,12 @@ export const processVideoFromWorker = async (req: Request, res: Response): Promi
       // Khởi chạy container sử dụng exec thay vì spawn
       const containerName = `hls-processor-${episodeId}-${Date.now()}`;
       
+      // Log thông tin thư mục và quyền truy cập
+      logger.debug(`Checking directory permissions before running container:`);
+      logger.debug(`Input directory (${tempDir}):`, fs.statSync(tempDir));
+      logger.debug(`Input file (${tempFilePath}):`, fs.statSync(tempFilePath));
+      logger.debug(`Output directory (${outputDir}):`, fs.statSync(outputDir));
+      
       // Tạo lệnh Docker dưới dạng chuỗi
       const dockerCommand = [
         'docker', 'run',
@@ -594,8 +602,9 @@ export const processVideoFromWorker = async (req: Request, res: Response): Promi
         '--rm', // Tự động xóa container sau khi chạy xong
         '--network', 'host', // Sử dụng network của host
         '--add-host=host.docker.internal:host-gateway', // Thêm host.docker.internal vào /etc/hosts
-        '-v', `${tempDir}:/input`,
-        '-v', `${outputDir}:/output`,
+        '-v', `${tempDir}:/input:rw`,
+        '-v', `${outputDir}:/output:rw`,
+        '--user', `${process.getuid?.() || 0}:${process.getgid?.() || 0}`, // Chạy với cùng user ID
         'alldrama-hls-processor',
         '/input/original.mp4',
         '/output',
@@ -608,6 +617,7 @@ export const processVideoFromWorker = async (req: Request, res: Response): Promi
         `${callbackUrl}`
       ].join(' ');
       
+      // Log lệnh Docker để debug
       logger.debug(`Executing Docker command: ${dockerCommand}`);
       
       // Xác minh file đầu vào tồn tại trước khi chạy container
@@ -619,49 +629,15 @@ export const processVideoFromWorker = async (req: Request, res: Response): Promi
       
       // Kiểm tra quyền truy cập file
       try {
-        fs.accessSync(inputFilePath, fs.constants.R_OK);
-        logger.debug(`Input file exists and is readable: ${inputFilePath}`);
+        fs.accessSync(inputFilePath, fs.constants.R_OK | fs.constants.W_OK);
+        logger.debug(`Input file exists and is readable/writable: ${inputFilePath}`);
         
         // Log thông tin chi tiết file để debug
         const stats = fs.statSync(inputFilePath);
-        logger.debug(`File size: ${stats.size} bytes, last modified: ${stats.mtime}`);
+        logger.debug(`File size: ${stats.size} bytes, mode: ${stats.mode.toString(8)}, last modified: ${stats.mtime}`);
       } catch (accessError: any) {
         logger.error(`Cannot access input file: ${accessError}`);
         throw new Error(`Cannot access input file: ${accessError.message}`);
-      }
-      
-      // Thử chạy container trực tiếp trước khi chạy ở chế độ detached để kiểm tra lỗi
-      try {
-        logger.debug("Testing container with direct run before detached mode...");
-        const testCommand = [
-          'docker', 'run',
-          '--rm',
-          '--add-host=host.docker.internal:host-gateway', // Thêm host.docker.internal vào /etc/hosts
-          '-v', `${tempDir}:/input`,
-          '-v', `${outputDir}:/output`,
-          'alldrama-hls-processor',
-          '/input/original.mp4',
-          '/output',
-          `${movieId}`,
-          `${episodeId}`,
-          `${r2AccountId}`,
-          `${r2AccessKey}`,
-          `${r2SecretKey}`,
-          `${r2BucketName}`,
-          `${callbackUrl}`
-        ].join(' ');
-        
-        // Thực thi lệnh test và ghi log kết quả
-        exec(testCommand + " > /tmp/hls-test.log 2>&1", (error, stdout, stderr) => {
-          if (error) {
-            logger.warn(`Test container exited with error: ${error.message}`);
-            logger.debug("Check /tmp/hls-test.log for details");
-          } else {
-            logger.debug("Test container executed successfully");
-          }
-        });
-      } catch (testError) {
-        logger.error('Error testing container:', testError);
       }
       
       // Thực thi lệnh chính và bắt kết quả
