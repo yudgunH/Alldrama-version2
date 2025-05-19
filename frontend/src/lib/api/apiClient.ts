@@ -3,14 +3,14 @@ import { toast } from 'react-hot-toast';
 import { ErrorResponse } from '@/types';
 import {
   getRefreshingStatus,
-  setRefreshingStatus,
   refreshAccessToken,
   onTokenRefreshed,
   onTokenRefreshFailed,
   notifySubscribers,
   clearAuthHelperState
 } from './authHelper';
-import { useAuthStore } from '@/store/authStore';
+import { useAuthStore } from '@/store/auth';
+import { authService } from './services/authService';
 
 // In development, use relative URLs to leverage Next.js API proxy
 // In production, can use absolute URLs
@@ -58,8 +58,15 @@ class ApiClient {
     // Request interceptor - thêm token cho mỗi request
     this.client.interceptors.request.use(
       (config) => {
-        // Lấy token từ authStore
-        const token = useAuthStore.getState().token;
+        // Kiểm tra xem đang trong quá trình đăng xuất không
+        if (typeof window !== 'undefined' && (window as any).isLoggingOut) {
+          // Nếu đang đăng xuất, hủy request
+          const error = new Error('Cancel request because user is logging out');
+          return Promise.reject(error);
+        }
+        
+        // Lấy token từ authStore hoặc cookie
+        const token = authService.getToken();
         
         // Bỏ qua debug logging với môi trường production
         if (process.env.NODE_ENV !== 'production') {
@@ -95,71 +102,120 @@ class ApiClient {
           return Promise.reject(error);
         }
 
+        // Xử lý lỗi 429 Too Many Requests
+        if (error.response?.status === 429) {
+          const retryAfter = error.response.headers['retry-after'];
+          const rateLimitRemaining = error.response.headers['ratelimit-remaining'];
+          const rateLimitReset = error.response.headers['ratelimit-reset'];
+          
+          // Tính toán thời gian chờ
+          let delay = 5000; // Default 5 seconds
+          if (retryAfter) {
+            delay = parseInt(retryAfter) * 1000;
+          } else if (rateLimitReset) {
+            const resetTime = parseInt(rateLimitReset) * 1000;
+            delay = Math.max(resetTime - Date.now(), 1000);
+          }
+          
+          // Log thông tin rate limit
+          console.warn('Rate limit exceeded:', {
+            remaining: rateLimitRemaining,
+            reset: rateLimitReset,
+            retryAfter: retryAfter,
+            delay: delay/1000 + 's'
+          });
+          
+          // Hiển thị thông báo cho user
+          toast.error(`Quá nhiều request. Vui lòng thử lại sau ${Math.ceil(delay/1000)} giây.`);
+          
+          // Đợi thời gian được chỉ định
+          await new Promise(resolve => setTimeout(resolve, delay));
+          
+          // Thử lại request
+          return this.client(originalRequest);
+        }
+
         // Khởi tạo số lần retry nếu chưa có
         if (originalRequest._retryCount === undefined) {
           originalRequest._retryCount = 0;
         }
         
-        // Chỉ xử lý lỗi 401 và request chưa quá số lần retry tối đa
+        // Xử lý lỗi 401 Unauthorized
         const isUnauthorized = error.response?.status === 401;
         const canRetry = originalRequest._retryCount < this.MAX_RETRIES;
+        const isRefreshUrl = originalRequest.url?.includes('/auth/refresh');
 
-        if (isUnauthorized && originalRequest && canRetry) {
+        // Skip refresh token attempt if the failing request is the refresh endpoint itself
+        if (isUnauthorized && !isRefreshUrl && originalRequest && canRetry) {
           originalRequest._retryCount++;
           
-          // Nếu đang refresh token, chờ quá trình hoàn thành
-          if (getRefreshingStatus()) {
-            try {
-              // Đợi token mới từ quá trình refresh đang diễn ra
-              const newToken = await new Promise<string>((resolve, reject) => {
-                onTokenRefreshed((token) => {
-                  resolve(token);
-                });
-                
-                // Xử lý khi refresh thất bại
-                onTokenRefreshFailed((error) => {
-                  reject(error);
-                });
-              });
-              
-              // Cập nhật token mới cho request hiện tại
-              if (originalRequest.headers) {
-                originalRequest.headers.Authorization = `Bearer ${newToken}`;
-              }
-              
-              // Retry request với token mới
-              return this.client(originalRequest);
-            } catch (refreshError) {
-              return this.handleTokenRefreshFailed();
-            }
-          }
-          
-          // Bắt đầu quá trình refresh token
-          setRefreshingStatus(true);
-          
           try {
-            // Gọi API refresh token
-            const newToken = await refreshAccessToken();
+            // Lưu trữ thời gian hiện tại để tránh race conditions
+            const refreshStartTime = Date.now();
             
-            // Lưu token mới vào store
-            useAuthStore.getState().setToken(newToken);
+            // Nếu đang refresh token, đợi quá trình hoàn tất
+            if (getRefreshingStatus()) {
+              console.log('Another refresh is in progress, waiting...');
+              
+              try {
+                // Đợi token mới từ quá trình refresh đang diễn ra
+                const newToken = await Promise.race([
+                  new Promise<string>((resolve, reject) => {
+                    const timeoutId = setTimeout(() => {
+                      reject(new Error('Refresh token timeout'));
+                    }, 10000); // 10 second timeout
+                    
+                    onTokenRefreshed(token => {
+                      clearTimeout(timeoutId);
+                      resolve(token);
+                    });
+                    
+                    onTokenRefreshFailed(error => {
+                      clearTimeout(timeoutId);
+                      reject(error);
+                    });
+                  }),
+                  // Additional timeout to prevent hanging indefinitely
+                  new Promise<string>((_, reject) => 
+                    setTimeout(() => reject(new Error('Global refresh token timeout')), 12000)
+                  )
+                ]);
+                
+                // Cập nhật token cho request hiện tại
+                if (originalRequest.headers) {
+                  originalRequest.headers.Authorization = `Bearer ${newToken}`;
+                }
+                
+                // Thử lại request với token mới
+                return this.client(originalRequest);
+              } catch (waitError) {
+                console.error('Error waiting for token refresh:', waitError);
+                // Fall through to refresh attempt if waiting failed
+              }
+            }
+            
+            console.log('Attempting to refresh access token...');
+            // Nếu chưa refresh, thực hiện refresh token
+            // Add timeout to prevent hanging
+            const newToken = await Promise.race([
+              refreshAccessToken(),
+              new Promise<string>((_, reject) => 
+                setTimeout(() => reject(new Error('Refresh token operation timeout')), 15000)
+              )
+            ]);
             
             // Cập nhật token cho request hiện tại
             if (originalRequest.headers) {
               originalRequest.headers.Authorization = `Bearer ${newToken}`;
             }
             
-            // Thông báo cho các request đang đợi
-            notifySubscribers(newToken);
-            
-            // Kết thúc quá trình refresh
-            setRefreshingStatus(false);
-            
-            // Retry request với token mới
+            // Thử lại request với token mới
             return this.client(originalRequest);
           } catch (refreshError) {
+            console.error('Token refresh failed:', refreshError);
             // Xử lý khi refresh token thất bại
-            return this.handleTokenRefreshFailed();
+            this.handleTokenRefreshFailed();
+            return Promise.reject(refreshError);
           }
         }
 
@@ -175,13 +231,14 @@ class ApiClient {
 
         // Xử lý các lỗi khác
         const errorResponse = error.response?.data as ErrorResponse;
-        const status = error.response?.status;
-
-        // Hiển thị thông báo lỗi
-        const errorMessage = errorResponse?.message || 'Đã xảy ra lỗi không xác định';
         
-        // Chỉ hiển thị toast cho các lỗi không phải 401
-        if (!isUnauthorized) {
+        // Kiểm tra xem đang trong quá trình đăng xuất không
+        const isLoggingOut = typeof window !== 'undefined' && (window as any).isLoggingOut;
+        const isLoginPage = typeof window !== 'undefined' && window.location.pathname.includes('/login');
+        
+        // Hiển thị thông báo lỗi (trừ lỗi 401 đã xử lý và trừ khi đang đăng xuất)
+        if (!isUnauthorized && !isLoggingOut && !isLoginPage) {
+          const errorMessage = errorResponse?.message || 'Đã xảy ra lỗi không xác định';
           toast.error(errorMessage);
         }
 
@@ -193,20 +250,39 @@ class ApiClient {
   /**
    * Xử lý khi refresh token thất bại (refresh token hết hạn hoặc không hợp lệ)
    */
-  private handleTokenRefreshFailed(): Promise<never> {
+  private handleTokenRefreshFailed(): void {
     // Xóa token trong store
     useAuthStore.getState().logout();
     
     // Xóa toàn bộ trạng thái auth helper
     clearAuthHelperState();
     
-    // Hiển thị thông báo
-    toast.error('Phiên đăng nhập đã hết hạn. Vui lòng đăng nhập lại.');
+    // Tránh hiển thị nhiều thông báo khi đang trong quá trình đăng xuất
+    // Kiểm tra xem đang ở trang login hay không
+    if (typeof window !== 'undefined') {
+      // Nếu đang ở trang login hoặc đang chuyển hướng đến trang login, không hiển thị thông báo
+      if (window.location.pathname.includes('/login')) {
+        return;
+      }
+      
+      // Kiểm tra xem đã hiển thị thông báo trong 3 giây qua chưa
+      const lastToastTime = window.localStorage.getItem('auth_last_toast_time');
+      const now = Date.now();
+      
+      if (lastToastTime && now - parseInt(lastToastTime) < 3000) {
+        // Nếu đã hiển thị thông báo trong 3 giây qua, không hiển thị nữa
+        return;
+      }
+      
+      // Lưu thời gian hiển thị thông báo cuối cùng
+      window.localStorage.setItem('auth_last_toast_time', now.toString());
+    }
     
-    // Chuyển hướng đến trang đăng nhập
-    window.location.href = '/login';
+    // Hiển thị thông báo không chặn trải nghiệm
+    toast.error('Phiên đăng nhập đã hết hạn. Vui lòng đăng nhập lại khi cần thiết.');
     
-    return Promise.reject(new Error('Phiên đăng nhập đã hết hạn'));
+    // Không chuyển hướng đến trang đăng nhập - để người dùng tiếp tục xem nội dung
+    // window.location.href = '/login';
   }
 
   // Phương thức get generic

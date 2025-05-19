@@ -1,4 +1,4 @@
-import { User } from '@/types';
+import { User, Favorite, WatchHistory } from '@/types';
 import { apiClient } from '../apiClient';
 import { API_ENDPOINTS } from '../endpoints';
 
@@ -80,15 +80,15 @@ export const userService = {
    * Lấy danh sách phim yêu thích của người dùng
    * @param id ID người dùng
    */
-  async getUserFavorites(id: string | number): Promise<any[]> {
-    return apiClient.get<any[]>(API_ENDPOINTS.USERS.FAVORITES(id));
+  async getUserFavorites(id: string | number): Promise<Favorite[]> {
+    return apiClient.get<Favorite[]>(API_ENDPOINTS.USERS.FAVORITES(id));
   },
 
   /**
    * Lấy lịch sử xem của người dùng
    * @param id ID người dùng
    */
-  async getUserWatchHistory(id: string | number): Promise<any[]> {
-    return apiClient.get<any[]>(API_ENDPOINTS.USERS.WATCH_HISTORY(id));
+  async getUserWatchHistory(id: string | number): Promise<WatchHistory[]> {
+    return apiClient.get<WatchHistory[]>(API_ENDPOINTS.USERS.WATCH_HISTORY(id));
   }
 };

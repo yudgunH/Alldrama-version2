@@ -43,7 +43,7 @@ const LoginContent = () => {
   
   // Kiểm tra nếu user vừa đăng ký thành công
   useEffect(() => {
-    const registered = searchParams.get('registered');
+    const registered = searchParams?.get('registered');
     if (registered === 'success') {
       setShowSuccess(true);
     }

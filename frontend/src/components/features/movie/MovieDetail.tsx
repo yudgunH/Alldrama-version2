@@ -5,10 +5,11 @@ import Link from "next/link"
 import Image from "next/image"
 import { useState, useEffect } from "react"
 import { generateMovieUrl, generateWatchUrl } from "@/utils/url"
-import { Star, Play, Film, Clock, Calendar, Eye, ChevronDown, ChevronUp, Info, Heart, Bookmark, TrendingUp, BarChart3, Layers, Share } from "lucide-react"
+import { Star, Play, Film, Clock, Calendar, Eye, ChevronDown, ChevronUp, Info, Heart, Bookmark, TrendingUp, BarChart3, Layers, Share, X } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import CommentSection from "./CommentSection"
 import { useMovieDetail } from "@/hooks/api/useMovieDetail"
+import { useEpisodes } from "@/hooks/api/useEpisodes"
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs"
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip"
 import { Separator } from "@/components/ui/separator"
@@ -31,7 +32,20 @@ interface MovieDetailProps {
 }
 
 const MovieDetail = ({ movieId, initialData }: MovieDetailProps) => {
-  const { movie, episodes, isLoading, error } = useMovieDetail(movieId, initialData)
+  const { movie, isLoading: movieLoading, error: movieError } = useMovieDetail(movieId, initialData)
+  const { 
+    episodes, 
+    loading: episodesLoading, 
+    error: episodesError,
+    getEpisode,
+    findNextEpisode,
+    findPreviousEpisode,
+    incrementView,
+    getProcessingStatus
+  } = useEpisodes(movieId)
+  
+  const isLoading = movieLoading || episodesLoading
+  const error = movieError || episodesError
   const [showFullDescription, setShowFullDescription] = useState(false)
   const [activeEpisode, setActiveEpisode] = useState<string | null>(null)
   const [isWatchlist, setIsWatchlist] = useState(false)
@@ -39,6 +53,7 @@ const MovieDetail = ({ movieId, initialData }: MovieDetailProps) => {
   const [relatedMovies, setRelatedMovies] = useState<Movie[]>([])
   const [topRatedMovies, setTopRatedMovies] = useState<Movie[]>([])
   const isMobile = useMobile()
+  const [isPlayingTrailer, setIsPlayingTrailer] = useState(false)
   
   // Auth state and favorites functionality
   const { user, isAuthenticated } = useAuth()
@@ -213,182 +228,226 @@ const MovieDetail = ({ movieId, initialData }: MovieDetailProps) => {
       <div className="relative w-full h-[50vh] md:h-[75vh] overflow-hidden">
         {/* Background Image with Overlay */}
         <div className="absolute inset-0 w-full h-full">
-          <div className="absolute inset-0 bg-gradient-to-r from-gray-800/40 to-gray-900/40 mix-blend-multiply z-5" />
-          <div className="absolute inset-0 bg-[url('/images/noise.png')] opacity-[0.02] mix-blend-overlay pointer-events-none z-5" />
-          <div className="absolute inset-0 bg-gradient-to-t from-background via-background/90 to-background/30" />
+          <div className="absolute inset-0 bg-gradient-to-r from-gray-800/40 to-gray-900/40 mix-blend-multiply z-0" />
+          <div className="absolute inset-0 bg-[url('/images/noise.png')] opacity-[0.02] mix-blend-overlay pointer-events-none z-0" />
+          <div className="absolute inset-0 bg-gradient-to-t from-background via-background/90 to-background/30 z-0" />
         </div>
 
-        {/* Poster for mobile */}
-        <div className="absolute top-4 left-4 md:hidden w-32 h-48 rounded-xl overflow-hidden shadow-2xl shadow-indigo-500/10">
-          <Image 
-            src={"/images/test.jpg"} 
-            alt={movie.title} 
-            fill 
-            priority
-            className="object-cover transform hover:scale-105 transition-transform duration-700" 
-          />
-          <div className="absolute inset-0 ring-1 ring-indigo-500/20 rounded-xl hover:ring-indigo-500/40 transition-all"></div>
-        </div>
+        {/* Trailer Player */}
+        {isPlayingTrailer && movie.trailerUrl && (
+          <div className="absolute inset-0 z-50 bg-black">
+            <div className="relative w-full h-full">
+              <iframe
+                src={movie.trailerUrl}
+                className="w-full h-full"
+                allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                allowFullScreen
+              />
+              <Button
+                variant="ghost"
+                size="icon"
+                className="absolute top-2 right-2 md:top-4 md:right-4 bg-black/50 hover:bg-black/70 text-white rounded-full w-8 h-8 md:w-10 md:h-10 z-50"
+                onClick={() => setIsPlayingTrailer(false)}
+              >
+                <X className="h-4 w-4 md:h-6 md:w-6" />
+              </Button>
+            </div>
+          </div>
+        )}
 
-        {/* Movie Details */}
-        <div className="absolute inset-0 flex items-end">
-          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 w-full pb-6 md:pb-12">
-            <div className="flex flex-col md:flex-row md:items-end gap-4 md:gap-6">
-              {/* Poster with glow effect */}
-              <div className="hidden md:block w-48 h-72 md:w-64 md:h-96 flex-shrink-0 relative rounded-xl overflow-hidden shadow-2xl shadow-indigo-500/10 group">
-                <Image 
-                  src={ "/placeholder.svg"} 
-                  alt={movie.title} 
-                  fill 
-                  className="object-cover transform group-hover:scale-105 transition-transform duration-700" 
-                />
-                <div className="absolute inset-0 ring-1 ring-indigo-500/20 rounded-xl group-hover:ring-indigo-500/40 transition-all"></div>
-                <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity flex items-end justify-center pb-3">
-                  <Button className="rounded-full bg-indigo-600 hover:bg-indigo-700 text-white shadow-lg text-xs md:text-sm px-2 md:px-3 py-1 md:py-1.5">
-                    <Play className="h-4 w-4 md:h-5 md:w-5 fill-current mr-1 md:mr-2" /> Xem ngay
-                  </Button>
-                </div>
-              </div>
+        {/* Movie Details - Hide when playing trailer */}
+        {!isPlayingTrailer && (
+          <>
+            {/* Poster for mobile */}
+            <div className="absolute top-4 left-4 md:hidden w-32 h-48 rounded-xl overflow-hidden shadow-2xl shadow-indigo-500/10 z-10">
+              <Image 
+                src={movie.posterUrl ? `https://media.alldrama.tech/movies/${movie.id}/poster.png` : "/placeholder.svg"} 
+                alt={movie.title} 
+                fill 
+                priority
+                className="object-cover transform hover:scale-105 transition-transform duration-700" 
+                onError={(e) => {
+                  console.log('MovieDetail Mobile - Image load error for URL:', movie.posterUrl);
+                  const target = e.target as HTMLImageElement;
+                  target.src = "/placeholder.svg";
+                }}
+                onLoad={() => {
+                  console.log('MovieDetail Mobile - Image loaded successfully:', movie.posterUrl);
+                }}
+              />
+              <div className="absolute inset-0 ring-1 ring-indigo-500/20 rounded-xl hover:ring-indigo-500/40 transition-all"></div>
+            </div>
 
-              {/* Movie Info */}
-              <div className="space-y-4 flex-grow">
-                <div>
-                  <h1 className="text-2xl md:text-4xl lg:text-5xl font-bold text-white mb-1 md:mb-2 drop-shadow-sm">{movie.title}</h1>
-                  <div className="relative">
-                    <div className="absolute -left-3 top-0 bottom-0 w-1 bg-gradient-to-b from-indigo-500 to-purple-500"></div>
-                    <p className="text-sm md:text-lg text-gray-300 italic pl-1">{"Một bộ phim đáng xem"}</p>
+            {/* Movie Details */}
+            <div className="absolute inset-0 flex items-end z-20">
+              <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 w-full pb-6 md:pb-12">
+                <div className="flex flex-col md:flex-row md:items-end gap-4 md:gap-6">
+                  {/* Poster with glow effect */}
+                  <div className="hidden md:block w-48 h-72 md:w-64 md:h-96 flex-shrink-0 relative rounded-xl overflow-hidden shadow-2xl shadow-indigo-500/10 group">
+                    <Image 
+                      src={movie.posterUrl ? `https://media.alldrama.tech/movies/${movie.id}/poster.png` : "/placeholder.svg"} 
+                      alt={movie.title} 
+                      fill 
+                      className="object-cover transform group-hover:scale-105 transition-transform duration-700" 
+                      onError={(e) => {
+                        console.log('MovieDetail Desktop - Image load error for URL:', movie.posterUrl);
+                        const target = e.target as HTMLImageElement;
+                        target.src = "/placeholder.svg";
+                      }}
+                      onLoad={() => {
+                        console.log('MovieDetail Desktop - Image loaded successfully:', movie.posterUrl);
+                      }}
+                    />
+                    <div className="absolute inset-0 ring-1 ring-indigo-500/20 rounded-xl group-hover:ring-indigo-500/40 transition-all"></div>
                   </div>
-                </div>
 
-                {/* Movie Metrics */}
-                <div className="flex flex-wrap gap-2 md:gap-4 items-center text-xs md:text-base">
-                  <div className="flex items-center bg-black/20 backdrop-blur-md px-2 md:px-3 py-1 rounded-full text-indigo-200 border border-indigo-500/20">
-                    <Calendar className="w-3 h-3 md:w-4 md:h-4 mr-1 md:mr-2 text-indigo-400" />
-                    <span>{movie.releaseYear}</span>
-                  </div>
-                  
-                  <div className="flex items-center bg-black/20 backdrop-blur-md px-2 md:px-3 py-1 rounded-full text-amber-200 border border-amber-500/20">
-                    <Star className="w-3 h-3 md:w-4 md:h-4 mr-1 md:mr-2 text-amber-400 fill-amber-400" />
-                    <span>{movie.rating || "8.5"}</span>
-                  </div>
-                  
-                  <div className="flex items-center bg-black/20 backdrop-blur-md px-2 md:px-3 py-1 rounded-full text-indigo-200 border border-indigo-500/20">
-                    <Eye className="w-3 h-3 md:w-4 md:h-4 mr-1 md:mr-2 text-indigo-400" />
-                    <span>{new Intl.NumberFormat("vi-VN").format(movie.views || 0)} lượt xem</span>
-                  </div>
-                </div>
+                  {/* Movie Info */}
+                  <div className="space-y-4 flex-grow">
+                    <div>
+                      <h1 className="text-2xl md:text-4xl lg:text-5xl font-bold text-white mb-1 md:mb-2 drop-shadow-sm">{movie.title}</h1>
+                      <div className="relative">
+                        <div className="absolute -left-3 top-0 bottom-0 w-1 bg-gradient-to-b from-indigo-500 to-purple-500"></div>
+                        {/* <p className="text-sm md:text-lg text-gray-300 italic pl-1">{"Một bộ phim đáng xem"}</p> */}
+                      </div>
+                    </div>
 
-                {/* Genres */}
-                <div className="flex flex-wrap items-center gap-1 md:gap-2">
-                  {movie.genres && movie.genres.map((genre, index) => {
-                    const genreId = typeof genre === "string" ? genre : genre.id
-                    const genreName = typeof genre === "string" ? genre : genre.name
+                    {/* Movie Metrics */}
+                    <div className="flex flex-wrap gap-2 md:gap-4 items-center text-xs md:text-base">
+                      <div className="flex items-center bg-black/20 backdrop-blur-md px-2 md:px-3 py-1 rounded-full text-indigo-200 border border-indigo-500/20">
+                        <Calendar className="w-3 h-3 md:w-4 md:h-4 mr-1 md:mr-2 text-indigo-400" />
+                        <span>{movie.releaseYear}</span>
+                      </div>
+                      
+                      <div className="flex items-center bg-black/20 backdrop-blur-md px-2 md:px-3 py-1 rounded-full text-amber-200 border border-amber-500/20">
+                        <Star className="w-3 h-3 md:w-4 md:h-4 mr-1 md:mr-2 text-amber-400 fill-amber-400" />
+                        <span>{movie.rating || "8.5"}</span>
+                      </div>
+                      
+                      <div className="flex items-center bg-black/20 backdrop-blur-md px-2 md:px-3 py-1 rounded-full text-indigo-200 border border-indigo-500/20">
+                        <Eye className="w-3 h-3 md:w-4 md:h-4 mr-1 md:mr-2 text-indigo-400" />
+                        <span>{new Intl.NumberFormat("vi-VN").format(movie.views || 0)} lượt xem</span>
+                      </div>
+                    </div>
 
-                    return (
-                      <Link
-                        key={`${genreId}-${index}`}
-                        href={`/movie?genre=${encodeURIComponent(genreName)}`}
-                        className="px-2 md:px-3 py-0.5 md:py-1 bg-gray-800/80 hover:bg-indigo-600 border border-gray-700 hover:border-indigo-500 rounded-full text-white text-xs md:text-sm transition-all backdrop-blur-sm shadow-sm"
+                    {/* Genres */}
+                    <div className="flex flex-wrap items-center gap-1 md:gap-2">
+                      {movie.genres && movie.genres.map((genre, index) => {
+                        const genreId = typeof genre === "string" ? genre : genre.id
+                        const genreName = typeof genre === "string" ? genre : genre.name
+
+                        return (
+                          <Link
+                            key={`${genreId}-${index}`}
+                            href={`/movie?genre=${encodeURIComponent(genreName)}`}
+                            className="px-2 md:px-3 py-0.5 md:py-1 bg-gray-800/80 hover:bg-indigo-600 border border-gray-700 hover:border-indigo-500 rounded-full text-white text-xs md:text-sm transition-all backdrop-blur-sm shadow-sm"
+                          >
+                            {genreName}
+                          </Link>
+                        )
+                      })}
+                    </div>
+
+                    {/* Action Buttons */}
+                    <div className="flex flex-wrap gap-2 md:gap-3 relative z-30">
+                      {episodes.length > 0 ? (
+                        <Button 
+                          asChild 
+                          size="sm" 
+                          className="h-9 md:h-11 rounded-full gap-1 md:gap-2 bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-700 hover:to-purple-700 border-none text-white shadow-lg px-3 md:px-4 text-xs md:text-sm"
+                        >
+                          <Link href={generateEpisodeLink(movie, episodes[0])}>
+                            <Play className="h-4 w-4 md:h-5 md:w-5 fill-current" />
+                            Xem ngay
+                          </Link>
+                        </Button>
+                      ) : (
+                        <Button 
+                          asChild 
+                          size="sm" 
+                          className="h-9 md:h-11 rounded-full gap-1 md:gap-2 bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-700 hover:to-purple-700 border-none text-white shadow-lg px-3 md:px-4 text-xs md:text-sm"
+                        >
+                          <Link href={generateWatchUrl(movie.id, movie.title)}>
+                            <Play className="h-4 w-4 md:h-5 md:w-5 fill-current" />
+                            Xem phim
+                          </Link>
+                        </Button>
+                      )}
+                      
+                      <Button 
+                        variant="outline" 
+                        size="sm" 
+                        className="h-9 md:h-11 rounded-full gap-1 md:gap-2 border-gray-600 bg-gray-900/40 hover:bg-gray-800 text-white backdrop-blur-sm px-3 md:px-4 text-xs md:text-sm"
+                        onClick={() => setIsPlayingTrailer(true)}
                       >
-                        {genreName}
-                      </Link>
-                    )
-                  })}
-                </div>
-
-                {/* Action Buttons */}
-                <div className="flex flex-wrap gap-1 md:gap-3">
-                  {episodes.length > 0 ? (
-                    <Button asChild size="sm" className="rounded-full gap-1 md:gap-2 bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-700 hover:to-purple-700 border-none text-white shadow-lg px-2 md:px-4 py-1 md:py-3 text-xs md:text-base">
-                      <Link href={generateEpisodeLink(movie, episodes[0])}>
-                        <Play className="h-4 w-4 md:h-5 md:w-5 fill-current" />
-                        Xem ngay
-                      </Link>
-                    </Button>
-                  ) : (
-                    <Button asChild size="sm" className="rounded-full gap-1 md:gap-2 bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-700 hover:to-purple-700 border-none text-white shadow-lg px-2 md:px-4 py-1 md:py-3 text-xs md:text-base">
-                      <Link href={generateWatchUrl(movie.id, movie.title)}>
-                        <Play className="h-4 w-4 md:h-5 md:w-5 fill-current" />
-                        Xem phim
-                      </Link>
-                    </Button>
-                  )}
-                  
-                  <Button 
-                    variant="outline" 
-                    size="sm" 
-                    className="rounded-full gap-1 md:gap-2 border-gray-600 bg-gray-900/40 hover:bg-gray-800 text-white backdrop-blur-sm px-2 md:px-4 py-1 md:py-3 text-xs md:text-base"
-                    asChild
-                  >
-                    <Link href={movie.trailerUrl || "#"} target="_blank" rel="noopener noreferrer">
-                      <Film className="h-4 w-4 md:h-5 md:w-5" />
-                      Xem trailer
-                    </Link>
-                  </Button>
-                  
-                  <div className="flex gap-1 md:gap-2">
-                    <TooltipProvider>
-                      <Tooltip>
-                        <TooltipTrigger asChild>
-                          <Button 
-                            variant="outline" 
-                            size="icon" 
-                            className={`rounded-full w-8 h-8 md:w-11 md:h-11 ${isWatchlist 
-                              ? 'bg-indigo-600 text-white border-indigo-500' 
-                              : 'bg-gray-900/40 border-gray-600 hover:bg-gray-800 text-white backdrop-blur-sm'}`}
-                            onClick={() => setIsWatchlist(!isWatchlist)}
-                          >
-                            <Bookmark className={`h-4 w-4 md:h-5 md:w-5 ${isWatchlist ? 'fill-white' : ''}`} />
-                          </Button>
-                        </TooltipTrigger>
-                        <TooltipContent className="text-xs md:text-sm p-1 md:p-2">
-                          <p>{isWatchlist ? 'Đã lưu' : 'Lưu phim'}</p>
-                        </TooltipContent>
-                      </Tooltip>
-                    </TooltipProvider>
-                    
-                    <TooltipProvider>
-                      <Tooltip>
-                        <TooltipTrigger asChild>
-                          <Button 
-                            variant="outline" 
-                            size="icon" 
-                            className={`rounded-full w-8 h-8 md:w-11 md:h-11 ${isLiked 
-                              ? 'bg-pink-600 text-white border-pink-500' 
-                              : 'bg-gray-900/40 border-gray-600 hover:bg-gray-800 text-white backdrop-blur-sm'}`}
-                            onClick={handleToggleFavorite}
-                          >
-                            <Heart className={`h-4 w-4 md:h-5 md:w-5 ${isLiked ? 'fill-white' : ''}`} />
-                          </Button>
-                        </TooltipTrigger>
-                        <TooltipContent className="text-xs md:text-sm p-1 md:p-2">
-                          <p>{isLiked ? 'Đã thích' : 'Thích phim'}</p>
-                        </TooltipContent>
-                      </Tooltip>
-                    </TooltipProvider>
-                    
-                    <TooltipProvider>
-                      <Tooltip>
-                        <TooltipTrigger asChild>
-                          <Button 
-                            variant="outline" 
-                            size="icon" 
-                            className="rounded-full w-8 h-8 md:w-11 md:h-11 bg-gray-900/40 border-gray-600 hover:bg-gray-800 text-white backdrop-blur-sm"
-                          >
-                            <Share className="h-4 w-4 md:h-5 md:w-5" />
-                          </Button>
-                        </TooltipTrigger>
-                        <TooltipContent className="text-xs md:text-sm p-1 md:p-2">
-                          <p>Chia sẻ</p>
-                        </TooltipContent>
-                      </Tooltip>
-                    </TooltipProvider>
+                        <Film className="h-4 w-4 md:h-5 md:w-5" />
+                        Xem trailer
+                      </Button>
+                      
+                      <div className="flex gap-2">
+                        <TooltipProvider>
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <Button 
+                                variant="outline" 
+                                size="icon" 
+                                className={`h-9 w-9 md:h-11 md:w-11 rounded-full ${isWatchlist 
+                                  ? 'bg-indigo-600 text-white border-indigo-500' 
+                                  : 'bg-gray-900/40 border-gray-600 hover:bg-gray-800 text-white backdrop-blur-sm'}`}
+                                onClick={() => setIsWatchlist(!isWatchlist)}
+                              >
+                                <Bookmark className={`h-4 w-4 md:h-5 md:w-5 ${isWatchlist ? 'fill-white' : ''}`} />
+                              </Button>
+                            </TooltipTrigger>
+                            <TooltipContent className="text-xs md:text-sm p-1 md:p-2">
+                              <p>{isWatchlist ? 'Đã lưu' : 'Lưu phim'}</p>
+                            </TooltipContent>
+                          </Tooltip>
+                        </TooltipProvider>
+                        
+                        <TooltipProvider>
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <Button 
+                                variant="outline" 
+                                size="icon" 
+                                className={`h-9 w-9 md:h-11 md:w-11 rounded-full ${isLiked 
+                                  ? 'bg-pink-600 text-white border-pink-500' 
+                                  : 'bg-gray-900/40 border-gray-600 hover:bg-gray-800 text-white backdrop-blur-sm'}`}
+                                onClick={handleToggleFavorite}
+                              >
+                                <Heart className={`h-4 w-4 md:h-5 md:w-5 ${isLiked ? 'fill-white' : ''}`} />
+                              </Button>
+                            </TooltipTrigger>
+                            <TooltipContent className="text-xs md:text-sm p-1 md:p-2">
+                              <p>{isLiked ? 'Đã thích' : 'Thích phim'}</p>
+                            </TooltipContent>
+                          </Tooltip>
+                        </TooltipProvider>
+                        
+                        <TooltipProvider>
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <Button 
+                                variant="outline" 
+                                size="icon" 
+                                className="h-9 w-9 md:h-11 md:w-11 rounded-full bg-gray-900/40 border-gray-600 hover:bg-gray-800 text-white backdrop-blur-sm"
+                              >
+                                <Share className="h-4 w-4 md:h-5 md:w-5" />
+                              </Button>
+                            </TooltipTrigger>
+                            <TooltipContent className="text-xs md:text-sm p-1 md:p-2">
+                              <p>Chia sẻ</p>
+                            </TooltipContent>
+                          </Tooltip>
+                        </TooltipProvider>
+                      </div>
+                    </div>
                   </div>
                 </div>
               </div>
             </div>
-          </div>
-        </div>
+          </>
+        )}
       </div>
 
       {/* Main Content */}
@@ -404,14 +463,12 @@ const MovieDetail = ({ movieId, initialData }: MovieDetailProps) => {
                 >
                   <Info className="w-4 h-4 mr-2" /> Giới thiệu
                 </TabsTrigger>
-                {episodes.length > 0 && (
-                  <TabsTrigger 
-                    value="episodes" 
-                    className="data-[state=active]:bg-gradient-to-r data-[state=active]:from-indigo-600 data-[state=active]:to-purple-600 data-[state=active]:text-white rounded-md py-2"
-                  >
-                    <Layers className="w-4 h-4 mr-2" /> Tập phim ({episodes.length})
-                  </TabsTrigger>
-                )}
+                <TabsTrigger 
+                  value="episodes" 
+                  className="data-[state=active]:bg-gradient-to-r data-[state=active]:from-indigo-600 data-[state=active]:to-purple-600 data-[state=active]:text-white rounded-md py-2"
+                >
+                  <Layers className="w-4 h-4 mr-2" /> Tập phim ({episodes.length})
+                </TabsTrigger>
                 <TabsTrigger 
                   value="comments" 
                   className="data-[state=active]:bg-gradient-to-r data-[state=active]:from-indigo-600 data-[state=active]:to-purple-600 data-[state=active]:text-white rounded-md py-2"
@@ -507,18 +564,31 @@ const MovieDetail = ({ movieId, initialData }: MovieDetailProps) => {
               </TabsContent>  
               
               {/* Episodes Tab */}
-              {episodes.length > 0 && (
-                <TabsContent value="episodes">
-                  <Card className="bg-gradient-to-br from-gray-800/60 to-gray-900/60 border-gray-700 overflow-hidden">
-                    <div className="absolute inset-0 bg-[url('/images/noise.png')] opacity-5 mix-blend-overlay pointer-events-none"></div>
-                    <CardContent className="p-6 relative">
-                      <h2 className="text-xl font-bold mb-4 flex items-center text-white">
-                        <Layers className="w-5 h-5 mr-2 text-indigo-400" />
-                        <span className="bg-gradient-to-r from-indigo-300 to-purple-300 bg-clip-text text-transparent">
-                          Danh sách tập phim
-                        </span>
-                      </h2>
-                      
+              <TabsContent value="episodes" className="space-y-4">
+                <Card className="bg-gradient-to-br from-gray-800/60 to-gray-900/60 border-gray-700 overflow-hidden">
+                  <div className="absolute inset-0 bg-[url('/images/noise.png')] opacity-5 mix-blend-overlay pointer-events-none"></div>
+                  <CardContent className="p-6 relative">
+                    <h2 className="text-sm sm:text-xl font-bold flex items-center text-white mb-4">
+                      <Layers className="w-5 h-5 mr-2 text-indigo-400" />
+                      <span className="bg-gradient-to-r from-indigo-300 to-purple-300 bg-clip-text text-transparent">
+                        Danh sách tập phim ({episodes.length})
+                      </span>
+                    </h2>
+                    
+                    {episodesLoading ? (
+                      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                        {[...Array(6)].map((_, i) => (
+                          <div key={i} className="animate-pulse">
+                            <div className="aspect-video bg-gray-800 rounded-xl mb-2"></div>
+                            <div className="h-4 bg-gray-800 rounded w-3/4"></div>
+                          </div>
+                        ))}
+                      </div>
+                    ) : episodes.length === 0 ? (
+                      <div className="text-center py-8">
+                        <p className="text-gray-400">Chưa có tập phim nào</p>
+                      </div>
+                    ) : (
                       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
                         {episodes.map((episode) => (
                           <Link
@@ -543,31 +613,13 @@ const MovieDetail = ({ movieId, initialData }: MovieDetailProps) => {
                                     <Play className="h-4 w-4 text-indigo-400" />
                                   </div>
                                 </div>
-                                
-                                <div className="flex justify-between items-center text-sm text-gray-400 mt-2">
-                                  <div className="flex items-center">
-                                    <Clock className="w-4 h-4 mr-1" />
-                                    {Math.floor(episode.duration / 60)} phút
-                                  </div>
-                                  {episode.isProcessed ? (
-                                    <div className="flex items-center text-green-400">
-                                      <span className="w-2 h-2 rounded-full bg-green-400 mr-1"></span>
-                                      Sẵn sàng
-                                    </div>
-                                  ) : (
-                                    <div className="flex items-center text-amber-400">
-                                      <span className="w-2 h-2 rounded-full bg-amber-400 mr-1"></span>
-                                      Đang xử lý
-                                    </div>
-                                  )}
-                                </div>
                               </div>
                             ) : (
                               // Desktop view with thumbnails
                               <>
                                 <div className="relative aspect-video overflow-hidden">
                                   <Image 
-                                    src={episode.thumbnailUrl || "/placeholder.svg"} 
+                                    src={episode.thumbnailUrl ? `https://media.alldrama.tech/episodes/${movie.id}/${episode.episodeNumber}/thumbnail.jpg` : "/placeholder.svg"} 
                                     alt={episode.title}
                                     fill
                                     className="object-cover"
@@ -584,36 +636,15 @@ const MovieDetail = ({ movieId, initialData }: MovieDetailProps) => {
                                     <div className="font-medium text-white line-clamp-1">{episode.title}</div>
                                   </div>
                                 </div>
-
-                                {/* Episode info */}
-                                <div className="p-3 bg-gray-800/50 hover:bg-gradient-to-r hover:from-indigo-900/40 hover:to-purple-900/40">
-                                  <div className="flex justify-between items-center text-sm text-gray-400">
-                                    <div className="flex items-center">
-                                      <Clock className="w-4 h-4 mr-1" />
-                                      {Math.floor(episode.duration / 60)} phút
-                                    </div>
-                                    {episode.isProcessed ? (
-                                      <div className="flex items-center text-green-400">
-                                        <span className="w-2 h-2 rounded-full bg-green-400 mr-1"></span>
-                                        Sẵn sàng
-                                      </div>
-                                    ) : (
-                                      <div className="flex items-center text-amber-400">
-                                        <span className="w-2 h-2 rounded-full bg-amber-400 mr-1"></span>
-                                        Đang xử lý
-                                      </div>
-                                    )}
-                                  </div>
-                                </div>
                               </>
                             )}
                           </Link>
                         ))}
                       </div>
-                    </CardContent>
-                  </Card>
-                </TabsContent>
-              )}
+                    )}
+                  </CardContent>
+                </Card>
+              </TabsContent>
               
               {/* Comments Tab */}
               <TabsContent value="comments">
@@ -661,10 +692,14 @@ const MovieDetail = ({ movieId, initialData }: MovieDetailProps) => {
                       </div>
                       <div className="w-16 h-22 flex-shrink-0 rounded-md overflow-hidden relative">
                         <Image
-                          src={"/placeholder.svg"}
+                          src={movie.posterUrl ? `https://media.alldrama.tech/movies/${movie.id}/poster.png` : "/placeholder.svg"}
                           alt={movie.title}
                           fill
                           className="object-cover"
+                          onError={(e) => {
+                            const target = e.target as HTMLImageElement;
+                            target.src = "/placeholder.svg";
+                          }}
                         />
                       </div>
                     </Link>

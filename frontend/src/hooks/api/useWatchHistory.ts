@@ -8,19 +8,22 @@ import {
 } from '@/lib/api/services/watchHistoryService';
 import { toast } from 'react-hot-toast';
 import { useApiCache } from './useApiCache';
+import { useAuthStore } from '@/store/auth';
 
 export const useWatchHistory = () => {
   const { clearWatchHistoryCache } = useApiCache();
+  const { isAuthenticated } = useAuthStore();
 
-  // SWR key
-  const key = 'watch-history';
+  // SWR key - chỉ fetch khi đã đăng nhập
+  const key = isAuthenticated ? 'watch-history' : null;
 
   // Fetcher function for SWR
   const fetcher = useCallback(
     async () => {
+      if (!isAuthenticated) return [];
       return await watchHistoryService.getWatchHistory();
     },
-    []
+    [isAuthenticated]
   );
 
   // Use SWR hook
@@ -32,6 +35,12 @@ export const useWatchHistory = () => {
   // Add or update watch history
   const addOrUpdateWatchHistory = useCallback(
     async (data: WatchHistoryRequest) => {
+      // Không thực hiện nếu chưa đăng nhập
+      if (!isAuthenticated) {
+        console.log('Bỏ qua cập nhật lịch sử xem vì chưa đăng nhập');
+        return null;
+      }
+      
       try {
         // Kiểm tra dữ liệu đầu vào
         const { movieId, episodeId, progress, duration } = data;
@@ -88,12 +97,14 @@ export const useWatchHistory = () => {
         return null;
       }
     },
-    [mutate]
+    [mutate, isAuthenticated]
   );
 
   // Delete watch history entry
   const deleteWatchHistory = useCallback(
     async (historyId: string | number) => {
+      if (!isAuthenticated) return false;
+      
       try {
         const response = await watchHistoryService.deleteWatchHistory(historyId);
         // Refresh watch history
@@ -105,28 +116,32 @@ export const useWatchHistory = () => {
         return false;
       }
     },
-    [mutate]
+    [mutate, isAuthenticated]
   );
 
   // Get episode progress
   const getEpisodeProgress = useCallback(
     async (episodeId: string | number) => {
+      if (!isAuthenticated) return null;
       return watchHistoryService.getEpisodeProgress(episodeId);
     },
-    []
+    [isAuthenticated]
   );
 
   // Get latest progress for a movie
   const getLatestProgressForMovie = useCallback(
     async (movieId: string | number) => {
+      if (!isAuthenticated) return null;
       return watchHistoryService.getLatestProgressForMovie(movieId);
     },
-    []
+    [isAuthenticated]
   );
 
   // Update progress for an episode
   const updateProgress = useCallback(
     async (movieId: string | number, episodeId: string | number, progress: number, duration: number) => {
+      if (!isAuthenticated) return null;
+      
       const data: WatchHistoryRequest = {
         movieId,
         episodeId,
@@ -135,7 +150,7 @@ export const useWatchHistory = () => {
       };
       return addOrUpdateWatchHistory(data);
     },
-    [addOrUpdateWatchHistory]
+    [addOrUpdateWatchHistory, isAuthenticated]
   );
 
   return {

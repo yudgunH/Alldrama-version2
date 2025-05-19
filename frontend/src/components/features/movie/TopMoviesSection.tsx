@@ -25,6 +25,7 @@ const TopMoviesSection = ({
   const topMovies = movies?.slice(0, limit) || []
   const sliderRef = useRef<HTMLDivElement>(null)
   const [scrollPosition, setScrollPosition] = useState(0)
+  const [imagesLoaded, setImagesLoaded] = useState<Record<string, boolean>>({})
   
   const handlePrevClick = () => {
     if (sliderRef.current) {
@@ -62,7 +63,19 @@ const TopMoviesSection = ({
           <div className="flex gap-3 overflow-hidden pb-6">
             {[...Array(5)].map((_, index) => (
               <div key={index} className="relative flex-shrink-0 w-[calc(100%/5-12px)] min-w-[190px] py-4">
+                <div className="relative transition-all duration-300">
+                  <div className="relative overflow-hidden shadow-[0_4px_12px_rgba(0,0,0,0.2)] bg-[#1A1C25]">
                 <Skeleton className="aspect-[2/3] w-full rounded-lg" />
+                    <div className="p-2.5">
+                      <Skeleton className="h-4 w-3/4 mb-2" />
+                      <Skeleton className="h-3 w-full mb-2" />
+                      <div className="flex items-center justify-between">
+                        <Skeleton className="h-3 w-1/3" />
+                        <Skeleton className="h-6 w-6" />
+                      </div>
+                    </div>
+                  </div>
+                </div>
               </div>
             ))}
           </div>
@@ -120,34 +133,42 @@ const TopMoviesSection = ({
                   trigger={
                     <div className="relative transition-all duration-300 z-5">
                       <Link href={generateMovieUrl(movie.id, movie.title)}>
-                        {/* Card thiết kế với hiệu ứng cắt chéo mạnh hơn */}
                         <div 
                           className="relative overflow-hidden shadow-[0_4px_12px_rgba(0,0,0,0.2)] transition-all duration-300 bg-[#1A1C25] group hover:shadow-[0_6px_16px_rgba(0,0,0,0.3)] hover:scale-[1.035] transform-gpu"
                           style={{
                             borderRadius: '10px 10px 10px 10px',
                             clipPath: index % 2 === 0 
-                              ? 'polygon(0 0, 100% 25px, 100% 100%, 0 100%)' // Card lẻ: cắt chéo nhiều hơn từ trái sang phải
-                              : 'polygon(0 25px, 100% 0, 100% 100%, 0 100%)' // Card chẵn: cắt chéo nhiều hơn từ phải sang trái
+                              ? 'polygon(0 0, 100% 25px, 100% 100%, 0 100%)'
+                              : 'polygon(0 25px, 100% 0, 100% 100%, 0 100%)'
                           }}
                         >
-                          {/* Poster Image */}
                           <div className="relative aspect-[2/3] w-full">
+                            {!imagesLoaded[movie.id] && (
+                              <div className="absolute inset-0">
+                                <Skeleton className="w-full h-full" />
+                              </div>
+                            )}
                             <Image 
-                              src={"/images/test.jpg"} 
+                              src={`https://media.alldrama.tech/movies/${movie.id}/poster.png`}
                               alt={movie.title}
                               fill
-                              className="object-cover"
+                              className={`object-cover transition-opacity duration-300 ${
+                                imagesLoaded[movie.id] ? 'opacity-100' : 'opacity-0'
+                              }`}
                               sizes="(max-width: 768px) 100vw, (max-width: 1200px) 25vw, 20vw"
-                              priority={index < 5}
+                              priority={index < 3}
+                              loading={index < 3 ? "eager" : "lazy"}
+                              onLoad={() => setImagesLoaded(prev => ({ ...prev, [movie.id]: true }))}
+                              quality={75}
                             />
                             
                             {/* Overlay badges */}
                             <div className="absolute bottom-1.5 left-1.5 flex gap-1">
                               <span className="bg-[#4B5563] text-white text-[9px] px-1 py-0.5 rounded-md font-medium">
-                                PD.{movie.releaseYear ? movie.releaseYear.toString().substring(2) : 'NA'}
+                                PD.{movie.releaseYear ? String(movie.releaseYear).substring(2) : 'NA'}
                               </span>
                               <span className="bg-[#22C55E] text-white text-[9px] px-1 py-0.5 rounded-md font-medium">
-                                TM.{movie.releaseYear ? movie.releaseYear.toString().substring(2) : 'NA'}
+                                TM.{movie.releaseYear ? String(movie.releaseYear).substring(2) : 'NA'}
                               </span>
                             </div>
                             
@@ -165,7 +186,7 @@ const TopMoviesSection = ({
                             <div className="flex items-center justify-between">
                               <div className="flex items-center text-[10px] text-gray-300 gap-2">
                                 <span className="px-1 py-0.5 bg-gray-800 rounded-sm">
-                                  T{movie.releaseYear ? movie.releaseYear.toString().substring(2) : 'NA'}
+                                  T{movie.releaseYear ? String(movie.releaseYear).substring(2) : 'NA'}
                                 </span>
                                 <div className="flex items-center gap-1">
                                   <Star className="w-3 h-3 text-[#FFD95A]" fill="#FFD95A" />

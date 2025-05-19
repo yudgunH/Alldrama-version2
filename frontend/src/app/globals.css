@@ -398,3 +398,8 @@ body:has([data-state="open"]) {
     transform: rotate(45deg) translate(130%, 130%);
   }
 }
+
+[data-sonner-toast][data-swiped=true] {
+    -webkit-user-select: none;
+    user-select: none;
+}

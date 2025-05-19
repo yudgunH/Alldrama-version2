@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { MouseEvent } from 'react';
 import { X, ChevronDown, Search } from 'lucide-react';
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -10,6 +10,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { generateWatchUrl } from '@/utils/url';
+import { useRouter } from 'next/navigation';
 
 interface DesktopEpisodePanelProps {
   episodes: any[];
@@ -24,11 +25,41 @@ export default function DesktopEpisodePanel({
   episodes, currentEpisode, movieId, movieTitle, 
   showEpisodeList, setShowEpisodeList
 }: DesktopEpisodePanelProps) {
+  const router = useRouter();
+
   if (!showEpisodeList) return null;
+  
+  // Prevent event propagation to the video player
+  const handlePanelClick = (e: MouseEvent) => {
+    e.stopPropagation();
+  };
+
+  // Navigate to episode using router instead of direct href
+  const navigateToEpisode = (e: MouseEvent, episodeId: string, episodeNumber: number) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const url = generateWatchUrl(movieId, movieTitle, episodeId, episodeNumber);
+    router.push(url);
+  };
+  
+  // Helper function to get episode thumbnail
+  const getEpisodeThumbnail = (episode: any) => {
+    if (episode.thumbnailUrl && episode.thumbnailUrl.startsWith('http')) {
+      return episode.thumbnailUrl;
+    }
+    
+    if (episode.episodeNumber) {
+      return `https://media.alldrama.tech/episodes/${movieId}/${episode.episodeNumber}/thumbnail.jpg`;
+    }
+    
+    // Fallback to random image as last resort
+    return `https://picsum.photos/seed/${episode.id}/300/200`;
+  };
   
   return (
     <div 
       className="absolute right-0 top-0 h-full bg-gray-900/95 backdrop-blur-md border-l border-gray-800 w-[300px] z-40 hidden sm:block"
+      onClick={handlePanelClick}
     >
       <div className="flex flex-col h-full">
         <div className="border-b border-gray-800 p-4 flex items-center justify-between">
@@ -90,10 +121,13 @@ export default function DesktopEpisodePanel({
                       : ''
                   }`}
                 >
-                  <a href={generateWatchUrl(movieId, movieTitle, ep.id, ep.episodeNumber)}>
+                  <a 
+                    href={generateWatchUrl(movieId, movieTitle, ep.id, ep.episodeNumber)}
+                    onClick={(e) => navigateToEpisode(e, ep.id, ep.episodeNumber)}
+                  >
                     <div className="aspect-video bg-gray-800 relative overflow-hidden rounded-t-md">
                       <img 
-                        src={`https://picsum.photos/seed/${ep.id}/300/200`} 
+                        src={getEpisodeThumbnail(ep)}
                         alt={`Tập ${ep.episodeNumber}`}
                         className="w-full h-full object-cover"
                       />
@@ -133,6 +167,7 @@ export default function DesktopEpisodePanel({
                   <a 
                     key={ep.id}
                     href={generateWatchUrl(movieId, movieTitle, ep.id, ep.episodeNumber)}
+                    onClick={(e) => navigateToEpisode(e, ep.id, ep.episodeNumber)}
                     className={`flex items-center p-3 ${
                       ep.id === currentEpisode.id
                         ? 'bg-white/10 text-amber-400'
@@ -142,7 +177,7 @@ export default function DesktopEpisodePanel({
                     <div className="w-[80px] flex-shrink-0 mr-3 relative">
                       <div className="aspect-video rounded overflow-hidden">
                         <img 
-                          src={`https://picsum.photos/seed/${ep.id}/160/90`} 
+                          src={getEpisodeThumbnail(ep)}
                           alt={`Tập ${ep.episodeNumber}`}
                           className="w-full h-full object-cover"
                         />

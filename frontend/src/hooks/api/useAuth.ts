@@ -3,15 +3,16 @@ import { LoginCredentials, RegisterCredentials, User, UpdateUserDto } from '@/ty
 import { authService } from '@/lib/api';
 import { useRouter } from 'next/navigation';
 import { toast } from 'react-hot-toast';
-import { useAuthStore } from '@/store/authStore';
+import { useAuthStore } from '@/store/auth';
 
 export const useAuth = () => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const router = useRouter();
   
-  // Sử dụng Zustand store
-  const { user, setUser, setAuthenticated, isAuthenticated, token, setToken, logout: logoutStore } = useAuthStore();
+  // Sử dụng Zustand store 
+  const auth = useAuthStore();
+  const { user, isAuthenticated, token } = auth;
 
   // Tự động kiểm tra người dùng hiện tại nếu có token
   useEffect(() => {
@@ -35,8 +36,8 @@ export const useAuth = () => {
       const response = await authService.register(credentials);
       // Lưu access token và cập nhật store
       authService.saveToken(response.accessToken);
-      setUser(response.user);
-      setAuthenticated(true);
+      auth.setUser(response.user);
+      auth.setAuthenticated(true);
       toast.success('Đăng ký thành công!');
       router.push('/');
       return response;
@@ -47,7 +48,7 @@ export const useAuth = () => {
     } finally {
       setLoading(false);
     }
-  }, [router, setAuthenticated, setUser]);
+  }, [router, auth]);
 
   /**
    * Đăng nhập người dùng
@@ -57,14 +58,17 @@ export const useAuth = () => {
     setError(null);
     
     try {
-      const response = await authService.login(credentials);
-      // Lưu access token và cập nhật store
-      authService.saveToken(response.accessToken);
-      setUser(response.user);
-      setAuthenticated(true);
+      // Sử dụng login tích hợp của auth store
+      const result = await auth.login(credentials);
+      if (!result || (typeof result === 'object' && !result.success)) {
+        const message = typeof result === 'object' && result.message ? result.message : 'Đăng nhập thất bại';
+        setError(message);
+        return null;
+      }
+      
       toast.success('Đăng nhập thành công!');
       router.push('/');
-      return response;
+      return { user: auth.user, accessToken: auth.token };
     } catch (err: any) {
       const message = err.response?.data?.message || 'Đăng nhập thất bại';
       setError(message);
@@ -72,7 +76,7 @@ export const useAuth = () => {
     } finally {
       setLoading(false);
     }
-  }, [router, setAuthenticated, setUser]);
+  }, [router, auth]);
 
   /**
    * Đăng xuất người dùng
@@ -82,186 +86,121 @@ export const useAuth = () => {
     setLoading(true);
     
     try {
-      // Gọi API logout để xóa refresh token cookie
-      await authService.logout();
-      logoutStore();
-      // Loại bỏ toast ở đây vì đã hiển thị ở Navbar
+      console.log("Bắt đầu đăng xuất...");
+      
+      // Đặt cờ đang đăng xuất để ngăn các API request mới
+      if (typeof window !== 'undefined') {
+        // @ts-ignore: Property 'isLoggingOut' does not exist on type 'Window & typeof globalThis'
+        window.isLoggingOut = true;
+      }
+      
+      // Thực hiện logout thông qua auth store
+      await auth.logout();
+      
+      // Xóa dữ liệu session storage/local storage nếu cần
+      if (typeof window !== 'undefined') {
+        // Xóa thêm các storage khác nếu có
+        try {
+          sessionStorage.removeItem('auth-storage');
+          localStorage.removeItem('favorites-cache');
+          localStorage.removeItem('auth_last_toast_time');
+        } catch (error) {
+          console.error("Lỗi khi xóa dữ liệu storage:", error);
+        }
+      }
+      
+      // Đợi một chút để đảm bảo mọi thứ được xóa
+      await new Promise(resolve => setTimeout(resolve, 300));
+      
+      // Chuyển hướng đến trang đăng nhập
       router.push('/login');
+      
+      console.log("Đăng xuất thành công.");
     } catch (err) {
+      console.error("Lỗi khi đăng xuất:", err);
+      
       // Ngay cả khi API lỗi, vẫn đăng xuất ở local
-      authService.clearToken();
-      logoutStore();
+      try {
+        // Xóa token, cookie và storage
+        authService.clearToken();
+        if (typeof window !== 'undefined') {
+          sessionStorage.removeItem('auth-storage');
+        }
+      } catch (error) {
+        console.error("Lỗi khi xóa dữ liệu cục bộ:", error);
+      }
+      
+      // Chuyển hướng đến trang đăng nhập
       router.push('/login');
     } finally {
       setLoading(false);
+      
+      // Xóa cờ đăng xuất sau một khoảng thời gian
+      setTimeout(() => {
+        if (typeof window !== 'undefined') {
+          // @ts-ignore: Property 'isLoggingOut' does not exist on type 'Window & typeof globalThis'
+          window.isLoggingOut = false;
+        }
+      }, 2000);
     }
-  }, [logoutStore, router]);
-
-  /**
-   * Đăng xuất khỏi tất cả các thiết bị
-   */
-  const logoutAll = useCallback(async () => {
-    setLoading(true);
-    
-    try {
-      await authService.logoutAll();
-      logoutStore();
-      toast.success('Đã đăng xuất khỏi tất cả các thiết bị!');
-      router.push('/login');
-    } catch (err) {
-      const message = err instanceof Error ? err.message : 'Không thể đăng xuất khỏi tất cả thiết bị';
-      toast.error(message);
-    } finally {
-      setLoading(false);
-    }
-  }, [logoutStore, router]);
-
-  /**
-   * Gửi email xác thực
-   * @param email Email để gửi link xác thực
-   * @param isSignUp true nếu đây là đăng ký mới, false nếu đăng nhập
-   */
-  const emailAuth = useCallback(async (email: string, isSignUp: boolean = false) => {
-    setLoading(true);
-    setError(null);
-    
-    try {
-      await authService.emailAuth({ email, isSignUp });
-      toast.success('Email xác thực đã được gửi. Vui lòng kiểm tra hộp thư của bạn.');
-      return true;
-    } catch (err: any) {
-      const message = err.response?.data?.message || 'Không thể gửi email xác thực';
-      setError(message);
-      toast.error(message);
-      return false;
-    } finally {
-      setLoading(false);
-    }
-  }, []);
-
-  /**
-   * Lấy CSRF token
-   */
-  const getCsrfToken = useCallback(async () => {
-    try {
-      const response = await authService.getCsrfToken();
-      return response.csrfToken;
-    } catch (err) {
-      console.error('Không thể lấy CSRF token:', err);
-      return null;
-    }
-  }, []);
+  }, [auth, router]);
 
   /**
    * Lấy thông tin người dùng hiện tại
    */
   const fetchCurrentUser = useCallback(async () => {
-    // Nếu không có token, không cần gọi API
-    if (!token) {
-      return null;
-    }
-    
-    setLoading(true);
-    
     try {
-      const currentUser = await authService.getCurrentUser();
-      setUser(currentUser);
-      setAuthenticated(true);
-      return currentUser;
-    } catch (err) {
-      // Xử lý lỗi và đăng xuất nếu có vấn đề
-      console.error("Error fetching current user:", err);
-      return null;
-    } finally {
-      setLoading(false);
-    }
-  }, [token, setAuthenticated, setUser]);
-
-  /**
-   * Lấy danh sách tất cả người dùng (chỉ admin)
-   */
-  const getAllUsers = useCallback(async () => {
-    setLoading(true);
-    setError(null);
-    
-    try {
-      const users = await authService.getAllUsers();
-      return users;
-    } catch (err: any) {
-      const message = err.response?.data?.message || 'Không thể lấy danh sách người dùng';
-      setError(message);
-      toast.error(message);
-      return null;
-    } finally {
-      setLoading(false);
-    }
-  }, []);
-
-  /**
-   * Lấy thông tin của người dùng theo ID
-   */
-  const getUserById = useCallback(async (userId: string | number) => {
-    setLoading(true);
-    setError(null);
-    
-    try {
-      const userData = await authService.getUserById(userId);
-      return userData;
-    } catch (err: any) {
-      const message = err.response?.data?.message || 'Không thể lấy thông tin người dùng';
-      setError(message);
-      toast.error(message);
-      return null;
-    } finally {
-      setLoading(false);
-    }
-  }, []);
-
-  /**
-   * Cập nhật thông tin người dùng
-   */
-  const updateUser = useCallback(async (userId: string | number, userData: UpdateUserDto) => {
-    setLoading(true);
-    setError(null);
-    
-    try {
-      const response = await authService.updateUser(userId, userData);
-      // Nếu đang cập nhật thông tin chính mình, cập nhật luôn store
-      if (user && user.id === Number(userId)) {
-        setUser(response.user);
+      // Nếu đã có user, trả về luôn
+      if (user) {
+        return user;
       }
-      toast.success('Cập nhật thông tin thành công!');
-      return response;
-    } catch (err: any) {
-      const message = err.response?.data?.message || 'Không thể cập nhật thông tin người dùng';
-      setError(message);
-      toast.error(message);
+      
+      // Nếu không có token trong store, thử đọc từ cookie
+      if (!token) {
+        // Kiểm tra xem có token trong cookie không
+        if (typeof document !== 'undefined') {
+          // Nếu không có token trong store nhưng có trong cookie, 
+          // chờ một chút để các hệ thống khác cập nhật
+          await new Promise(resolve => setTimeout(resolve, 200));
+          
+          // Nếu token đã được cập nhật vào store bởi một quá trình khác
+          if (auth.token) {
+            setLoading(true);
+            try {
+              const currentUser = await authService.getCurrentUser();
+              if (currentUser) {
+                auth.setUser(currentUser);
+                auth.setAuthenticated(true);
+                return currentUser;
+              }
+            } catch (err) {
+              console.error("Lỗi khi tự động fetch user từ token cookie:", err);
+            } finally {
+              setLoading(false);
+            }
+          }
+        }
+        return null;
+      }
+      
+      // Nếu có token, thực hiện gọi API
+      setLoading(true);
+      try {
+        const currentUser = await authService.getCurrentUser();
+        auth.setUser(currentUser);
+        auth.setAuthenticated(true);
+        return currentUser;
+      } catch (err) {
+        console.error("Error fetching current user:", err);
+        return null;
+      } finally {
+        setLoading(false);
+      }
+    } catch (err) {
+      console.error("Unexpected error in fetchCurrentUser:", err);
       return null;
-    } finally {
-      setLoading(false);
     }
-  }, [user, setUser]);
-
-  /**
-   * Xóa người dùng (chỉ admin)
-   */
-  const deleteUser = useCallback(async (userId: string | number) => {
-    setLoading(true);
-    setError(null);
-    
-    try {
-      const response = await authService.deleteUser(userId);
-      toast.success('Đã xóa người dùng thành công!');
-      return response;
-    } catch (err: any) {
-      const message = err.response?.data?.message || 'Không thể xóa người dùng';
-      setError(message);
-      toast.error(message);
-      return null;
-    } finally {
-      setLoading(false);
-    }
-  }, []);
+  }, [token, user, auth]);
 
   /**
    * Đổi mật khẩu người dùng
@@ -291,64 +230,6 @@ export const useAuth = () => {
     }
   }, []);
 
-  /**
-   * Lấy danh sách phim yêu thích của người dùng
-   */
-  const getUserFavorites = useCallback(async (userId: string | number) => {
-    setLoading(true);
-    setError(null);
-    
-    try {
-      const favorites = await authService.getUserFavorites(userId);
-      return favorites;
-    } catch (err: any) {
-      const message = err.response?.data?.message || 'Không thể lấy danh sách phim yêu thích';
-      setError(message);
-      return null;
-    } finally {
-      setLoading(false);
-    }
-  }, []);
-
-  /**
-   * Lấy lịch sử xem phim của người dùng
-   */
-  const getUserWatchHistory = useCallback(async (userId: string | number) => {
-    setLoading(true);
-    setError(null);
-    
-    try {
-      const watchHistory = await authService.getUserWatchHistory(userId);
-      return watchHistory;
-    } catch (err: any) {
-      const message = err.response?.data?.message || 'Không thể lấy lịch sử xem phim';
-      setError(message);
-      return null;
-    } finally {
-      setLoading(false);
-    }
-  }, []);
-
-  /**
-   * Refresh token thủ công (hiếm khi cần thiết vì đã có xử lý tự động)
-   */
-  const refreshToken = useCallback(async () => {
-    setLoading(true);
-    
-    try {
-      const newToken = await authService.refreshToken();
-      setAuthenticated(true);
-      return newToken;
-    } catch (err) {
-      authService.clearToken();
-      logoutStore();
-      router.push('/login');
-      return null;
-    } finally {
-      setLoading(false);
-    }
-  }, [logoutStore, router, setAuthenticated]);
-
   // Kiểm tra nếu người dùng có vai trò admin
   const isAdmin = !!user && user.role === 'admin';
 
@@ -362,17 +243,7 @@ export const useAuth = () => {
     register,
     login,
     logout,
-    logoutAll,
-    emailAuth,
-    getCsrfToken,
     fetchCurrentUser,
-    refreshToken,
-    getAllUsers,
-    getUserById,
-    updateUser,
-    deleteUser,
-    changePassword,
-    getUserFavorites,
-    getUserWatchHistory
+    changePassword
   };
 };

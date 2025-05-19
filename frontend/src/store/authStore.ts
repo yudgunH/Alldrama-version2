@@ -1,35 +1,4 @@
-import { User } from '@/types';
-import { create } from 'zustand';
-import { persist } from 'zustand/middleware';
+// File này chỉ để re-export từ auth.ts để các import hiện tại không bị lỗi
+// Trong tương lai, hãy thay thế các import '@/store/authStore' thành '@/store/auth'
 
-interface AuthState {
-  user: User | null;
-  isAuthenticated: boolean;
-  token: string | null;
-  setUser: (user: User | null) => void;
-  setAuthenticated: (isAuthenticated: boolean) => void;
-  setToken: (token: string | null) => void;
-  logout: () => void;
-}
-
-export const useAuthStore = create<AuthState>()(
-  persist(
-    (set) => ({
-      user: null,
-      isAuthenticated: false,
-      token: null,
-      setUser: (user) => set({ user }),
-      setAuthenticated: (isAuthenticated) => set({ isAuthenticated }),
-      setToken: (token) => set({ token }),
-      logout: () => set({ user: null, isAuthenticated: false, token: null }),
-    }),
-    {
-      name: 'auth-storage',
-      partialize: (state) => ({
-        user: state.user,
-        isAuthenticated: state.isAuthenticated,
-        token: state.token
-      }),
-    }
-  )
-); 
+export { useAuthStore } from './auth'; 

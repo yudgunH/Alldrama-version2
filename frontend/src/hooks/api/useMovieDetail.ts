@@ -88,12 +88,8 @@ export const useMovieDetail = (movieId: string | number, initialData?: Movie) =>
         setEpisodes(cachedData.episodes)
         setIsLoading(false)
         
-        // Nếu đang dùng cache, gọi ngầm API để cập nhật cache mới nhưng không cancel request hiện tại
-        setTimeout(() => {
-          if (isMounted.current) {
-            refreshMovieData(false)
-          }
-        }, 0)
+        // Nếu đang dùng cache, không cần gọi ngầm API để cập nhật cache
+        // Xóa đoạn này để tránh vòng lặp vô hạn
         return
       }
       
@@ -102,7 +98,7 @@ export const useMovieDetail = (movieId: string | number, initialData?: Movie) =>
     }
     
     fetchMovieData()
-  }, [movieId, initialData])
+  }, [movieId, initialData]) // Removed cachedMovies from deps to prevent loops
   
   // Function to fetch only episodes when we already have movie data
   const fetchEpisodesOnly = async (signal: AbortSignal) => {
@@ -112,32 +108,44 @@ export const useMovieDetail = (movieId: string | number, initialData?: Movie) =>
         { signal }
       );
       
-      if (isMounted.current) {
-        setEpisodes(fetchedEpisodes);
-        
-        // Update cache with new episodes but keep existing movie
-        if (movie) {
-          setCachedMovies(prev => ({
-            ...prev,
-            [String(movieId)]: {
-              movie: movie,
-              episodes: fetchedEpisodes,
-              timestamp: Date.now()
-            }
-          }));
-        }
-        
-        // Track view even with initialData
+      if (!isMounted.current) return; // Exit early if unmounted
+      
+      setEpisodes(fetchedEpisodes);
+      
+      // Update cache with new episodes but keep existing movie
+      if (movie) {
+        const cacheKey = String(movieId);
+        // Use functional update to avoid dependency on cachedMovies
+        setCachedMovies(prev => ({
+          ...prev,
+          [cacheKey]: {
+            movie: movie,
+            episodes: fetchedEpisodes,
+            timestamp: Date.now()
+          }
+        }));
+      }
+      
+      // Track view even with initialData
+      if (movie) {
         incrementViewCount(movie);
       }
-    } catch (err) {
-      // Handle errors but don't disrupt UI flow
+    } catch (err: any) {
+      // Properly handle AbortError without logging them as real errors
+      if (err.name === 'AbortError' || err.name === 'CanceledError') {
+        console.log('Episode fetch aborted due to component unmount');
+        return;
+      }
+      
+      // Handle other errors but don't disrupt UI flow
       console.error('Error fetching episodes:', err);
     }
   };
   
   // Tách hàm gọi API ra để tái sử dụng
   const refreshMovieData = async (showLoading = true) => {
+    if (!isMounted.current) return; // Don't proceed if component unmounted
+    
     try {
       if (showLoading) {
         setIsLoading(true)
@@ -157,33 +165,42 @@ export const useMovieDetail = (movieId: string | number, initialData?: Movie) =>
         ]);
         
         // Chỉ update state và cache nếu component vẫn mounted
-        if (isMounted.current) {
-          setMovie(movieData);
-          setEpisodes(episodesData || []);
-          
-          // Lưu vào cache
-          setCachedMovies(prev => ({
-            ...prev,
-            [String(movieId)]: {
-              movie: movieData,
-              episodes: episodesData || [],
-              timestamp: Date.now()
-            }
-          }));
-          
-          if (showLoading) {
-            setIsLoading(false);
+        if (!isMounted.current) return; // Exit early if unmounted
+        
+        setMovie(movieData);
+        setEpisodes(episodesData || []);
+        
+        // Lưu vào cache - use functional update
+        const cacheKey = String(movieId);
+        setCachedMovies(prev => ({
+          ...prev,
+          [cacheKey]: {
+            movie: movieData,
+            episodes: episodesData || [],
+            timestamp: Date.now()
           }
-          
-          // Gọi API view count riêng biệt và không cần đợi kết quả
-          incrementViewCount(movieData);
+        }));
+        
+        if (showLoading) {
+          setIsLoading(false);
         }
-      } catch (err) {
+        
+        // Gọi API view count riêng biệt và không cần đợi kết quả
+        incrementViewCount(movieData);
+      } catch (err: any) {
+        // Skip throwing for AbortError since it's expected
+        if (err.name === 'AbortError' || err.name === 'CanceledError') {
+          console.log('Movie data fetch aborted due to component unmount');
+          return;
+        }
         throw err;
       }
-    } catch (err) {
+    } catch (err: any) {
+      // Don't update state if component is unmounted
+      if (!isMounted.current) return;
+      
       console.error('Error fetching movie details:', err)
-      if (isMounted.current && showLoading) {
+      if (showLoading) {
         setError('Không thể tải thông tin phim. Vui lòng thử lại sau.')
         setIsLoading(false)
       }

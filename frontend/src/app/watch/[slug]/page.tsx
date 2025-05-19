@@ -1,8 +1,10 @@
 'use client'
 
 import { useParams, useSearchParams, useRouter } from 'next/navigation'
-import { useEffect, useState, useCallback } from 'react'
+import { useEffect, useState, useCallback, useRef } from 'react'
 import axios from 'axios'
+import { ArrowLeft } from 'lucide-react'
+import { Button } from '@/components/ui/button'
 
 import { API_ENDPOINTS } from '@/lib/api/endpoints'
 import { Movie, Episode } from '@/types'
@@ -10,7 +12,6 @@ import { Skeleton } from '@/components/ui/skeleton'
 import VideoPlayer from '@/components/features/movie/VideoPlayer'
 import NotFoundMessage from '@/components/features/watch/NotFoundMessage'
 import MobileEpisodeSheet from '@/components/features/watch/MobileEpisodeSheet'
-import DesktopEpisodePanel from '@/components/features/watch/DesktopEpisodePanel'
 import ContentInfoCard from '@/components/features/watch/ContentInfoCard'
 import CommentSection from '@/components/features/movie/CommentSection'
 import RelatedMovies from '@/components/features/watch/RelatedMovies'
@@ -40,13 +41,14 @@ interface EpisodeWithSubtitles extends Episode {
 
 export default function WatchPage() {
   /* ----------------- URL params ----------------- */
-  const { slug }      = useParams<{ slug: string }>()
-  const searchParams  = useSearchParams()
-  const router        = useRouter()
+  const params = useParams<{ slug: string }>()
+  const slug = params?.slug || ''
+  const searchParams = useSearchParams()
+  const router = useRouter()
 
-  const episodeId = searchParams.get('episode')      // ?episode=123
-  const episodeNum = searchParams.get('ep')          // ?ep=1
-  const savedProgress = searchParams.get('progress') // ?progress=123 (thời gian đã xem trước đó)
+  const episodeId = searchParams?.get('episode')      // ?episode=123
+  const episodeNum = searchParams?.get('ep')          // ?ep=1
+  const savedProgress = searchParams?.get('progress') // ?progress=123 (thời gian đã xem trước đó)
   
   /* ----------------- local state ----------------- */
   const [movie,  setMovie]  = useState<MovieWithSubtitles | null>(null)
@@ -57,9 +59,9 @@ export default function WatchPage() {
 
   const [loading, setLoading] = useState(true)
   const [err,     setErr]     = useState<string | null>(null)
-
+  const videoRef = useRef<HTMLVideoElement | null>(null)
+  
   /* ----------------- UI control ----------------- */
-  const [showPanel, setShowPanel]   = useState(false)
   const [viewMode,  setViewMode]    = useState<'grid' | 'list'>('grid')
   
   /* ----------------- derived ----------------- */
@@ -173,9 +175,58 @@ export default function WatchPage() {
   }
 
   /* ----------------- derived values ----------------- */
-  const videoSrc   = isSeries ? ep!.playlistUrl : movie.playlistUrl
-  const posterSrc  = (isSeries ? ep!.thumbnailUrl : movie.posterUrl) || '/placeholder.svg'
-  const title      = isSeries
+  // Get video source URL with proper fallbacks
+  const getVideoSrc = () => {
+    // For episode, use its playlist if available
+    if (isSeries && ep) {
+      if (ep.playlistUrl && ep.playlistUrl.startsWith('http')) {
+        return ep.playlistUrl;
+      }
+      // If not, try to construct it intelligently
+      if (movie.id && ep.episodeNumber) {
+        return `https://media.alldrama.tech/episodes/${movie.id}/${ep.episodeNumber}/hls/master.m3u8`;
+      }
+    }
+    
+    // For movie, use its playlist if available
+    if (movie.playlistUrl && movie.playlistUrl.startsWith('http')) {
+      return movie.playlistUrl;
+    }
+    
+    // Fallback to constructed URL
+    return `https://media.alldrama.tech/movies/${movie.id}/hls/master.m3u8`;
+  };
+  
+  const videoSrc = getVideoSrc();
+  
+  // Get poster URL with proper fallbacks and without hardcoded paths
+  const getPosterUrl = () => {
+    // For episode, use its thumbnail if available
+    if (isSeries && ep) {
+      if (ep.thumbnailUrl && ep.thumbnailUrl.startsWith('http')) {
+        return ep.thumbnailUrl;
+      }
+      // If not, try to construct it intelligently
+      if (movie.id && ep.episodeNumber) {
+        return `https://media.alldrama.tech/episodes/${movie.id}/${ep.episodeNumber}/thumbnail.jpg`;
+      }
+    }
+    
+    // For movie, use its poster if available
+    if (movie.posterUrl) {
+      if (movie.posterUrl.startsWith('http')) {
+        return movie.posterUrl;
+      }
+      return `https://media.alldrama.tech/movies/${movie.id}/poster.png`;
+    }
+    
+    // Fallback to placeholder
+    return '/placeholder.svg';
+  };
+  
+  const posterSrc = getPosterUrl();
+  
+  const title = isSeries
     ? `${movie.title} - Tập ${ep!.episodeNumber}: ${ep!.title}`
     : movie.title
   
@@ -198,22 +249,28 @@ export default function WatchPage() {
     }
   }
 
+  /* ----------------- autoplay handling ----------------- */
+  // Removing autoplay - will only play when user clicks
+  
   /* ----------------- render ----------------- */
   return (
     <div className="min-h-screen bg-gradient-to-b from-gray-950 via-gray-900 to-gray-800 pb-12">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 space-y-6 pt-6">
+        {/* Back button */}
+        <div className="flex items-center">
+          <Button
+            variant="ghost"
+            size="sm"
+            className="text-gray-400 hover:text-white flex items-center gap-2"
+            onClick={() => router.push(`/movie/${movie.id}`)}
+          >
+            <ArrowLeft className="h-4 w-4" />
+            <span>Quay lại trang chi tiết</span>
+          </Button>
+        </div>
+
         {/* ---------- player box ---------- */}
         <div className="relative">
-          {/* Mở panel tập (desktop) */}
-          {isSeries && (
-            <button
-              onClick={() => setShowPanel(!showPanel)}
-              className="absolute top-4 right-4 z-30 hidden sm:block bg-black/60 text-white p-2 rounded hover:bg-black/80"
-            >
-              ☰
-            </button>
-          )}
-
           {/* Sheet mobile */}
           {isSeries && (
             <MobileEpisodeSheet
@@ -222,16 +279,22 @@ export default function WatchPage() {
               movieId={String(movie.id)}
               movieTitle={movie.title}
               episodeView={viewMode}
-              setEpisodeView={setViewMode}
+              setEpisodeView={(mode) => {
+                // Prevent unnecessary re-renders by checking if value actually changed
+                if (mode !== viewMode) {
+                  setViewMode(mode);
+                }
+              }}
             />
           )}
 
           {/* player */}
           <VideoPlayer
+            key={`${videoSrc}-${startTime}`} // Use a stable key to prevent unnecessary re-renders
             src={videoSrc}
             poster={posterSrc}
             title={title}
-            autoPlay={true}
+            autoPlay={false}
             useCustomControls={true}
             useTestVideo={!videoSrc}
             subtitles={subtitles}
@@ -276,37 +339,11 @@ export default function WatchPage() {
                     updateProgress(movieIdNumber, episodeIdNumber, duration, duration)
                   }
                 }
-                
-                // Chuyển sang tập tiếp theo nếu có
-                if (nextEp) {
-                  router.push(
-                    generateWatchUrl(movie.id, movie.title, nextEp.id, nextEp.episodeNumber)
-                  )
-                }
               } catch (error) {
                 console.error('Lỗi onEnded:', error)
               }
             }}
           />
-
-          {/* Panel desktop */}
-          {isSeries && (
-            <DesktopEpisodePanel
-              episodes={eps}
-              currentEpisode={ep!}
-              movieId={String(movie.id)}
-              movieTitle={movie.title}
-              showEpisodeList={showPanel}
-              setShowEpisodeList={setShowPanel}
-            />
-          )}
-
-          {showPanel && (
-            <div
-              className="absolute inset-0 bg-black/40 hidden sm:block z-20"
-              onClick={() => setShowPanel(false)}
-            />
-          )}
         </div>
 
         {/* ---------- thông tin + bình luận ---------- */}
@@ -319,7 +356,6 @@ export default function WatchPage() {
               nextEpisode={nextEp ?? undefined}
               isMovie={!isSeries}
               episodeListResponse={{ episodes: eps }}
-              setShowEpisodeList={setShowPanel}
             />
 
             <CommentSection movieId={String(movie.id)} />

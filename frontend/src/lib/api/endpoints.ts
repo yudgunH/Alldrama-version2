@@ -19,7 +19,7 @@ export const API_ENDPOINTS = {
     DETAIL: (id: string | number) => `/api/users/${id}`,
     UPDATE: (id: string | number) => `/api/users/${id}`,
     DELETE: (id: string | number) => `/api/users/${id}`,
-    CHANGE_PASSWORD: (id: string | number) => `/api/users/${id}/change-password`,
+    CHANGE_PASSWORD: (id: string | number) => `/api/users/${id}`,
     FAVORITES: (id: string | number) => `/api/users/${id}/favorites`,
     WATCH_HISTORY: (id: string | number) => `/api/users/${id}/watch-history`,
   },

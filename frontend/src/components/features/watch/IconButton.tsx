@@ -5,14 +5,20 @@ import { Tooltip, TooltipContent, TooltipTrigger, TooltipProvider } from "@/comp
 interface IconButtonProps {
   icon: React.ReactNode;
   tooltip: string;
+  onClick?: () => void;
 }
 
-export default function IconButton({ icon, tooltip }: IconButtonProps) {
+export default function IconButton({ icon, tooltip, onClick }: IconButtonProps) {
   return (
     <TooltipProvider>
       <Tooltip>
         <TooltipTrigger asChild>
-          <Button variant="ghost" size="icon" className="text-gray-400 hover:text-white">
+          <Button 
+            variant="ghost" 
+            size="icon" 
+            className="text-gray-400 hover:text-white"
+            onClick={onClick}
+          >
             {icon}
           </Button>
         </TooltipTrigger>

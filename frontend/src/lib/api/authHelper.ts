@@ -9,13 +9,43 @@ interface RefreshResponse {
 // Biến để theo dõi trạng thái refresh
 let isRefreshing = false;
 let refreshSubscribers: Array<(token: string) => void> = [];
-let refreshPromise: Promise<string> | null = null;
 let refreshFailedSubscribers: Array<(error: Error) => void> = [];
+let refreshPromise: Promise<string> | null = null;
+let lastRefreshTime = 0;
 
-// Timeout và retry settings
+// Timeout setting
 const REFRESH_TIMEOUT = 15000; // 15 seconds
-const MAX_REFRESH_RETRIES = 2;
-let currentRetryCount = 0;
+const MIN_REFRESH_INTERVAL = 5000; // 5 seconds
+
+// Rate limiting settings
+const MAX_REFRESH_ATTEMPTS = 3;
+const RATE_LIMIT_WINDOW = 60000; // 1 minute
+let refreshAttempts: number[] = [];
+
+/**
+ * Kiểm tra và xử lý rate limiting cho refresh token
+ */
+const checkRateLimit = (): boolean => {
+  const now = Date.now();
+  
+  // Xóa các attempts cũ hơn 1 phút
+  refreshAttempts = refreshAttempts.filter(time => now - time < RATE_LIMIT_WINDOW);
+  
+  // Kiểm tra số lần refresh trong 1 phút
+  if (refreshAttempts.length >= MAX_REFRESH_ATTEMPTS) {
+    const oldestAttempt = refreshAttempts[0];
+    const waitTime = RATE_LIMIT_WINDOW - (now - oldestAttempt);
+    
+    if (waitTime > 0) {
+      console.warn(`Rate limit exceeded. Please wait ${Math.ceil(waitTime/1000)} seconds before trying again.`);
+      return false;
+    }
+  }
+  
+  // Thêm attempt mới
+  refreshAttempts.push(now);
+  return true;
+};
 
 /**
  * Endpoint refresh token - Backend sẽ tự lấy refresh token từ HTTP-Only cookie
@@ -28,10 +58,26 @@ export const refreshTokenEndpoint = API_ENDPOINTS.AUTH.REFRESH;
  */
 export const refreshAccessToken = async (): Promise<string> => {
   try {
+    // Kiểm tra rate limit
+    if (!checkRateLimit()) {
+      throw new Error('Rate limit exceeded. Please try again later.');
+    }
+
+    // Kiểm tra thời gian từ lần refresh cuối
+    const now = Date.now();
+    if (now - lastRefreshTime < MIN_REFRESH_INTERVAL) {
+      // Nếu vừa refresh gần đây, đợi một chút
+      await new Promise(resolve => setTimeout(resolve, MIN_REFRESH_INTERVAL));
+    }
+
     // Sử dụng promise đã tồn tại nếu đang refresh
     if (refreshPromise) {
       return refreshPromise;
     }
+
+    // Đánh dấu đang refresh
+    isRefreshing = true;
+    lastRefreshTime = now;
 
     // Tạo promise mới cho quá trình refresh
     refreshPromise = (async () => {
@@ -40,7 +86,7 @@ export const refreshAccessToken = async (): Promise<string> => {
         const controller = new AbortController();
         const timeoutId = setTimeout(() => controller.abort(), REFRESH_TIMEOUT);
 
-        // Gọi API refresh token, không cần gửi refresh token (vì backend đọc từ cookie)
+        // Gọi API refresh token
         const response = await axios.post<RefreshResponse>(
           refreshTokenEndpoint, 
           {}, 
@@ -51,43 +97,30 @@ export const refreshAccessToken = async (): Promise<string> => {
         );
         
         clearTimeout(timeoutId);
-        currentRetryCount = 0; // Reset retry counter on success
+        
+        // Thông báo cho các subscribers
+        notifySubscribers(response.data.accessToken);
         
         // Trả về access token mới
         return response.data.accessToken;
       } catch (error) {
-        // Retry logic
-        if (currentRetryCount < MAX_REFRESH_RETRIES) {
-          currentRetryCount++;
-          console.log(`Retry refreshing token attempt ${currentRetryCount}/${MAX_REFRESH_RETRIES}`);
-          
-          // Clear the promise so we can create a new one
-          refreshPromise = null;
-          // Retry with exponential backoff
-          await new Promise(resolve => setTimeout(resolve, 1000 * currentRetryCount));
-          return refreshAccessToken();
-        }
-        
-        // Reset retry counter after max retries
-        currentRetryCount = 0;
-        
-        // Notify all failure subscribers
+        // Thông báo lỗi cho các subscribers
         notifyFailureSubscribers(error instanceof Error ? error : new Error('Token refresh failed'));
         throw error;
       } finally {
-        // Clear the promise reference when done
+        // Reset trạng thái
+        isRefreshing = false;
         refreshPromise = null;
       }
     })();
 
     return refreshPromise;
   } catch (error) {
-    const axiosError = error as AxiosError;
-    const errorMessage = axiosError.response?.status === 401 
+    const errorMessage = error instanceof AxiosError && error.response?.status === 401 
       ? 'Phiên đăng nhập đã hết hạn'
-      : `Không thể refresh token: ${axiosError.message}`;
+      : `Không thể refresh token: ${error instanceof Error ? error.message : 'Unknown error'}`;
     
-    console.error(errorMessage, axiosError);
+    console.error(errorMessage);
     throw new Error(errorMessage);
   }
 };
@@ -119,7 +152,7 @@ export const notifySubscribers = (token: string): void => {
 
 /**
  * Thông báo cho tất cả subscribers về lỗi refresh token
- * @param error Lỗi xảy ra
+ * @param error Lỗi khi refresh token
  */
 export const notifyFailureSubscribers = (error: Error): void => {
   refreshFailedSubscribers.forEach(callback => callback(error));
@@ -134,20 +167,12 @@ export const getRefreshingStatus = (): boolean => {
 };
 
 /**
- * Cập nhật trạng thái refresh
- */
-export const setRefreshingStatus = (status: boolean): void => {
-  isRefreshing = status;
-};
-
-/**
- * Xóa tất cả subscribers và reset trạng thái
- * Sử dụng khi logout hoặc clear auth state
+ * Xóa trạng thái refresh
  */
 export const clearAuthHelperState = (): void => {
-  refreshSubscribers = [];
-  refreshFailedSubscribers = [];
   isRefreshing = false;
   refreshPromise = null;
-  currentRetryCount = 0;
+  refreshSubscribers = [];
+  refreshFailedSubscribers = [];
+  lastRefreshTime = 0;
 }; 

@@ -1,41 +1,22 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect } from 'react';
 import { Movie } from '@/types/movie';
 import { Genre } from '@/types/genre';
 import MovieGrid from '@/components/features/movie/MovieGrid';
 import { Badge } from '@/components/ui/badge';
 import { useMovies } from '@/hooks/api/useMovies';
 import { useGenres } from '@/hooks/api/useGenres';
-import { useApiCache } from '@/hooks/api/useApiCache';
-import { API_ENDPOINTS } from '@/lib/api/endpoints';
-
-interface SortOptions {
-  sort?: 'title' | 'rating' | 'views' | 'releaseYear' | 'createdAt';
-  order?: 'ASC' | 'DESC';
-}
+import { useRouter } from 'next/navigation';
 
 interface ProcessedMovie extends Movie {
   type: 'movie' | 'series';
 }
 
-// Debounce function to prevent frequent API calls
-const debounce = (func: Function, delay: number) => {
-  let timer: NodeJS.Timeout;
-  return (...args: any[]) => {
-    clearTimeout(timer);
-    timer = setTimeout(() => func(...args), delay);
-  };
-};
-
 export default function MovieListPage() {
-  // State for filters
+  const router = useRouter();
   const [activeGenre, setActiveGenre] = useState('all');
   const [currentPage, setCurrentPage] = useState(1);
-  const [isFilterChanged, setIsFilterChanged] = useState(false);
-  
-  // API cache hook to clear cache when needed
-  const { clearCache } = useApiCache();
   
   // Use the movies hook
   const { 
@@ -43,7 +24,6 @@ export default function MovieListPage() {
     loading: isLoading, 
     pagination,
     searchMovies,
-    error
   } = useMovies({ limit: 20 });
 
   const {
@@ -75,65 +55,34 @@ export default function MovieListPage() {
     fetchGenres();
   }, [getAllGenres]);
 
-  // Debounced fetch function to prevent excessive API calls
-  const debouncedFetchMovies = useCallback(
-    debounce(() => {
+  // Fetch movies when filters change
+  useEffect(() => {
+    const fetchMovies = async () => {
       try {
-        const sortOptions: SortOptions = {
-          sort: 'views', // Default to popular movies (views)
-          order: 'DESC'
-        };
-        
-        // Clear cache for this endpoint to ensure fresh data
-        clearCache((key: string) => key.includes(API_ENDPOINTS.MOVIES.SEARCH));
-        
-        // Search movies with genre filter
-        searchMovies({
+        await searchMovies({
           page: currentPage,
           limit: 20,
           genre: activeGenre !== 'all' ? Number(activeGenre) : undefined,
-          ...sortOptions
+          sort: 'views',
+          order: 'DESC'
         });
-        
-        // Reset the filter changed flag
-        setIsFilterChanged(false);
       } catch (error) {
         console.error('Error fetching movies:', error);
       }
-    }, 300),
-    [activeGenre, currentPage, searchMovies, clearCache]
-  );
+    };
+
+    fetchMovies();
+  }, [activeGenre, currentPage, searchMovies]);
 
   // Handle genre change
   const handleGenreChange = (genre: string) => {
-    // Skip if already selected
     if (genre === activeGenre) return;
-    
-    // Reset to page 1 when changing genre
-    setCurrentPage(1);
-    setActiveGenre(genre);
-    
-    // Mark filters as changed
-    setIsFilterChanged(true);
+    router.push(`/search?genre=${encodeURIComponent(genre)}`);
   };
-  
-  // Call fetchMovies when filter dependencies change (not on every render)
-  useEffect(() => {
-    // Only fetch if filters have actually changed
-    if (isFilterChanged) {
-      debouncedFetchMovies();
-    }
-  }, [debouncedFetchMovies, isFilterChanged]);
-  
-  // Initial fetch when component mounts
-  useEffect(() => {
-    setIsFilterChanged(true);
-  }, []);
   
   // Process movies with type info
   useEffect(() => {
     if (movies) {
-      // Add movie type info (using totalEpisodes to determine if it's a series)
       const processedMovies = movies.map(movie => ({
         ...movie,
         type: movie.totalEpisodes > 0 ? 'series' : 'movie'
@@ -146,10 +95,6 @@ export default function MovieListPage() {
   // Handle page change
   const handlePageChange = (page: number) => {
     setCurrentPage(page);
-    // Mark filters as changed to trigger a fetch
-    setIsFilterChanged(true);
-    
-    // Scroll to top
     window.scrollTo({
       top: 0,
       behavior: 'smooth'
@@ -203,13 +148,13 @@ export default function MovieListPage() {
                   genres.map((genre) => (
                     <Badge 
                       key={genre.id}
-                      variant={activeGenre === String(genre.id) ? "default" : "outline"}
+                      variant={activeGenre === genre.name ? "default" : "outline"}
                       className={`px-4 py-2 rounded-full cursor-pointer text-sm font-normal whitespace-nowrap ${
-                        activeGenre === String(genre.id) 
+                        activeGenre === genre.name 
                           ? 'bg-indigo-600 hover:bg-indigo-700 text-white' 
                           : 'bg-gray-800 text-gray-300 border-gray-700 hover:bg-gray-700'
                       }`}
-                      onClick={() => handleGenreChange(String(genre.id))}
+                      onClick={() => handleGenreChange(genre.name)}
                     >
                       {genre.name}
                     </Badge>

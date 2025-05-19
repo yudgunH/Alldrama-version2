@@ -5,7 +5,7 @@ import Hls, {Level, ErrorData} from 'hls.js'
 import {
   Play, Pause, SkipBack, SkipForward,
   Volume2, VolumeX, Maximize, Minimize,
-  Settings, Loader2
+  Settings, Loader2, PictureInPicture
 } from 'lucide-react'
 import {Button} from '@/components/ui/button'
 import {
@@ -85,6 +85,8 @@ export default function VideoPlayer({
   const [level,   setLevel]     = useState(-1)            // -1 = auto
   const [full,    setFull]      = useState(false)
   const [fatalErr,setFatalErr]  = useState(false)
+  const [playbackRate, setPlaybackRate] = useState(1)
+  const [isPiP, setIsPiP] = useState(false)
 
   /* ----------------------------------------------------------------
    * progress callback (throttled)
@@ -134,29 +136,54 @@ export default function VideoPlayer({
   useEffect(()=>{
     const v = vRef.current
     if(!v || !videoSrc) return
+    
+    if(v.src === videoSrc && hlsRef.current) return
+    
     if(hlsRef.current){ hlsRef.current.destroy(); hlsRef.current=null }
 
-    // Native HLS (Safari / iOS)
     if(!hlsStream || v.canPlayType('application/vnd.apple.mpegurl')){
-      v.src = testMode ? TEST_MP4 : videoSrc
+      v.src = videoSrc
       return
     }
 
     if(Hls.isSupported()){
-      const h = new Hls({ startLevel:-1, backBufferLength:60, enableWorker:true })
+      const h = new Hls({ 
+        startLevel:-1, 
+        enableWorker:true,
+        maxBufferLength: 30,
+        maxMaxBufferLength: 600,
+        maxBufferSize: 60 * 1000 * 1000, // 60MB
+        maxBufferHole: 0.5,
+        lowLatencyMode: false,
+        backBufferLength: 90
+      })
       h.attachMedia(v)
       h.loadSource(videoSrc)
-      h.on(Hls.Events.MANIFEST_PARSED,(_,d)=> setLevels(d.levels))
-      h.on(Hls.Events.LEVEL_SWITCHED,(_,d)=> setLevel(d.level))
-      h.on(Hls.Events.ERROR,(_e,d:ErrorData)=>{
-        if(!d.fatal) return
-        if(d.type === Hls.ErrorTypes.MEDIA_ERROR){ h.recoverMediaError(); return }
-        setFatalErr(true); h.destroy()
+      
+      // Xử lý sự kiện MANIFEST_PARSED để lấy thông tin độ phân giải
+      h.on(Hls.Events.MANIFEST_PARSED, (_, data) => {
+        setLevels(data.levels)
+        console.log('Available quality levels:', data.levels)
+      })
+
+      h.on(Hls.Events.LEVEL_SWITCHED, (_, data) => {
+        setLevel(data.level)
+        console.log('Switched to quality level:', data.level)
+      })
+
+      h.on(Hls.Events.ERROR, (_e, data: ErrorData) => {
+        if(!data.fatal) return
+        if(data.type === Hls.ErrorTypes.MEDIA_ERROR){ 
+          h.recoverMediaError()
+          return 
+        }
+        setFatalErr(true)
+        h.destroy()
       })
       hlsRef.current = h
     }
     return ()=>{ hlsRef.current?.destroy(); hlsRef.current=null }
-  },[videoSrc, hlsStream, testMode])
+  },[videoSrc, hlsStream])
 
   /* ----------------------------------------------------------------
    * helpers UI
@@ -189,6 +216,13 @@ export default function VideoPlayer({
     hlsRef.current.currentLevel = idx
   }
 
+  const setSpeed = (rate: number) => {
+    const v = vRef.current
+    if (!v) return
+    v.playbackRate = rate
+    setPlaybackRate(rate)
+  }
+
   const fullScreen = ()=>{
     const el = cRef.current
     if(!el) return
@@ -196,22 +230,67 @@ export default function VideoPlayer({
     else { document.exitFullscreen(); setFull(false) }
   }
 
+  const togglePiP = async () => {
+    const v = vRef.current
+    if (!v) return
+
+    try {
+      if (document.pictureInPictureElement) {
+        await document.exitPictureInPicture()
+        setIsPiP(false)
+      } else {
+        await v.requestPictureInPicture()
+        setIsPiP(true)
+      }
+    } catch (error) {
+      console.error('Error toggling PiP:', error)
+    }
+  }
+
+  // Add PiP event listeners
+  useEffect(() => {
+    const v = vRef.current
+    if (!v) return
+
+    const handlePiPChange = () => {
+      setIsPiP(document.pictureInPictureElement === v)
+    }
+
+    v.addEventListener('enterpictureinpicture', handlePiPChange)
+    v.addEventListener('leavepictureinpicture', handlePiPChange)
+
+    return () => {
+      v.removeEventListener('enterpictureinpicture', handlePiPChange)
+      v.removeEventListener('leavepictureinpicture', handlePiPChange)
+    }
+  }, [])
+
   /* ----------------------------------------------------------------
    * JSX
    * --------------------------------------------------------------*/
   return (
-    <div ref={cRef} className="relative w-full aspect-video bg-black overflow-hidden rounded-lg group">
+    <div ref={cRef} className="relative w-full aspect-video bg-black overflow-hidden rounded-lg group"
+         onClick={(e) => {
+           // Make sure we don't propagate clicks on the whole video component
+           // to avoid multiple click handlers
+           e.stopPropagation();
+         }}
+    >
       {/* ----------------- video tag ----------------- */}
       <video
         ref={vRef}
         className="absolute inset-0 w-full h-full object-contain bg-black"
-        poster={''}
+        poster={poster || ''}
         controls={!custom}
         playsInline
         autoPlay={autoPlay}
         preload="auto"
         title={displayTitle}
-        onClick={custom?togglePlay:undefined}
+        onClick={(e) => {
+          // Handle click explicitly to prevent multiple click handlers
+          e.stopPropagation();
+          if (custom) togglePlay();
+        }}
       >
         {subtitles.map((t,i)=>(
           <track key={i} src={t.src} label={t.label} kind="subtitles" srcLang={t.lang} default={t.default} />
@@ -227,7 +306,13 @@ export default function VideoPlayer({
         <>
           {/*   CENTER overlay play / pause   */}
           {!playing && !wait && (
-            <button onClick={togglePlay} className="absolute inset-0 flex items-center justify-center text-white/70 hover:text-white transition-colors">
+            <button 
+              onClick={(e) => {
+                e.stopPropagation();
+                togglePlay();
+              }} 
+              className="absolute inset-0 flex items-center justify-center text-white/70 hover:text-white transition-colors"
+            >
               <Play className="h-20 w-20 drop-shadow-xl" />
             </button>
           )}
@@ -242,7 +327,10 @@ export default function VideoPlayer({
           {/* bottom bar */}
           <div className="absolute bottom-0 left-0 right-0 px-4 py-3 bg-gradient-to-t from-black/85 to-black/0 opacity-0 group-hover:opacity-100 transition-opacity">
             {/* progress bar container */}
-            <div className="relative mb-1 h-4 flex items-center group/progress">
+            <div 
+              className="relative mb-1 h-4 flex items-center group/progress"
+              onClick={(e) => e.stopPropagation()}
+            >
               {/* Progress background */}
               <div className="absolute w-full h-1.5 bg-gray-700/70 rounded-full overflow-hidden">
                 {/* Buffer progress */}
@@ -260,7 +348,12 @@ export default function VideoPlayer({
                 className="w-full h-4 absolute opacity-0 cursor-pointer z-10"
                 min={0} max={dur||0} step={0.1}
                 value={time}
-                onChange={e=>{ const v=vRef.current; if(v) v.currentTime=parseFloat(e.target.value) }}
+                onClick={(e) => e.stopPropagation()}
+                onChange={e=>{
+                  e.stopPropagation();
+                  const v=vRef.current; 
+                  if(v) v.currentTime=parseFloat(e.target.value) 
+                }}
               />
               
               {/* Tooltip showing the current time position on hover */}
@@ -273,18 +366,56 @@ export default function VideoPlayer({
             <div className="flex justify-between items-center mt-1 text-white select-none">
               {/* left cluster */}
               <div className="flex items-center gap-3">
-                <Button size="icon" variant="ghost" className="text-white hover:text-amber-400" aria-label="play" onClick={togglePlay}>
+                <Button 
+                  size="icon" 
+                  variant="ghost" 
+                  className="text-white hover:text-amber-400" 
+                  aria-label="play" 
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    togglePlay();
+                  }}
+                >
                   {playing? <Pause className="h-6 w-6"/> : <Play className="h-6 w-6"/>}
                 </Button>
-                <Button size="icon" variant="ghost" className="text-white hover:text-amber-400" onClick={()=>jump(-10)} aria-label="-10s">
+                <Button 
+                  size="icon" 
+                  variant="ghost" 
+                  className="text-white hover:text-amber-400" 
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    jump(-10);
+                  }} 
+                  aria-label="-10s"
+                >
                   <SkipBack className="h-5 w-5"/>
                 </Button>
-                <Button size="icon" variant="ghost" className="text-white hover:text-amber-400" onClick={()=>jump(10)} aria-label="+10s">
+                <Button 
+                  size="icon" 
+                  variant="ghost" 
+                  className="text-white hover:text-amber-400" 
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    jump(10);
+                  }} 
+                  aria-label="+10s"
+                >
                   <SkipForward className="h-5 w-5"/>
                 </Button>
                 {/* volume */}
-                <div className="flex items-center gap-2 group/volume">
-                  <Button size="icon" variant="ghost" className="text-white hover:text-amber-400" onClick={toggleMute}>
+                <div 
+                  className="flex items-center gap-2 group/volume"
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  <Button 
+                    size="icon" 
+                    variant="ghost" 
+                    className="text-white hover:text-amber-400" 
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      toggleMute();
+                    }}
+                  >
                     {muted||vol===0? <VolumeX className="h-5 w-5"/> : <Volume2 className="h-5 w-5"/>}
                   </Button>
                   
@@ -298,7 +429,14 @@ export default function VideoPlayer({
                     <input
                       type="range" min={0} max={1} step={0.01}
                       value={muted?0:vol}
-                      onChange={e=>{ const v=vRef.current; if(!v) return; v.volume=parseFloat(e.target.value); v.muted=Number(e.target.value)===0 }}
+                      onChange={e=>{ 
+                        e.stopPropagation();
+                        const v=vRef.current; 
+                        if(!v) return; 
+                        v.volume=parseFloat(e.target.value); 
+                        v.muted=Number(e.target.value)===0 
+                      }}
+                      onClick={(e) => e.stopPropagation()}
                       className="absolute w-full h-5 top-1/2 -translate-y-1/2 opacity-0 cursor-pointer"
                     />
                     {/* Volume handle */}
@@ -312,25 +450,105 @@ export default function VideoPlayer({
 
               {/* right cluster */}
               <div className="flex items-center gap-3">
-                {/* quality */}
-                {levels.length>0 && (
+                {/* Playback Speed */}
                 <DropdownMenu>
                   <DropdownMenuTrigger asChild>
-                    <Button variant="ghost" size="sm" className="text-xs flex items-center gap-1 hover:text-amber-400">
-                      {level===-1? 'Auto': `${levels[level]?.height}p`} <Settings className="h-4 w-4"/>
+                    <Button 
+                      variant="ghost" 
+                      size="sm" 
+                      className="text-xs flex items-center gap-1 hover:text-amber-400"
+                      onClick={(e) => e.stopPropagation()}
+                    >
+                      {playbackRate}x
                     </Button>
                   </DropdownMenuTrigger>
-                  <DropdownMenuContent align="end" className="bg-gray-800 border-gray-700 text-white text-sm">
-                    <DropdownMenuItem onClick={()=>setLvl(-1)} className={cn('cursor-pointer', level===-1 && 'bg-amber-500/20 text-amber-400')}>Auto</DropdownMenuItem>
-                    {levels.map((l,i)=>(
-                      <DropdownMenuItem key={i} onClick={()=>setLvl(i)} className={cn('cursor-pointer', level===i && 'bg-amber-500/20 text-amber-400')}>{l.height}p</DropdownMenuItem>
+                  <DropdownMenuContent 
+                    align="end" 
+                    className="bg-gray-800 border-gray-700 text-white text-sm"
+                    onClick={(e) => e.stopPropagation()}
+                  >
+                    {[0.5, 0.75, 1, 1.25, 1.5, 1.75, 2].map((rate) => (
+                      <DropdownMenuItem 
+                        key={rate} 
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          setSpeed(rate)
+                        }} 
+                        className={cn('cursor-pointer', playbackRate === rate && 'bg-amber-500/20 text-amber-400')}
+                      >
+                        {rate}x
+                      </DropdownMenuItem>
                     ))}
                   </DropdownMenuContent>
                 </DropdownMenu>
+
+                {/* quality */}
+                {levels.length > 0 && (
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <Button 
+                        variant="ghost" 
+                        size="sm" 
+                        className="text-xs flex items-center gap-1 hover:text-amber-400"
+                        onClick={(e) => e.stopPropagation()}
+                      >
+                        {level === -1 ? 'Auto' : `${levels[level]?.height}p`} <Settings className="h-4 w-4"/>
+                      </Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent 
+                      align="end" 
+                      className="bg-gray-800 border-gray-700 text-white text-sm"
+                      onClick={(e) => e.stopPropagation()}
+                    >
+                      <DropdownMenuItem 
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          setLvl(-1)
+                        }} 
+                        className={cn('cursor-pointer', level === -1 && 'bg-amber-500/20 text-amber-400')}
+                      >
+                        Auto
+                      </DropdownMenuItem>
+                      {levels.map((l, i) => (
+                        <DropdownMenuItem 
+                          key={i} 
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            setLvl(i)
+                          }} 
+                          className={cn('cursor-pointer', level === i && 'bg-amber-500/20 text-amber-400')}
+                        >
+                          {l.height}p ({Math.round(l.bitrate / 1000)}kbps)
+                        </DropdownMenuItem>
+                      ))}
+                    </DropdownMenuContent>
+                  </DropdownMenu>
                 )}
 
+                {/* PiP Button */}
+                <Button 
+                  size="icon" 
+                  variant="ghost" 
+                  className="text-white hover:text-amber-400" 
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    togglePiP()
+                  }}
+                  disabled={!document.pictureInPictureEnabled}
+                >
+                  <PictureInPicture className="h-5 w-5" />
+                </Button>
+
                 {/* fullscreen */}
-                <Button size="icon" variant="ghost" className="text-white hover:text-amber-400" onClick={fullScreen}>
+                <Button 
+                  size="icon" 
+                  variant="ghost" 
+                  className="text-white hover:text-amber-400" 
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    fullScreen()
+                  }}
+                >
                   {full? <Minimize className="h-5 w-5"/> : <Maximize className="h-5 w-5"/>}
                 </Button>
               </div>

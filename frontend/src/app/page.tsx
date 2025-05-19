@@ -37,12 +37,12 @@ export default function Home() {
       <Hero />
       
       {/* Top 10 Movies Section with trapezoid cards */}
-      {/* <TopMoviesSection 
+      <TopMoviesSection 
         movies={trending} 
         isLoading={isLoading}
         title="Top 10 Phim Đang Hot"
         limit={10}
-      /> */}
+      />
 
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         {/* Section for featured movie sliders */}
@@ -60,7 +60,7 @@ export default function Home() {
             size="md"
             variant="popular" 
           />
-{/*           
+          
           <MovieSlider 
             title="Phim đánh giá cao" 
             movies={featured}
@@ -73,10 +73,10 @@ export default function Home() {
             movies={trending}
             size="md"
             variant="trending"
-          /> */}
+          />
           
           {/* Phim theo thể loại */}
-          {/* {genres && genres[1]?.length > 0 && (
+          {genres && genres[1]?.length > 0 && (
             <MovieSlider 
               title="Phim hành động" 
               movies={genres[1]}
@@ -90,13 +90,13 @@ export default function Home() {
               movies={genres[3]}
               size="md"
             />
-          )} */}
+          )}
         </section>
         
         {/* Genre list section */}
-        {/* <section className="py-8 mt-8">
+        <section className="py-8 mt-8">
           <GenreList />
-        </section> */}
+        </section>
       </div>
       {/* <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         <CommentsAndRankings />

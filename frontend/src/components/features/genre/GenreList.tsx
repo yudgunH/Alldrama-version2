@@ -45,7 +45,7 @@ const GenreList = () => {
         {genres.map((genre) => (
           <Link
             key={genre.id}
-            href={`/movies?genre=${genre.id}`}
+            href={`/movie?genre=${encodeURIComponent(genre.name)}`}
             className="bg-gray-800 hover:bg-indigo-600 text-center p-3 rounded-lg transition-colors"
           >
             <span className="text-white font-medium">{genre.name}</span>

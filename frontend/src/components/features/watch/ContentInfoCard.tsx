@@ -1,5 +1,5 @@
-import React from 'react';
-import { Star, Share2, Bookmark, ChevronLeft, ChevronRight } from 'lucide-react';
+import React, { useState, useEffect, MouseEvent } from 'react';
+import { Star, Share2, Bookmark, BookmarkCheck, ChevronLeft, ChevronRight } from 'lucide-react';
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -7,6 +7,10 @@ import { Separator } from "@/components/ui/separator";
 import IconButton from './IconButton';
 import { generateWatchUrl } from '@/utils/url';
 import { useMobile } from "@/hooks/use-mobile";
+import { useAuth } from '@/hooks/api/useAuth';
+import { useFavorites } from '@/hooks/api/useFavorites';
+import { useRouter } from 'next/navigation';
+import Image from 'next/image';
 
 interface ContentInfoCardProps {
   movie: any;
@@ -15,7 +19,6 @@ interface ContentInfoCardProps {
   nextEpisode?: any;
   isMovie: boolean;
   episodeListResponse: { episodes: any[] };
-  setShowEpisodeList: (show: boolean) => void;
 }
 
 export default function ContentInfoCard({
@@ -24,12 +27,74 @@ export default function ContentInfoCard({
   prevEpisode,
   nextEpisode,
   isMovie,
-  episodeListResponse,
-  setShowEpisodeList
+  episodeListResponse
 }: ContentInfoCardProps) {
   const isMobile = useMobile(768);
+  const { isAuthenticated } = useAuth();
+  const { toggleFavorite, isFavorite } = useFavorites();
+  const [favoriteChecked, setFavoriteChecked] = useState(false);
+  const [isFavorited, setIsFavorited] = useState(false);
+  const [isCheckingFavorite, setIsCheckingFavorite] = useState(false);
+  const router = useRouter();
+
+  // Only check favorite status when user interacts with the bookmark button
+  const handleBookmarkClick = async () => {
+    if (!isAuthenticated || !movie) return;
+    
+    if (!favoriteChecked && !isCheckingFavorite) {
+      setIsCheckingFavorite(true);
+      try {
+        const status = await isFavorite(movie.id);
+        setIsFavorited(status === true);
+        setFavoriteChecked(true);
+      } catch (err) {
+        console.error('Error checking favorite status:', err);
+      } finally {
+        setIsCheckingFavorite(false);
+      }
+    } else {
+      try {
+        const newStatus = await toggleFavorite(movie.id);
+        setIsFavorited(newStatus === true);
+      } catch (err) {
+        console.error('Error toggling favorite:', err);
+      }
+    }
+  };
+  
+  // Navigate to episode using router instead of direct href
+  const navigateToEpisode = (e: MouseEvent, episodeId: string, episodeNumber: number) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const url = generateWatchUrl(movie.id, movie.title, episodeId, episodeNumber);
+    router.push(url);
+  };
+  
   // Define the common glass background style
   const GLASS_BG = "bg-gradient-to-br from-gray-800/70 to-gray-900/80 border-gray-700/60 backdrop-blur-sm shadow-lg";
+  
+  // Helper function to get proper image URL
+  const getImageUrl = (url?: string, movieId?: number | string) => {
+    if (!url) return '/placeholder.svg';
+    
+    // If it's already a complete URL, use it directly
+    if (url.startsWith('http')) {
+      return url;
+    }
+    
+    // If it's a relative path or just a filename, construct the full URL
+    if (url.startsWith('/')) {
+      return `https://media.alldrama.tech${url}`;
+    }
+    
+    // If we have a movie ID and it seems like just a filename
+    if (movieId) {
+      return `https://media.alldrama.tech/movies/${movieId}/poster.png`;
+    }
+    
+    // Fallback to original URL
+    return url;
+  };
   
   return (
     <Card className={`${GLASS_BG} overflow-hidden`}>
@@ -38,12 +103,14 @@ export default function ContentInfoCard({
           {/* Movie Poster - Hidden on mobile */}
           {!isMobile && (
             <div className="flex-shrink-0 w-full sm:w-[150px]">
-              <div className="aspect-[2/3] rounded-md overflow-hidden bg-gray-900">
-                <img 
-                  src={movie.posterUrl} 
+              <div className="aspect-[2/3] rounded-md overflow-hidden bg-gray-900 relative">
+                <Image 
+                  src={getImageUrl(movie.posterUrl, movie.id)} 
                   alt={movie.title} 
-                  className="w-full h-full object-cover"
-                  loading="lazy"
+                  fill
+                  sizes="(max-width: 768px) 100vw, 150px"
+                  className="object-cover"
+                  priority={true}
                 />
               </div>
             </div>
@@ -73,7 +140,15 @@ export default function ContentInfoCard({
               
               <div className="flex space-x-2">
                 <IconButton icon={<Share2 size={18} />} tooltip="Chia sẻ" />
-                <IconButton icon={<Bookmark size={18} />} tooltip="Lưu vào danh sách" />
+                {isAuthenticated ? (
+                  <IconButton 
+                    icon={favoriteChecked && isFavorited ? <BookmarkCheck size={18} /> : <Bookmark size={18} />} 
+                    tooltip={favoriteChecked && isFavorited ? "Đã lưu" : "Lưu vào danh sách"}
+                    onClick={handleBookmarkClick}
+                  />
+                ) : (
+                  <IconButton icon={<Bookmark size={18} />} tooltip="Lưu vào danh sách" />
+                )}
               </div>
             </div>
             
@@ -85,35 +160,36 @@ export default function ContentInfoCard({
             {/* Episode Navigation (only for TV shows) */}
             {!isMovie && currentEpisode && (
               <div className="mt-4">
-                <h3 className="text-sm font-medium text-gray-200 mb-1">
-                  Tập {currentEpisode.episodeNumber}: {currentEpisode.title}
-                </h3>
-                <div className="flex items-center gap-3 mt-2">
-                  {prevEpisode && (
-                    <Button 
-                      variant="outline" size="sm"
-                      className="border-gray-700 bg-gray-800 text-white hover:bg-gray-700"
-                      asChild
-                    >
-                      <a href={generateWatchUrl(movie.id, movie.title, prevEpisode.id, prevEpisode.episodeNumber)}>
+                <div className="flex flex-row items-center gap-2">
+                  <h3 className="text-sm font-medium text-gray-200 flex-shrink-0">
+                    Tập {currentEpisode.episodeNumber}:
+                  </h3>
+                  <p className="text-sm text-gray-300 flex-1 truncate">
+                    {currentEpisode.title}
+                  </p>
+                  <div className="flex items-center gap-2 flex-shrink-0">
+                    {prevEpisode && (
+                      <Button 
+                        variant="outline" size="sm"
+                        className="border-gray-700 bg-gray-800 text-white hover:bg-gray-700"
+                        onClick={(e) => navigateToEpisode(e, prevEpisode.id, prevEpisode.episodeNumber)}
+                      >
                         <ChevronLeft size={16} className="mr-1" />
                         Tập trước
-                      </a>
-                    </Button>
-                  )}
-                  
-                  {nextEpisode && (
-                    <Button 
-                      variant="outline" size="sm"
-                      className="border-gray-700 bg-gray-800 text-white hover:bg-gray-700"
-                      asChild
-                    >
-                      <a href={generateWatchUrl(movie.id, movie.title, nextEpisode.id, nextEpisode.episodeNumber)}>
+                      </Button>
+                    )}
+                    
+                    {nextEpisode && (
+                      <Button 
+                        variant="outline" size="sm"
+                        className="border-gray-700 bg-gray-800 text-white hover:bg-gray-700"
+                        onClick={(e) => navigateToEpisode(e, nextEpisode.id, nextEpisode.episodeNumber)}
+                      >
                         Tập sau
                         <ChevronRight size={16} className="ml-1" />
-                      </a>
-                    </Button>
-                  )}
+                      </Button>
+                    )}
+                  </div>
                 </div>
               </div>
             )}
@@ -126,10 +202,11 @@ export default function ContentInfoCard({
             <Separator className="my-4 bg-gray-700/50" />
             <h3 className="text-sm font-medium text-gray-200 mb-3">Chọn tập phim</h3>
             <div className="flex flex-wrap gap-2 overflow-x-auto pb-1 max-w-full">
-              {episodeListResponse.episodes.slice(0, 12).map(ep => (
+              {episodeListResponse.episodes.map(ep => (
                 <a 
                   key={ep.id}
                   href={generateWatchUrl(movie.id, movie.title, ep.id, ep.episodeNumber)} 
+                  onClick={(e) => navigateToEpisode(e, ep.id, ep.episodeNumber)}
                   className={`px-3 py-1.5 rounded text-sm font-medium transition-colors ${
                     ep.id === currentEpisode?.id 
                       ? 'bg-amber-500 text-gray-900' 
@@ -139,16 +216,6 @@ export default function ContentInfoCard({
                   {ep.episodeNumber}
                 </a>
               ))}
-              
-              {episodeListResponse.episodes.length > 12 && (
-                <Button 
-                  variant="ghost" size="sm"
-                  className="text-white hover:bg-gray-700 px-2"
-                  onClick={() => setShowEpisodeList(true)}
-                >
-                  ...
-                </Button>
-              )}
             </div>
           </div>
         )}

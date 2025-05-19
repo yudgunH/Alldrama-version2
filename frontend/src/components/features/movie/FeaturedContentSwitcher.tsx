@@ -271,8 +271,8 @@ const FeaturedContentSwitcher = ({
                     className="absolute inset-0"
                   >
                     <Image
-                      src={"/placeholder.svg"}
-                      alt={selectedItem.title || "Movie poster"}
+                      src={selectedItem ? `https://media.alldrama.tech/movies/${selectedItem.id}/poster.png` : "/placeholder.svg"}
+                      alt={selectedItem?.title || "Movie poster"}
                       fill
                       priority
                       className="object-cover"
@@ -359,8 +359,8 @@ const FeaturedContentSwitcher = ({
                       onClick={() => handleItemSelect(index)}
                     >
                       <img
-                        src={ "/placeholder.svg"}
-                        alt={item.title || `Movie ${index + 1}`}
+                        src={item ? `https://media.alldrama.tech/movies/${item.id}/poster.png` : "/placeholder.svg"}
+                        alt={item?.title || `Movie ${index + 1}`}
                         className="w-full h-full object-cover"
                       />
                       <div className={cn(

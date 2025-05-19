@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { MouseEvent } from 'react';
 import { Menu, ChevronDown, Search, Grid2X2, List } from 'lucide-react';
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -10,6 +10,7 @@ import {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
 import { generateWatchUrl } from '@/utils/url';
+import { useRouter } from 'next/navigation';
 
 interface EpisodeSheetProps {
   episodes: any[];
@@ -23,6 +24,30 @@ interface EpisodeSheetProps {
 export default function MobileEpisodeSheet({ 
   episodes, currentEpisode, movieId, movieTitle, episodeView, setEpisodeView 
 }: EpisodeSheetProps) {
+  const router = useRouter();
+  
+  // Navigate to episode using router instead of direct href
+  const navigateToEpisode = (e: MouseEvent, episodeId: string, episodeNumber: number) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const url = generateWatchUrl(movieId, movieTitle, episodeId, episodeNumber);
+    router.push(url);
+  };
+  
+  // Helper function to get episode thumbnail
+  const getEpisodeThumbnail = (episode: any) => {
+    if (episode.thumbnailUrl && episode.thumbnailUrl.startsWith('http')) {
+      return episode.thumbnailUrl;
+    }
+    
+    if (episode.episodeNumber) {
+      return `https://media.alldrama.tech/episodes/${movieId}/${episode.episodeNumber}/thumbnail.jpg`;
+    }
+    
+    // Fallback to random image as last resort
+    return `https://picsum.photos/seed/${episode.id}/300/200`;
+  };
+  
   return (
     <div className="sm:hidden absolute top-4 right-4 z-30">
       <Sheet>
@@ -78,6 +103,7 @@ export default function MobileEpisodeSheet({
                   <a 
                     key={ep.id}
                     href={generateWatchUrl(movieId, movieTitle, ep.id, ep.episodeNumber)}
+                    onClick={(e) => navigateToEpisode(e, ep.id, ep.episodeNumber)}
                     className={`block rounded overflow-hidden ${
                       ep.id === currentEpisode?.id 
                         ? 'ring-2 ring-amber-500' 
@@ -86,7 +112,7 @@ export default function MobileEpisodeSheet({
                   >
                     <div className="aspect-video bg-gray-800 relative">
                       <img 
-                        src={`https://picsum.photos/seed/${ep.id}/300/200`} 
+                        src={getEpisodeThumbnail(ep)} 
                         alt={`Tập ${ep.episodeNumber}`}
                         className="w-full h-full object-cover"
                       />
@@ -108,6 +134,7 @@ export default function MobileEpisodeSheet({
                   <a 
                     key={ep.id}
                     href={generateWatchUrl(movieId, movieTitle, ep.id, ep.episodeNumber)}
+                    onClick={(e) => navigateToEpisode(e, ep.id, ep.episodeNumber)}
                     className={`flex items-center p-3 ${
                       ep.id === currentEpisode?.id 
                         ? 'bg-white/10 text-amber-400' 

@@ -30,17 +30,31 @@ const MovieCard = ({
 }: MovieCardProps) => {
   const router = useRouter()
   const cardRef = useRef<HTMLDivElement>(null)
-  const [imageUrl, setImageUrl] = useState("/images/test.jpg")
+  const [imageUrl, setImageUrl] = useState(movie.posterUrl ? `https://media.alldrama.tech/movies/${movie.id}/poster.png` : "/placeholder.svg")
   const isMobile = useMobile()
   const movieDetailUrl = generateMovieUrl(movie.id, movie.title)
   const [imageLoaded, setImageLoaded] = useState(false)
   const [imageError, setImageError] = useState(false)
 
-  const handleImageLoad = () => setImageLoaded(true)
-  const handleImageError = () => {
-    setImageError(true)
-    setImageUrl("/images/placeholder-poster.jpg")
+  const handleImageLoad = () => {
+    console.log('MovieCard - Image loaded successfully:', imageUrl);
+    setImageLoaded(true)
   }
+  const handleImageError = () => {
+    console.log('MovieCard - Image load error for URL:', imageUrl);
+    setImageError(true)
+    setImageUrl("/placeholder.svg")
+  }
+
+  // Update image URL when movie changes
+  useEffect(() => {
+    if (movie.posterUrl) {
+      console.log('MovieCard - Poster URL:', movie.posterUrl);
+      setImageUrl(`https://media.alldrama.tech/movies/${movie.id}/poster.png`)
+      setImageError(false)
+      setImageLoaded(false)
+    }
+  }, [movie.posterUrl])
 
   const handleCardClick = () => {
     router.push(movieDetailUrl)
