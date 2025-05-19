@@ -531,7 +531,8 @@ export const processVideoFromWorker = async (req: Request, res: Response): Promi
     
     // Tải video từ R2 về thư mục tạm thời
     logger.debug(`Downloading video from R2: ${videoKey}`);
-    const tempDir = path.join(os.tmpdir(), 'hls-processor-temp');
+    const workspaceRoot = process.cwd();
+    const tempDir = path.join(workspaceRoot, 'temp/hls-processor/input');
     if (!fs.existsSync(tempDir)) {
       fs.mkdirSync(tempDir, { recursive: true, mode: 0o777 });
     }
@@ -544,6 +545,9 @@ export const processVideoFromWorker = async (req: Request, res: Response): Promi
       // Đảm bảo quyền truy cập cho file
       fs.chmodSync(tempFilePath, 0o666);
       logger.debug(`Video downloaded successfully to ${tempFilePath}`);
+      
+      // Đợi 1 giây để đảm bảo file được ghi hoàn tất
+      await new Promise(resolve => setTimeout(resolve, 1000));
     } catch (error) {
       logger.error(`Failed to download video: ${error}`);
       res.status(500).json({ 
@@ -560,7 +564,7 @@ export const processVideoFromWorker = async (req: Request, res: Response): Promi
     );
     
     // Tạo thư mục output
-    const outputDir = path.join(os.tmpdir(), 'hls-processor-output');
+    const outputDir = path.join(workspaceRoot, 'temp/hls-processor/output');
     if (!fs.existsSync(outputDir)) {
       fs.mkdirSync(outputDir, { recursive: true, mode: 0o777 });
     }
@@ -602,8 +606,8 @@ export const processVideoFromWorker = async (req: Request, res: Response): Promi
         '--rm', // Tự động xóa container sau khi chạy xong
         '--network', 'host', // Sử dụng network của host
         '--add-host=host.docker.internal:host-gateway', // Thêm host.docker.internal vào /etc/hosts
-        '-v', `${tempDir}:/input:rw`,
-        '-v', `${outputDir}:/output:rw`,
+        '-v', `${tempDir}:/input:rw,z`,
+        '-v', `${outputDir}:/output:rw,z`,
         '--user', `${process.getuid?.() || 0}:${process.getgid?.() || 0}`, // Chạy với cùng user ID
         'alldrama-hls-processor',
         '/input/original.mp4',
