@@ -89,16 +89,24 @@ async function processHLS() {
     console.log(`[HLS Processor] Sử dụng ${resolutionsToUse.length} độ phân giải`);
     
     // Tạo nội dung cho master playlist
-    let masterPlaylist = '#EXTM3U\n#EXT-X-VERSION:7\n'; // Version 7 hỗ trợ fMP4
+    let masterPlaylist = '#EXTM3U\n#EXT-X-VERSION:7\n#EXT-X-INDEPENDENT-SEGMENTS\n';
     
     // Xử lý từng độ phân giải
     for (const resolution of resolutionsToUse) {
       await processResolution(resolution, masterPlaylist);
     }
     
+    // Thêm #EXT-X-ENDLIST cho VOD
+    masterPlaylist += '#EXT-X-ENDLIST\n';
+    
     // Ghi master playlist
-    fs.writeFileSync(path.join(outputDir, 'master.m3u8'), masterPlaylist);
-    console.log(`[HLS Processor] Đã tạo master playlist`);
+    const masterPlaylistPath = path.join(outputDir, 'master.m3u8');
+    fs.writeFileSync(masterPlaylistPath, masterPlaylist);
+    console.log(`[HLS Processor] Đã tạo master playlist tại ${masterPlaylistPath}`);
+    
+    // Kiểm tra nội dung master playlist trước khi upload
+    const masterContent = fs.readFileSync(masterPlaylistPath, 'utf8');
+    console.log(`[HLS Processor] Nội dung master playlist:\n${masterContent}`);
     
     // Upload toàn bộ thư mục HLS lên R2
     console.log(`[HLS Processor] Bắt đầu upload thư mục HLS lên R2`);
@@ -115,14 +123,10 @@ async function processHLS() {
     console.log(`[HLS Processor] Xử lý HLS hoàn tất. Thoát với mã 0`);
     process.exit(0);
   } catch (error) {
-    console.error(`[HLS Processor] Lỗi: ${error.message}`);
-    
-    // Gửi callback báo lỗi nếu có
+    console.error(`[HLS Processor] Lỗi xử lý HLS: ${error.message}`);
     if (callbackUrl) {
       await sendCallback('error', error.message);
     }
-    
-    console.error(`[HLS Processor] Thoát với mã 1 do lỗi`);
     process.exit(1);
   }
 }
@@ -208,8 +212,9 @@ async function processResolution(resolution, masterPlaylist) {
       if (code === 0) {
         console.log(`[HLS Processor] Độ phân giải ${height}p hoàn tất`);
         
-        // Thêm vào master playlist
-        masterPlaylist += `#EXT-X-STREAM-INF:BANDWIDTH=${parseInt(bitrate) * 1000},RESOLUTION=${height}p\n`;
+        // Thêm vào master playlist với bandwidth chính xác
+        const bandwidth = parseInt(bitrate) * 1000; // Chuyển kbps thành bps
+        masterPlaylist += `#EXT-X-STREAM-INF:BANDWIDTH=${bandwidth},RESOLUTION=${height}p\n`;
         masterPlaylist += `${height}p.m3u8\n`;
         
         resolve();
