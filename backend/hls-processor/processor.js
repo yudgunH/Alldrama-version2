@@ -1,7 +1,7 @@
 const { spawn } = require('child_process');
 const fs = require('fs');
 const path = require('path');
-const AWS = require('aws-sdk');
+const { S3Client, PutObjectCommand } = require('@aws-sdk/client-s3');
 const fetch = require('node-fetch');
 
 // Command line arguments
@@ -42,13 +42,14 @@ try {
   }
 }
 
-// Cấu hình R2
-const s3 = new AWS.S3({
+// Cấu hình R2 với AWS SDK v3
+const s3Client = new S3Client({
   endpoint: `https://${r2AccountId}.r2.cloudflarestorage.com`,
-  accessKeyId: r2AccessKey,
-  secretAccessKey: r2Secret,
-  signatureVersion: 'v4',
-  region: 'auto'
+  region: 'auto',
+  credentials: {
+    accessKeyId: r2AccessKey,
+    secretAccessKey: r2Secret
+  }
 });
 
 // Các độ phân giải và bitrate cho HLS
@@ -91,9 +92,19 @@ async function processHLS() {
     // Tạo nội dung cho master playlist
     let masterPlaylist = '#EXTM3U\n#EXT-X-VERSION:7\n#EXT-X-INDEPENDENT-SEGMENTS\n';
     
-    // Xử lý từng độ phân giải
+    // Xử lý từng độ phân giải và thu thập thông tin
+    const resolutionInfo = [];
     for (const resolution of resolutionsToUse) {
-      await processResolution(resolution, masterPlaylist);
+      const info = await processResolution(resolution);
+      resolutionInfo.push(info);
+    }
+    
+    // Thêm thông tin độ phân giải vào master playlist
+    for (const info of resolutionInfo) {
+      // Format RESOLUTION đúng chuẩn: WIDTHxHEIGHT
+      const width = Math.round((info.height * 16) / 9); // Tính width dựa trên tỷ lệ 16:9
+      masterPlaylist += `#EXT-X-STREAM-INF:BANDWIDTH=${info.bandwidth},RESOLUTION=${width}x${info.height}\n`;
+      masterPlaylist += `${info.height}p.m3u8\n`;
     }
     
     // Thêm #EXT-X-ENDLIST cho VOD
@@ -173,7 +184,7 @@ function getVideoDuration(file) {
 }
 
 // Hàm xử lý một độ phân giải
-async function processResolution(resolution, masterPlaylist) {
+async function processResolution(resolution) {
   const { height, bitrate } = resolution;
   return new Promise((resolve, reject) => {
     console.log(`[HLS Processor] Đang xử lý độ phân giải ${height}p với bitrate ${bitrate}`);
@@ -212,12 +223,11 @@ async function processResolution(resolution, masterPlaylist) {
       if (code === 0) {
         console.log(`[HLS Processor] Độ phân giải ${height}p hoàn tất`);
         
-        // Thêm vào master playlist với bandwidth chính xác
-        const bandwidth = parseInt(bitrate) * 1000; // Chuyển kbps thành bps
-        masterPlaylist += `#EXT-X-STREAM-INF:BANDWIDTH=${bandwidth},RESOLUTION=${height}p\n`;
-        masterPlaylist += `${height}p.m3u8\n`;
-        
-        resolve();
+        // Trả về thông tin độ phân giải
+        resolve({
+          height,
+          bandwidth: parseInt(bitrate) * 1000 // Chuyển kbps thành bps
+        });
       } else {
         reject(new Error(`ffmpeg exited with code ${code} for ${height}p`));
       }
@@ -248,13 +258,15 @@ async function uploadDirectoryToR2(localDir, r2Prefix) {
       console.log(`[HLS Processor] Uploading ${file} to ${r2Key}`);
       
       try {
-        await s3.putObject({
+        const fileContent = fs.readFileSync(filePath);
+        const command = new PutObjectCommand({
           Bucket: r2Bucket,
           Key: r2Key,
-          Body: fs.readFileSync(filePath),
+          Body: fileContent,
           ContentType: contentType
-        }).promise();
+        });
         
+        await s3Client.send(command);
         console.log(`[HLS Processor] Uploaded ${file}`);
       } catch (error) {
         console.error(`[HLS Processor] Error uploading ${file}: ${error.message}`);
