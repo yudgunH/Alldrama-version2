@@ -238,7 +238,13 @@ async function processResolution(resolution) {
       }
 
       const [originalWidth, originalHeight] = dimensions.trim().split(',').map(Number);
-      const width = Math.round((originalWidth / originalHeight) * height);
+      
+      // Tính toán width mới và đảm bảo chia hết cho 2
+      let width = Math.round((originalWidth / originalHeight) * height);
+      width = Math.floor(width / 2) * 2; // Làm tròn xuống số chẵn gần nhất
+      
+      // Đảm bảo width tối thiểu là 2 pixel
+      width = Math.max(2, width);
       
       console.log(`[HLS Processor] Original dimensions: ${originalWidth}x${originalHeight}`);
       console.log(`[HLS Processor] Target dimensions for ${height}p: ${width}x${height}`);
@@ -246,10 +252,11 @@ async function processResolution(resolution) {
       // Reset error output for this resolution
       ffmpegErrorOutput = '';
 
+      // Thêm -vf "scale=w=trunc(oh*a/2)*2:h=trunc(ih*240/ih/2)*2" để đảm bảo kích thước luôn chẵn
       const ffmpeg = spawn('ffmpeg', [
         '-i', inputFile,
         '-profile:v', 'main',
-        '-vf', `scale=${width}:${height}`,
+        '-vf', `scale=w=trunc(oh*a/2)*2:h=${height}`,
         '-c:v', 'h264',
         '-crf', '23',
         '-b:v', bitrate,
