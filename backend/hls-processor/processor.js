@@ -1,7 +1,7 @@
 const { spawn } = require('child_process');
 const fs = require('fs');
 const path = require('path');
-const { S3Client, PutObjectCommand } = require('@aws-sdk/client-s3');
+const AWS = require('aws-sdk');
 const fetch = require('node-fetch');
 
 // Command line arguments
@@ -42,14 +42,13 @@ try {
   }
 }
 
-// Cấu hình R2 với AWS SDK v3
-const s3Client = new S3Client({
+// Cấu hình R2
+const s3 = new AWS.S3({
   endpoint: `https://${r2AccountId}.r2.cloudflarestorage.com`,
-  region: 'auto',
-  credentials: {
-    accessKeyId: r2AccessKey,
-    secretAccessKey: r2Secret
-  }
+  accessKeyId: r2AccessKey,
+  secretAccessKey: r2Secret,
+  signatureVersion: 'v4',
+  region: 'auto'
 });
 
 // Các độ phân giải và bitrate cho HLS
@@ -89,40 +88,47 @@ async function processHLS() {
     const resolutionsToUse = duration > 1200 ? REDUCED_RESOLUTIONS : RESOLUTIONS;
     console.log(`[HLS Processor] Sử dụng ${resolutionsToUse.length} độ phân giải`);
     
-    // Tạo nội dung cho master playlist
-    let masterPlaylist = '#EXTM3U\n#EXT-X-VERSION:7\n#EXT-X-INDEPENDENT-SEGMENTS\n';
+    // Khởi tạo master playlist
+    let masterPlaylistContent = '#EXTM3U\n';
+    masterPlaylistContent += '#EXT-X-VERSION:7\n';
+    masterPlaylistContent += '#EXT-X-INDEPENDENT-SEGMENTS\n';
     
-    // Xử lý từng độ phân giải và thu thập thông tin
-    const resolutionInfo = [];
+    // Xử lý từng độ phân giải và thu thập thông tin cho master playlist
+    const streamInfos = [];
     for (const resolution of resolutionsToUse) {
-      const info = await processResolution(resolution);
-      resolutionInfo.push(info);
+      const streamInfo = await processResolution(resolution);
+      streamInfos.push(streamInfo);
     }
     
-    // Thêm thông tin độ phân giải vào master playlist
-    for (const info of resolutionInfo) {
-      // Format RESOLUTION đúng chuẩn: WIDTHxHEIGHT
-      const width = Math.round((info.height * 16) / 9); // Tính width dựa trên tỷ lệ 16:9
-      masterPlaylist += `#EXT-X-STREAM-INF:BANDWIDTH=${info.bandwidth},RESOLUTION=${width}x${info.height}\n`;
-      masterPlaylist += `${info.height}p.m3u8\n`;
-    }
+    // Thêm thông tin stream vào master playlist theo thứ tự bitrate tăng dần
+    streamInfos
+      .sort((a, b) => parseInt(a.bandwidth) - parseInt(b.bandwidth))
+      .forEach(({ bandwidth, height, filename }) => {
+        masterPlaylistContent += `#EXT-X-STREAM-INF:BANDWIDTH=${bandwidth},RESOLUTION=${height}p\n`;
+        masterPlaylistContent += `${filename}\n`;
+      });
     
-    // Thêm #EXT-X-ENDLIST cho VOD
-    masterPlaylist += '#EXT-X-ENDLIST\n';
-    
-    // Ghi master playlist
+    // Ghi master playlist sau khi đã có đầy đủ thông tin
     const masterPlaylistPath = path.join(outputDir, 'master.m3u8');
-    fs.writeFileSync(masterPlaylistPath, masterPlaylist);
-    console.log(`[HLS Processor] Đã tạo master playlist tại ${masterPlaylistPath}`);
+    fs.writeFileSync(masterPlaylistPath, masterPlaylistContent);
+    console.log(`[HLS Processor] Đã tạo master playlist với ${streamInfos.length} streams`);
     
-    // Kiểm tra nội dung master playlist trước khi upload
+    // Kiểm tra nội dung master playlist
     const masterContent = fs.readFileSync(masterPlaylistPath, 'utf8');
     console.log(`[HLS Processor] Nội dung master playlist:\n${masterContent}`);
     
     // Upload toàn bộ thư mục HLS lên R2
     console.log(`[HLS Processor] Bắt đầu upload thư mục HLS lên R2`);
     const r2HlsPath = `episodes/${movieId}/${episodeId}/hls`;
-    await uploadDirectoryToR2(outputDir, r2HlsPath);
+    
+    // Upload tất cả file khác trước master.m3u8
+    const files = fs.readdirSync(outputDir).filter(f => f !== 'master.m3u8');
+    for (const file of files) {
+      await uploadFileToR2(path.join(outputDir, file), `${r2HlsPath}/${file}`);
+    }
+    
+    // Upload master.m3u8 cuối cùng
+    await uploadFileToR2(masterPlaylistPath, `${r2HlsPath}/master.m3u8`);
     
     console.log(`[HLS Processor] Upload hoàn tất`);
     
@@ -134,10 +140,14 @@ async function processHLS() {
     console.log(`[HLS Processor] Xử lý HLS hoàn tất. Thoát với mã 0`);
     process.exit(0);
   } catch (error) {
-    console.error(`[HLS Processor] Lỗi xử lý HLS: ${error.message}`);
+    console.error(`[HLS Processor] Lỗi: ${error.message}`);
+    
+    // Gửi callback báo lỗi nếu có
     if (callbackUrl) {
       await sendCallback('error', error.message);
     }
+    
+    console.error(`[HLS Processor] Thoát với mã 1 do lỗi`);
     process.exit(1);
   }
 }
@@ -183,7 +193,7 @@ function getVideoDuration(file) {
   });
 }
 
-// Hàm xử lý một độ phân giải
+// Hàm xử lý một độ phân giải và trả về thông tin cho master playlist
 async function processResolution(resolution) {
   const { height, bitrate } = resolution;
   return new Promise((resolve, reject) => {
@@ -223,10 +233,11 @@ async function processResolution(resolution) {
       if (code === 0) {
         console.log(`[HLS Processor] Độ phân giải ${height}p hoàn tất`);
         
-        // Trả về thông tin độ phân giải
+        // Trả về thông tin cho master playlist
         resolve({
+          bandwidth: parseInt(bitrate) * 1000,
           height,
-          bandwidth: parseInt(bitrate) * 1000 // Chuyển kbps thành bps
+          filename: `${height}p.m3u8`
         });
       } else {
         reject(new Error(`ffmpeg exited with code ${code} for ${height}p`));
@@ -235,44 +246,28 @@ async function processResolution(resolution) {
   });
 }
 
-// Upload thư mục lên R2
-async function uploadDirectoryToR2(localDir, r2Prefix) {
-  const files = fs.readdirSync(localDir);
-  console.log(`[HLS Processor] Đang upload ${files.length} files lên prefix ${r2Prefix}`);
+// Hàm upload một file lên R2
+async function uploadFileToR2(filePath, r2Key) {
+  // Xác định ContentType dựa vào phần mở rộng
+  let contentType = 'application/octet-stream';
+  if (r2Key.endsWith('.m3u8')) contentType = 'application/vnd.apple.mpegurl';
+  else if (r2Key.endsWith('.ts')) contentType = 'video/MP2T';
+  else if (r2Key.endsWith('.m4s')) contentType = 'video/iso.segment';
+  else if (r2Key.endsWith('.mp4')) contentType = 'video/mp4';
   
-  for (const file of files) {
-    const filePath = path.join(localDir, file);
-    const stats = fs.statSync(filePath);
+  console.log(`[HLS Processor] Uploading ${path.basename(filePath)} to ${r2Key}`);
+  
+  try {
+    await s3.putObject({
+      Bucket: r2Bucket,
+      Key: r2Key,
+      Body: fs.readFileSync(filePath),
+      ContentType: contentType
+    }).promise();
     
-    if (stats.isFile()) {
-      // Xác định ContentType dựa vào phần mở rộng
-      let contentType = 'application/octet-stream';
-      if (file.endsWith('.m3u8')) contentType = 'application/vnd.apple.mpegurl';
-      else if (file.endsWith('.ts')) contentType = 'video/MP2T';
-      else if (file.endsWith('.m4s')) contentType = 'video/iso.segment';
-      else if (file.endsWith('.mp4')) contentType = 'video/mp4';
-      
-      // Upload file
-      const r2Key = `${r2Prefix}/${file}`;
-      
-      console.log(`[HLS Processor] Uploading ${file} to ${r2Key}`);
-      
-      try {
-        const fileContent = fs.readFileSync(filePath);
-        const command = new PutObjectCommand({
-          Bucket: r2Bucket,
-          Key: r2Key,
-          Body: fileContent,
-          ContentType: contentType
-        });
-        
-        await s3Client.send(command);
-        console.log(`[HLS Processor] Uploaded ${file}`);
-      } catch (error) {
-        console.error(`[HLS Processor] Error uploading ${file}: ${error.message}`);
-        throw error;
-      }
-    }
+    console.log(`[HLS Processor] Uploaded ${path.basename(filePath)} successfully`);
+  } catch (error) {
+    throw new Error(`Failed to upload ${path.basename(filePath)}: ${error.message}`);
   }
 }
 
