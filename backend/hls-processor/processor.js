@@ -103,8 +103,8 @@ async function processHLS() {
     // Thêm thông tin stream vào master playlist theo thứ tự bitrate tăng dần
     streamInfos
       .sort((a, b) => parseInt(a.bandwidth) - parseInt(b.bandwidth))
-      .forEach(({ bandwidth, height, filename }) => {
-        masterPlaylistContent += `#EXT-X-STREAM-INF:BANDWIDTH=${bandwidth},RESOLUTION=${height}p\n`;
+      .forEach(({ bandwidth, width, height, filename }) => {
+        masterPlaylistContent += `#EXT-X-STREAM-INF:BANDWIDTH=${bandwidth},RESOLUTION=${width}x${height}\n`;
         masterPlaylistContent += `${filename}\n`;
       });
     
@@ -201,47 +201,93 @@ async function processResolution(resolution) {
     
     const outputFile = path.join(outputDir, `${height}p.m3u8`);
     
-    const ffmpeg = spawn('ffmpeg', [
-      '-i', inputFile,
-      '-profile:v', 'main',
-      '-vf', `scale=-2:${height}`,
-      '-c:v', 'h264',
-      '-crf', '23',
-      '-b:v', bitrate,
-      '-c:a', 'aac',
-      '-ar', '48000',
-      '-b:a', '128k',
-      '-hls_time', HLS_SEGMENT_DURATION,
-      '-hls_list_size', '0',
-      '-hls_segment_type', 'fmp4',
-      '-hls_fmp4_init_filename', `init-${height}p.mp4`,
-      '-hls_segment_filename', path.join(outputDir, `segment_${height}p_%03d.m4s`),
-      outputFile
+    // Lấy thông tin video gốc để tính toán width
+    const ffprobe = spawn('ffprobe', [
+      '-v', 'error',
+      '-select_streams', 'v:0',
+      '-show_entries', 'stream=width,height',
+      '-of', 'csv=p=0',
+      inputFile
     ]);
-    
-    // Giám sát tiến độ ffmpeg
-    let progressPattern = /time=(\d+:\d+:\d+.\d+)/;
-    ffmpeg.stderr.on('data', (data) => {
-      const dataString = data.toString();
-      const match = progressPattern.exec(dataString);
-      if (match) {
-        console.log(`[ffmpeg-${height}p] Progress: ${match[1]}`);
-      }
+
+    let dimensions = '';
+    ffprobe.stdout.on('data', (data) => {
+      dimensions += data.toString();
     });
-    
-    ffmpeg.on('close', (code) => {
-      if (code === 0) {
-        console.log(`[HLS Processor] Độ phân giải ${height}p hoàn tất`);
-        
-        // Trả về thông tin cho master playlist
-        resolve({
-          bandwidth: parseInt(bitrate) * 1000,
-          height,
-          filename: `${height}p.m3u8`
-        });
-      } else {
-        reject(new Error(`ffmpeg exited with code ${code} for ${height}p`));
+
+    ffprobe.on('close', async (code) => {
+      if (code !== 0) {
+        return reject(new Error(`Failed to get video dimensions`));
       }
+
+      const [originalWidth, originalHeight] = dimensions.trim().split(',').map(Number);
+      const width = Math.round((originalWidth / originalHeight) * height);
+      
+      console.log(`[HLS Processor] Original dimensions: ${originalWidth}x${originalHeight}`);
+      console.log(`[HLS Processor] Target dimensions for ${height}p: ${width}x${height}`);
+
+      const ffmpeg = spawn('ffmpeg', [
+        '-i', inputFile,
+        '-profile:v', 'main',
+        '-vf', `scale=${width}:${height}`,
+        '-c:v', 'h264',
+        '-crf', '23',
+        '-b:v', bitrate,
+        '-maxrate', bitrate,
+        '-bufsize', `${parseInt(bitrate) * 2}`,
+        '-c:a', 'aac',
+        '-ar', '48000',
+        '-b:a', '128k',
+        '-hls_time', HLS_SEGMENT_DURATION,
+        '-hls_list_size', '0',
+        '-hls_segment_type', 'fmp4',
+        '-hls_fmp4_init_filename', `init-${height}p.mp4`,
+        '-hls_segment_filename', path.join(outputDir, `segment_${height}p_%03d.m4s`),
+        outputFile
+      ]);
+      
+      // Giám sát tiến độ ffmpeg
+      let progressPattern = /time=(\d+:\d+:\d+.\d+)/;
+      ffmpeg.stderr.on('data', (data) => {
+        const dataString = data.toString();
+        const match = progressPattern.exec(dataString);
+        if (match) {
+          console.log(`[ffmpeg-${height}p] Progress: ${match[1]}`);
+        }
+      });
+      
+      ffmpeg.on('close', async (code) => {
+        if (code === 0) {
+          console.log(`[HLS Processor] Độ phân giải ${height}p hoàn tất`);
+          
+          // Đọc nội dung playlist
+          let playlistContent = fs.readFileSync(outputFile, 'utf8');
+          
+          // Thêm #EXT-X-MAP nếu chưa có
+          if (!playlistContent.includes('#EXT-X-MAP')) {
+            playlistContent = playlistContent.replace('#EXTINF', 
+              `#EXT-X-MAP:URI="init-${height}p.mp4"\n#EXTINF`);
+          }
+          
+          // Thêm #EXT-X-ENDLIST nếu chưa có
+          if (!playlistContent.endsWith('#EXT-X-ENDLIST\n')) {
+            playlistContent += '\n#EXT-X-ENDLIST\n';
+          }
+          
+          // Ghi lại playlist
+          fs.writeFileSync(outputFile, playlistContent);
+          
+          // Trả về thông tin cho master playlist
+          resolve({
+            bandwidth: parseInt(bitrate) * 1000,
+            width,
+            height,
+            filename: `${height}p.m3u8`
+          });
+        } else {
+          reject(new Error(`ffmpeg exited with code ${code} for ${height}p`));
+        }
+      });
     });
   });
 }
