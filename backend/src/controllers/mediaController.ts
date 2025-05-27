@@ -530,22 +530,27 @@ export const processVideoFromWorker = async (req: Request, res: Response): Promi
     // Tạo job ID
     const jobId = `hls-job-${Date.now()}`;
     
-    // Tạo volume Docker nếu chưa tồn tại
-    try {
-      execSync('docker volume create hls-processor-data');
-      logger.debug('Created Docker volume: hls-processor-data');
-    } catch (error) {
-      logger.warn('Docker volume may already exist:', error);
+    // Tạo và kiểm tra volume
+    const volumeName = 'hls-processor-data';
+    const volumeCreated = await createVolumeIfNotExists(volumeName);
+    if (!volumeCreated) {
+      throw new Error('Failed to create or verify Docker volume');
+    }
+
+    // Kiểm tra dung lượng trống
+    const hasEnoughSpace = await checkVolumeSpace(volumeName);
+    if (!hasEnoughSpace) {
+      throw new Error('Insufficient space in Docker volume');
     }
 
     // Tạo container tạm thời để copy file vào volume
     const tempContainer = `temp-copy-${Date.now()}`;
     try {
       // Tạo container với volume mount
-      execSync(`docker run -d --name ${tempContainer} -v hls-processor-data:/data node:18-slim tail -f /dev/null`);
+      execSync(`docker run -d --name ${tempContainer} -v ${volumeName}:/data node:18-slim tail -f /dev/null`);
       logger.debug(`Created temporary container: ${tempContainer}`);
 
-      // Tạo thư mục trong container
+      // Tạo thư mục trong container với quyền đầy đủ
       execSync(`docker exec ${tempContainer} mkdir -p /data/input /data/output`);
       execSync(`docker exec ${tempContainer} chmod 777 /data/input /data/output`);
 
@@ -559,30 +564,23 @@ export const processVideoFromWorker = async (req: Request, res: Response): Promi
       fs.writeFileSync(tempFile, videoData);
       logger.debug(`Wrote temporary file: ${tempFile}, size: ${fs.statSync(tempFile).size} bytes`);
       
-      // Copy file vào container
+      // Copy file vào container và set quyền
       logger.debug(`Copying file to container ${tempContainer}:/data/input/original.mp4`);
       execSync(`docker cp ${tempFile} ${tempContainer}:/data/input/original.mp4`);
       execSync(`docker exec ${tempContainer} chmod 666 /data/input/original.mp4`);
       
       // Verify file in container
-      try {
-        const result = execSync(`docker exec ${tempContainer} ls -la /data/input/`).toString();
-        logger.debug(`File in container: ${result}`);
-      } catch (verifyError) {
-        logger.warn(`Error verifying file in container: ${verifyError}`);
-      }
+      const result = execSync(`docker exec ${tempContainer} ls -la /data/input/`).toString();
+      logger.debug(`Files in container: ${result}`);
       
       // Xóa file tạm
       fs.unlinkSync(tempFile);
       
       logger.debug('Successfully copied video to Docker volume');
     } catch (error) {
-      logger.error('Error preparing Docker volume:', error);
-      res.status(500).json({ 
-        success: false, 
-        error: error instanceof Error ? error.message : 'Unknown error preparing Docker volume'
-      });
-      return;
+      // Cleanup nếu có lỗi
+      await cleanupVolume(volumeName);
+      throw error;
     } finally {
       // Dọn dẹp container tạm
       try {
@@ -790,13 +788,8 @@ export const hlsProcessorCallback = async (req: Request, res: Response): Promise
       logger.error(`HLS processing failed for episode ${episodeId}: ${error}`);
     }
     
-    // Xóa các file tạm khi đã xử lý xong
-    try {
-      execSync('docker volume rm -f hls-processor-data');
-      logger.debug('Removed temporary Docker volume');
-    } catch (err) {
-      logger.warn(`Could not remove Docker volume: ${err}`);
-    }
+    // Cleanup volume sau khi xử lý xong
+    await cleanupVolume('hls-processor-data');
     
     res.json({ 
       success: true,
@@ -808,5 +801,75 @@ export const hlsProcessorCallback = async (req: Request, res: Response): Promise
       success: false, 
       error: error instanceof Error ? error.message : 'Unknown error'
     });
+  }
+};
+
+// Utility functions for Docker volume management
+const createVolumeIfNotExists = async (volumeName: string): Promise<boolean> => {
+  try {
+    // Kiểm tra volume đã tồn tại chưa
+    const { stdout } = await new Promise<{stdout: string, stderr: string}>((resolve, reject) => {
+      exec(`docker volume ls --format "{{.Name}}" | grep "^${volumeName}$"`, (error, stdout, stderr) => {
+        resolve({ stdout, stderr });
+      });
+    });
+
+    if (!stdout.trim()) {
+      // Volume chưa tồn tại, tạo mới
+      execSync(`docker volume create ${volumeName}`);
+      logger.debug(`Created new Docker volume: ${volumeName}`);
+      return true;
+    }
+
+    logger.debug(`Docker volume ${volumeName} already exists`);
+    return true;
+  } catch (error) {
+    logger.error(`Error managing Docker volume ${volumeName}:`, error);
+    return false;
+  }
+};
+
+const cleanupVolume = async (volumeName: string): Promise<void> => {
+  try {
+    // Kiểm tra và kill các container đang sử dụng volume
+    const { stdout: usingContainers } = await new Promise<{stdout: string, stderr: string}>((resolve) => {
+      exec(`docker ps -q --filter volume=${volumeName}`, (error, stdout, stderr) => {
+        resolve({ stdout, stderr });
+      });
+    });
+
+    if (usingContainers.trim()) {
+      // Kill các container đang sử dụng volume
+      execSync(`docker rm -f ${usingContainers.split('\n').join(' ')}`);
+      logger.debug(`Removed containers using volume ${volumeName}`);
+    }
+
+    // Xóa volume
+    execSync(`docker volume rm -f ${volumeName}`);
+    logger.debug(`Removed Docker volume: ${volumeName}`);
+  } catch (error) {
+    logger.warn(`Error cleaning up Docker volume ${volumeName}:`, error);
+  }
+};
+
+const checkVolumeSpace = async (volumeName: string): Promise<boolean> => {
+  try {
+    // Tạo container tạm để kiểm tra dung lượng
+    const tempContainer = `space-check-${Date.now()}`;
+    execSync(`docker run --rm -v ${volumeName}:/data --name ${tempContainer} alpine df -h /data`);
+    
+    // Phân tích output để kiểm tra dung lượng trống
+    const { stdout } = await new Promise<{stdout: string, stderr: string}>((resolve) => {
+      exec(`docker run --rm -v ${volumeName}:/data alpine df /data | tail -1 | awk '{print $4}'`, (error, stdout, stderr) => {
+        resolve({ stdout, stderr });
+      });
+    });
+
+    const availableSpace = parseInt(stdout.trim());
+    // Yêu cầu ít nhất 5GB trống
+    return availableSpace > 5000000;
+  } catch (error) {
+    logger.error(`Error checking volume space for ${volumeName}:`, error);
+    return false;
   }
 }; 

@@ -69,6 +69,9 @@ const REDUCED_RESOLUTIONS = [
 // Thời lượng segment (giây)
 const HLS_SEGMENT_DURATION = '6';
 
+// Thêm biến để theo dõi lỗi ffmpeg
+let ffmpegErrorOutput = '';
+
 // Chuyển đổi video sang HLS với fMP4
 async function processHLS() {
   try {
@@ -121,22 +124,28 @@ async function processHLS() {
     console.log(`[HLS Processor] Bắt đầu upload thư mục HLS lên R2`);
     const r2HlsPath = `episodes/${movieId}/${episodeId}/hls`;
     
-    // Upload tất cả file khác trước master.m3u8
-    const files = fs.readdirSync(outputDir).filter(f => f !== 'master.m3u8');
-    for (const file of files) {
-      await uploadFileToR2(path.join(outputDir, file), `${r2HlsPath}/${file}`);
+    try {
+      // Upload tất cả file khác trước master.m3u8
+      const files = fs.readdirSync(outputDir).filter(f => f !== 'master.m3u8');
+      for (const file of files) {
+        await uploadFileToR2(path.join(outputDir, file), `${r2HlsPath}/${file}`);
+      }
+      
+      // Upload master.m3u8 cuối cùng
+      await uploadFileToR2(masterPlaylistPath, `${r2HlsPath}/master.m3u8`);
+      
+      console.log(`[HLS Processor] Upload hoàn tất`);
+    } catch (uploadError) {
+      throw new Error(`Failed to upload files: ${uploadError.message}`);
     }
-    
-    // Upload master.m3u8 cuối cùng
-    await uploadFileToR2(masterPlaylistPath, `${r2HlsPath}/master.m3u8`);
-    
-    console.log(`[HLS Processor] Upload hoàn tất`);
     
     // Gửi callback nếu có
     if (callbackUrl) {
       await sendCallback('completed');
     }
     
+    // Đảm bảo process exit sau khi tất cả các thao tác bất đồng bộ hoàn tất
+    await new Promise(resolve => setTimeout(resolve, 1000));
     console.log(`[HLS Processor] Xử lý HLS hoàn tất. Thoát với mã 0`);
     process.exit(0);
   } catch (error) {
@@ -147,6 +156,8 @@ async function processHLS() {
       await sendCallback('error', error.message);
     }
     
+    // Đảm bảo process exit sau khi callback hoàn tất
+    await new Promise(resolve => setTimeout(resolve, 1000));
     console.error(`[HLS Processor] Thoát với mã 1 do lỗi`);
     process.exit(1);
   }
@@ -211,13 +222,19 @@ async function processResolution(resolution) {
     ]);
 
     let dimensions = '';
+    let ffprobeError = '';
+    
     ffprobe.stdout.on('data', (data) => {
       dimensions += data.toString();
     });
 
+    ffprobe.stderr.on('data', (data) => {
+      ffprobeError += data.toString();
+    });
+
     ffprobe.on('close', async (code) => {
       if (code !== 0) {
-        return reject(new Error(`Failed to get video dimensions`));
+        return reject(new Error(`Failed to get video dimensions: ${ffprobeError}`));
       }
 
       const [originalWidth, originalHeight] = dimensions.trim().split(',').map(Number);
@@ -225,6 +242,9 @@ async function processResolution(resolution) {
       
       console.log(`[HLS Processor] Original dimensions: ${originalWidth}x${originalHeight}`);
       console.log(`[HLS Processor] Target dimensions for ${height}p: ${width}x${height}`);
+
+      // Reset error output for this resolution
+      ffmpegErrorOutput = '';
 
       const ffmpeg = spawn('ffmpeg', [
         '-i', inputFile,
@@ -243,16 +263,23 @@ async function processResolution(resolution) {
         '-hls_segment_type', 'fmp4',
         '-hls_fmp4_init_filename', `init-${height}p.mp4`,
         '-hls_segment_filename', path.join(outputDir, `segment_${height}p_%03d.m4s`),
+        '-y', // Ghi đè file nếu tồn tại
         outputFile
       ]);
       
-      // Giám sát tiến độ ffmpeg
+      // Giám sát tiến độ và lỗi ffmpeg
       let progressPattern = /time=(\d+:\d+:\d+.\d+)/;
       ffmpeg.stderr.on('data', (data) => {
         const dataString = data.toString();
+        // Lưu lại output để debug
+        ffmpegErrorOutput += dataString;
+        
         const match = progressPattern.exec(dataString);
         if (match) {
           console.log(`[ffmpeg-${height}p] Progress: ${match[1]}`);
+        } else {
+          // Log các thông báo không phải progress
+          console.log(`[ffmpeg-${height}p] ${dataString.trim()}`);
         }
       });
       
@@ -260,32 +287,38 @@ async function processResolution(resolution) {
         if (code === 0) {
           console.log(`[HLS Processor] Độ phân giải ${height}p hoàn tất`);
           
-          // Đọc nội dung playlist
-          let playlistContent = fs.readFileSync(outputFile, 'utf8');
-          
-          // Thêm #EXT-X-MAP nếu chưa có
-          if (!playlistContent.includes('#EXT-X-MAP')) {
-            playlistContent = playlistContent.replace('#EXTINF', 
-              `#EXT-X-MAP:URI="init-${height}p.mp4"\n#EXTINF`);
+          try {
+            // Đọc nội dung playlist
+            let playlistContent = fs.readFileSync(outputFile, 'utf8');
+            
+            // Thêm #EXT-X-MAP nếu chưa có
+            if (!playlistContent.includes('#EXT-X-MAP')) {
+              playlistContent = playlistContent.replace('#EXTINF', 
+                `#EXT-X-MAP:URI="init-${height}p.mp4"\n#EXTINF`);
+            }
+            
+            // Thêm #EXT-X-ENDLIST nếu chưa có
+            if (!playlistContent.endsWith('#EXT-X-ENDLIST\n')) {
+              playlistContent += '\n#EXT-X-ENDLIST\n';
+            }
+            
+            // Ghi lại playlist
+            fs.writeFileSync(outputFile, playlistContent);
+            
+            // Trả về thông tin cho master playlist
+            resolve({
+              bandwidth: parseInt(bitrate) * 1000,
+              width,
+              height,
+              filename: `${height}p.m3u8`
+            });
+          } catch (error) {
+            reject(new Error(`Failed to process playlist for ${height}p: ${error.message}`));
           }
-          
-          // Thêm #EXT-X-ENDLIST nếu chưa có
-          if (!playlistContent.endsWith('#EXT-X-ENDLIST\n')) {
-            playlistContent += '\n#EXT-X-ENDLIST\n';
-          }
-          
-          // Ghi lại playlist
-          fs.writeFileSync(outputFile, playlistContent);
-          
-          // Trả về thông tin cho master playlist
-          resolve({
-            bandwidth: parseInt(bitrate) * 1000,
-            width,
-            height,
-            filename: `${height}p.m3u8`
-          });
         } else {
-          reject(new Error(`ffmpeg exited with code ${code} for ${height}p`));
+          const errorMessage = `ffmpeg exited with code ${code} for ${height}p. Error output:\n${ffmpegErrorOutput}`;
+          console.error(`[HLS Processor] ${errorMessage}`);
+          reject(new Error(errorMessage));
         }
       });
     });
