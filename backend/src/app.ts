@@ -27,10 +27,10 @@ app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 app.use(cookieParser());
 
 // Thêm middleware bảo mật
-app.use(securityMiddleware);
+//app.use(securityMiddleware);
 
 // Áp dụng global rate limit cho tất cả các route
-app.use(globalLimiter);
+//app.use(globalLimiter);
 
 // CORS middleware
 // app.use(cors({
