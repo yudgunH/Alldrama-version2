@@ -114,62 +114,29 @@ jobs:
       - name: Build
         run: npm run build
 
-      # Lưu trữ artifact bằng cách kết hợp với checkout
-      - name: Create artifact directory
-        run: |
-          mkdir -p ../artifact
-          cp -r ./dist ../artifact/
-          cp package.json ../artifact/
-          cp package-lock.json ../artifact/
-
-      - name: Archive production artifacts
-        uses: actions/upload-artifact@v4
-        with:
-          name: backend-dist
-          path: artifact
-          retention-days: 1
-
   deploy:
-    name: Deploy to production
-    if: false && github.ref == 'refs/heads/main' && github.event_name == 'push'
+    name: Deploy to VPS
     needs: build
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v3
-
-      - name: Download artifacts
-        uses: actions/download-artifact@v4
-        with:
-          name: backend-dist
-          path: backend-dist
-
-      - name: Setup SSH
+      - name: Setup SSH Agent
         uses: webfactory/ssh-agent@v0.8.0
         with:
           ssh-private-key: ${{ secrets.SSH_PRIVATE_KEY }}
 
-      - name: Setup known hosts
+      - name: Add known hosts
         run: echo "${{ secrets.SSH_KNOWN_HOSTS }}" >> ~/.ssh/known_hosts
 
-      - name: Deploy to server
+      - name: Deploy via SSH
         run: |
-          echo "Deploying to production server..."
-          # Kiểm tra thư mục artifacts
-          ls -la backend-dist/
-
-          # Nén các file để triển khai
-          tar -czf backend-package.tar.gz -C backend-dist .
-
-          # Kiểm tra nội dung của archive
-          tar -tvf backend-package.tar.gz
-
-          # Sao chép file đến máy chủ
-          scp backend-package.tar.gz ${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }}:${{ secrets.DEPLOY_PATH }}
-
-          # Thực thi các lệnh trên máy chủ
-          ssh ${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }} "cd ${{ secrets.DEPLOY_PATH }} && \
-            tar -xzf backend-package.tar.gz && \
-            npm ci --only=production && \
-            pm2 restart backend-service || pm2 start dist/index.js --name backend-service"
+          ssh ${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }} "
+            cd ${{ secrets.DEPLOY_PATH }} &&
+            git stash &&
+            git pull origin main &&
+            cd backend &&
+            docker compose down &&
+            docker compose build --no-cache &&
+            docker compose up -d
+          "
