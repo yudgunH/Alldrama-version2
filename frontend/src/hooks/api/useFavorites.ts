@@ -9,27 +9,37 @@ export const useFavorites = () => {
   const { isAuthenticated } = useAuthStore();
   const { 
     favorites, 
+    isLoading,
     setFavorites, 
     addFavorite, 
     removeFavorite, 
     clearFavorites,
+    setLoading,
+    shouldRefetch,
     isFavorite: isFavoriteInStore 
   } = useFavoritesStore();
 
-  // Clear favorites when user logs out
+  // Auto-fetch favorites when user logs in
   useEffect(() => {
     if (!isAuthenticated) {
       clearFavorites();
+      return;
     }
-  }, [isAuthenticated, clearFavorites]);
+
+    // Only fetch if we should refetch (cache expired or no data)
+    if (shouldRefetch()) {
+      fetchFavorites();
+    }
+  }, [isAuthenticated, clearFavorites, shouldRefetch]);
 
   // Fetch favorites from API
   const fetchFavorites = useCallback(async () => {
     if (!isAuthenticated) {
       clearFavorites();
       return [];
-            }
+    }
     
+    setLoading(true);
     try {
       const result = await favoriteService.getFavorites();
       setFavorites(result);
@@ -38,12 +48,14 @@ export const useFavorites = () => {
       // Ignore cancellation errors during logout
       if (error?.message?.includes('Cancel request because user is logging out')) {
         return [];
-        }
+      }
       console.error('Error fetching favorites:', error);
       toast.error('Không thể tải danh sách yêu thích');
       return [];
+    } finally {
+      setLoading(false);
     }
-  }, [isAuthenticated, setFavorites, clearFavorites]);
+  }, [isAuthenticated, setFavorites, clearFavorites, setLoading]);
 
   // Toggle favorite status with optimistic updates
   const toggleFavorite = useCallback(async (movieId: string | number) => {
@@ -53,7 +65,7 @@ export const useFavorites = () => {
         icon: '🔒'
       });
       return false;
-  }
+    }
 
     const currentStatus = isFavoriteInStore(movieId);
     
@@ -63,22 +75,25 @@ export const useFavorites = () => {
     } else {
       addFavorite({ 
         id: Date.now(), // Temporary ID
-          movieId,
-          favoritedAt: new Date().toISOString()
-        } as Favorite);
+        movieId,
+        favoritedAt: new Date().toISOString()
+      } as Favorite);
     }
     
     try {
-      const result = await favoriteService.toggleFavorite(movieId);
-      
-      if (!result.favorited) {
-        // Revert if failed
-        fetchFavorites();
+      // Use direct API calls instead of going through favoriteService.toggleFavorite
+      // to avoid calling isFavorite again
+      let result;
+      if (currentStatus) {
+        await favoriteService.removeFromFavorites(movieId);
+        result = { favorited: false, message: 'Đã xóa khỏi yêu thích' };
       } else {
-        toast.success(currentStatus ? 'Đã xóa khỏi yêu thích' : 'Đã thêm vào yêu thích');
+        await favoriteService.addToFavorites(movieId);
+        result = { favorited: true, message: 'Đã thêm vào yêu thích' };
       }
       
-        return result.favorited;
+      toast.success(result.message);
+      return result.favorited;
     } catch (error: any) {
       // Ignore cancellation errors during logout
       if (error?.message?.includes('Cancel request because user is logging out')) {
@@ -105,11 +120,11 @@ export const useFavorites = () => {
     removeFavorite(movieId);
     
     try {
-        await favoriteService.removeFromFavorites(movieId);
+      await favoriteService.removeFromFavorites(movieId);
       toast.success('Đã xóa khỏi danh sách yêu thích', {
         duration: 2000
       });
-        return true;
+      return true;
     } catch (error: any) {
       // Ignore cancellation errors during logout
       if (error?.message?.includes('Cancel request because user is logging out')) {
@@ -125,7 +140,7 @@ export const useFavorites = () => {
 
   return {
     data: favorites,
-    isLoading: false,
+    isLoading: isLoading,
     isFavorite: isFavoriteInStore,
     toggleFavorite,
     removeFromFavorites,

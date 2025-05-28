@@ -148,7 +148,11 @@ export const authService = {
    */
   async changePassword(
     userId: string | number, 
-    data: { currentPassword: string; newPassword: string }
+    data: { 
+      full_name: string;
+      email: string;
+      password: string;
+    }
   ): Promise<{ message: string }> {
     return apiClient.put<{ message: string }>(
       API_ENDPOINTS.USERS.CHANGE_PASSWORD(userId), 

@@ -269,17 +269,20 @@ export default function VideoPlayer({
    * JSX
    * --------------------------------------------------------------*/
   return (
-    <div ref={cRef} className="relative w-full aspect-video bg-black overflow-hidden rounded-lg group"
+    <div ref={cRef} className="relative w-full bg-black overflow-hidden rounded-lg group
+      md:aspect-video 
+      aspect-[9/16] sm:aspect-[9/16] 
+      max-h-[calc(100vh-2rem)] sm:max-h-[calc(100vh-4rem)]"
          onClick={(e) => {
-           // Make sure we don't propagate clicks on the whole video component
-           // to avoid multiple click handlers
            e.stopPropagation();
          }}
     >
       {/* ----------------- video tag ----------------- */}
       <video
         ref={vRef}
-        className="absolute inset-0 w-full h-full object-contain bg-black"
+        className="absolute inset-0 w-full h-full object-contain bg-black
+          md:object-contain
+          object-cover sm:object-cover"
         poster={poster || ''}
         controls={!custom}
         playsInline
@@ -287,7 +290,6 @@ export default function VideoPlayer({
         preload="auto"
         title={displayTitle}
         onClick={(e) => {
-          // Handle click explicitly to prevent multiple click handlers
           e.stopPropagation();
           if (custom) togglePlay();
         }}

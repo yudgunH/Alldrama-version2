@@ -56,7 +56,6 @@ export const API_ENDPOINTS = {
   // Comments
   COMMENTS: {
     BY_MOVIE: (movieId: string | number) => `/api/comments/movies/${movieId}`,
-    LIST_BY_MOVIE: (movieId: string) => `/api/comments/movie/${movieId}`,
     DETAIL: (id: string | number) => `/api/comments/${id}`,
     CREATE: '/api/comments',
     UPDATE: (id: string | number) => `/api/comments/${id}`,

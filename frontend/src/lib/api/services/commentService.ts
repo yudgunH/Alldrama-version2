@@ -3,9 +3,8 @@ import { apiClient } from '../apiClient';
 import { API_ENDPOINTS } from '../endpoints';
 
 export interface CreateCommentRequest {
-  movieId: string | number;
+  movieId: number;
   comment: string;
-  parentId?: string | number | null;
 }
 
 export interface UpdateCommentRequest {
@@ -32,7 +31,7 @@ export const commentService = {
     limit: number = 10,
     sort: string = 'createdAt',
     order: 'ASC' | 'DESC' = 'DESC'
-  ): Promise<Comment[]> {
+  ): Promise<{ comments: Comment[]; total: number }> {
     const params = new URLSearchParams();
     params.append('page', String(page));
     params.append('limit', String(limit));
@@ -40,7 +39,7 @@ export const commentService = {
     params.append('order', order);
     
     const url = `${API_ENDPOINTS.COMMENTS.BY_MOVIE(movieId)}?${params.toString()}`;
-    return apiClient.get<Comment[]>(url);
+    return apiClient.get<{ comments: Comment[]; total: number }>(url);
   },
 
   /**

@@ -11,51 +11,51 @@ export const useMovies = (initialParams?: MovieSearchParams) => {
 
   // Create key for SWR based on params
   const getKey = useCallback((params: MovieSearchParams) => {
+    const queryParams: Record<string, string> = {};
+    
+    // Add search query if exists
     if (params.q) {
-      // If there's a search query, use search endpoint
-      const searchPath = API_ENDPOINTS.MOVIES.SEARCH;
-      let queryString = new URLSearchParams({
-        ...(params.q ? { q: params.q } : {}),
-        ...(params.page ? { page: params.page.toString() } : {}),
-        ...(params.limit ? { limit: params.limit.toString() } : {}),
-        ...(params.genre ? { genre: String(params.genre) } : {}),
-        ...(params.year ? { year: params.year.toString() } : {}),
-        ...(params.sort ? { sort: params.sort } : {}),
-        ...(params.order ? { order: params.order } : {})
-      }).toString();
-      
-      return queryString ? `${searchPath}?${queryString}` : searchPath;
-    } else if (params.genre) {
-      // If genre is specified, use the search endpoint with genre parameter
-      const searchPath = API_ENDPOINTS.MOVIES.SEARCH;
-      let queryString = new URLSearchParams({
-        ...(params.genre ? { genre: String(params.genre) } : {}),
-        ...(params.page ? { page: params.page.toString() } : {}),
-        ...(params.limit ? { limit: params.limit.toString() } : {}),
-        ...(params.sort ? { sort: params.sort } : {}),
-        ...(params.order ? { order: params.order } : {})
-      }).toString();
-      
-      return queryString ? `${searchPath}?${queryString}` : searchPath;
-    } else {
-      // Otherwise use the list endpoint
-      const listPath = API_ENDPOINTS.MOVIES.LIST;
-      let queryString = new URLSearchParams({
-        ...(params.page ? { page: params.page.toString() } : {}),
-        ...(params.limit ? { limit: params.limit.toString() } : {}),
-        ...(params.year ? { year: params.year.toString() } : {}),
-        ...(params.sort ? { sort: params.sort } : {}),
-        ...(params.order ? { order: params.order } : {})
-      }).toString();
-      
-      return queryString ? `${listPath}?${queryString}` : listPath;
+      queryParams.q = params.q;
     }
+    
+    // Add genre if exists
+    if (params.genre) {
+      queryParams.genre = String(params.genre);
+    }
+    
+    // Add pagination params
+    if (params.page) {
+      queryParams.page = params.page.toString();
+    }
+    if (params.limit) {
+      queryParams.limit = params.limit.toString();
+    }
+    
+    // Add sorting params
+    if (params.sort) {
+      queryParams.sort = params.sort;
+    }
+    if (params.order) {
+      queryParams.order = params.order;
+    }
+    
+    // Add year if exists
+    if (params.year) {
+      queryParams.year = params.year.toString();
+    }
+
+    // Determine endpoint based on params
+    const endpoint = params.q || params.genre 
+      ? API_ENDPOINTS.MOVIES.SEARCH 
+      : API_ENDPOINTS.MOVIES.LIST;
+
+    // Build query string
+    const queryString = new URLSearchParams(queryParams).toString();
+    return queryString ? `${endpoint}?${queryString}` : endpoint;
   }, []);
 
-  // Fetcher function for SWR - sử dụng apiClient
+  // Fetcher function for SWR
   const fetcher = useCallback(async (url: string) => {
-    console.log('Fetching movies from:', url);
-    
     try {
       return await apiClient.get<MovieListResponse>(url);
     } catch (error) {
@@ -64,10 +64,14 @@ export const useMovies = (initialParams?: MovieSearchParams) => {
     }
   }, []);
 
-  // Use SWR hook
+  // Use SWR hook with caching
   const { data, error, isLoading, isValidating, mutate } = useSWR<MovieListResponse>(
     getKey(searchParams),
-    fetcher
+    fetcher,
+    {
+      revalidateOnFocus: false,
+      dedupingInterval: 5000 // Dedupe requests within 5 seconds
+    }
   );
 
   // Get featured movies (popular with high rating)
@@ -96,7 +100,7 @@ export const useMovies = (initialParams?: MovieSearchParams) => {
     }
   }, []);
 
-  // Get trending movies (highest views in last week - simulated with sort by views)
+  // Get trending movies
   const getTrendingMovies = useCallback(async () => {
     try {
       const result = await movieService.getMovies({
@@ -122,17 +126,14 @@ export const useMovies = (initialParams?: MovieSearchParams) => {
     }
   }, []);
 
-  // Get similar movies (movies with same genres - simulated with genre search)
+  // Get similar movies
   const getSimilarMovies = useCallback(async (movieId: string | number) => {
     try {
-      // Get movie details first to know its genres
       const movie = await movieService.getMovieById(movieId);
       
-      // If movie has genres, search for movies with same primary genre
       if (movie.genres && movie.genres.length > 0) {
         const primaryGenreId = movie.genres[0].id;
         const result = await movieService.getMoviesByGenre(Number(primaryGenreId), 10);
-        // Filter out the current movie
         return result.movies.filter(m => String(m.id) !== String(movieId));
       }
       
@@ -159,6 +160,19 @@ export const useMovies = (initialParams?: MovieSearchParams) => {
     await mutate();
   }, [mutate]);
 
+  // Get all movies at once
+  const getAllMovies = useCallback(async () => {
+    try {
+      const result = await movieService.getMovies({
+        limit: 1000
+      });
+      return result.movies;
+    } catch (err) {
+      toast.error('Không thể tải danh sách phim');
+      return [];
+    }
+  }, []);
+
   return {
     movies: data?.movies || [],
     pagination: data?.pagination || { total: 0, totalPages: 0, currentPage: 1, limit: 10 },
@@ -173,6 +187,7 @@ export const useMovies = (initialParams?: MovieSearchParams) => {
     getTrendingMovies,
     getNewestMovies,
     getSimilarMovies,
+    getAllMovies,
     refreshMovies: mutate
   };
 };

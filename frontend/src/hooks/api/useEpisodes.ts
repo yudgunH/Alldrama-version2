@@ -22,13 +22,18 @@ export const useEpisodes = (movieId: string | number | null) => {
     [movieId]
   );
 
-  // Using SWR hook
+  // Using SWR hook with caching
   const { data, error, isLoading, isValidating, mutate } = useSWR<Episode[]>(
     key,
-    fetcher
+    fetcher,
+    {
+      revalidateOnFocus: false,
+      dedupingInterval: 5000, // Dedupe requests within 5 seconds
+      revalidateIfStale: false
+    }
   );
 
-  // Get episode details
+  // Get episode details with caching
   const getEpisode = useCallback(
     async (episodeId: string | number): Promise<Episode | null> => {
       try {
@@ -53,7 +58,6 @@ export const useEpisodes = (movieId: string | number | null) => {
         
         return await episodeService.incrementView(episodeId, viewData);
       } catch (err) {
-        // View count increment errors are not critical, just log them
         console.error('Không thể tăng lượt xem:', err);
         return null;
       }
@@ -74,19 +78,17 @@ export const useEpisodes = (movieId: string | number | null) => {
     []
   );
 
-  // Find next episode in the sequence (based on episode numbers)
+  // Find next episode in the sequence
   const findNextEpisode = useCallback(
     (currentEpisodeId: string | number): Episode | undefined => {
       if (!data || data.length === 0) return undefined;
       
-      // Find current episode
       const currentEpisode = data.find(ep => 
         String(ep.id) === String(currentEpisodeId)
       );
       
       if (!currentEpisode) return undefined;
       
-      // Find episode with the next episode number
       return data.find(ep => 
         ep.episodeNumber === currentEpisode.episodeNumber + 1
       );
@@ -99,14 +101,12 @@ export const useEpisodes = (movieId: string | number | null) => {
     (currentEpisodeId: string | number): Episode | undefined => {
       if (!data || data.length === 0) return undefined;
       
-      // Find current episode
       const currentEpisode = data.find(ep => 
         String(ep.id) === String(currentEpisodeId)
       );
       
       if (!currentEpisode) return undefined;
       
-      // Find episode with the previous episode number
       return data.find(ep => 
         ep.episodeNumber === currentEpisode.episodeNumber - 1
       );

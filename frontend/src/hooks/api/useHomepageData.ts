@@ -1,186 +1,149 @@
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useCallback, useMemo } from 'react';
 import { Movie } from '@/types';
 import { useMovies } from '@/hooks/api/useMovies';
-import { toast } from 'react-hot-toast';
-import { movieService } from '@/lib/api/services/movieService';
-import { useLocalStorage } from '@/hooks/useLocalStorage';
 import useSWR, { mutate as globalMutate } from 'swr';
 
-interface HomepageData {
-  newest: Movie[];
-  popular: Movie[];
-  featured: Movie[];
-  trending: Movie[];
-  genres: {
-    [id: number]: Movie[];
-  };
+// Define section types for better type safety and reusability
+export type SectionType = 'newest' | 'popular' | 'featured' | 'trending' | 'action' | 'drama';
+
+export interface SectionConfig {
+  type: SectionType;
+  title: string;
+  limit?: number;
+  sortFn?: (a: Movie, b: Movie) => number;
+  filterFn?: (movie: Movie) => boolean;
 }
 
-// Cache TTL in milliseconds (10 minutes)
-const CACHE_TTL = 10 * 60 * 1000;
+// Default sections configuration
+export const DEFAULT_SECTIONS: SectionConfig[] = [
+  {
+    type: 'newest',
+    title: 'Phim mới nhất',
+    limit: 10,
+    sortFn: (a, b) => new Date(b.createdAt || '').getTime() - new Date(a.createdAt || '').getTime()
+  },
+  {
+    type: 'popular',
+    title: 'Phim xem nhiều',
+    limit: 10,
+    sortFn: (a, b) => (b.views || 0) - (a.views || 0)
+  },
+  {
+    type: 'featured',
+    title: 'Phim đánh giá cao',
+    limit: 10,
+    sortFn: (a, b) => (b.rating || 0) - (a.rating || 0)
+  },
+  {
+    type: 'trending',
+    title: 'Phim đang hot',
+    limit: 10,
+    sortFn: (a, b) => ((b.views || 0) * (b.rating || 0)) - ((a.views || 0) * (a.rating || 0))
+  },
+  {
+    type: 'action',
+    title: 'Phim hành động',
+    limit: 10,
+    filterFn: (movie) => movie.genres?.some(genre => genre.id === 1)
+  },
+  {
+    type: 'drama',
+    title: 'Phim tình cảm',
+    limit: 10,
+    filterFn: (movie) => movie.genres?.some(genre => genre.id === 3)
+  }
+];
+
+interface HomepageData {
+  sections: {
+    [key in SectionType]: Movie[];
+  };
+}
 
 // SWR cache key for homepage data
 const SWR_CACHE_KEY = 'homepage_data';
 
 // Static method to clear homepage cache from anywhere
 export const clearHomepageCache = () => {
-  // Clear SWR cache
   globalMutate(SWR_CACHE_KEY, undefined, { revalidate: false });
-  
-  // Clear localStorage cache if available
-  if (typeof window !== 'undefined') {
-    try {
-      localStorage.removeItem('homepage_data');
-    } catch (e) {
-      console.error('Failed to clear homepage localStorage cache:', e);
-    }
-  }
 };
 
-export const useHomepageData = () => {
-  // Lưu dữ liệu vào localStorage với TTL
-  const [persistedData, setPersistedData] = useLocalStorage<{data: HomepageData, timestamp: number} | null>(
-    'homepage_data',
-    null
-  );
-  
-  // Sử dụng ref để theo dõi mounted state
-  const isMounted = useRef(true);
-  
-  // AbortController để hủy requests khi component unmount
-  const abortControllerRef = useRef<AbortController | null>(null);
+export const useHomepageData = (sections: SectionConfig[] = DEFAULT_SECTIONS) => {
+  const { getAllMovies } = useMovies();
 
-  const {
-    getNewestMovies,
-    getPopularMovies,
-    getFeaturedMovies,
-    getTrendingMovies,
-  } = useMovies();
-
-  // Kiểm tra xem cache có hết hạn chưa
-  const isCacheValid = useCallback(() => {
-    if (!persistedData) return false;
-    const now = Date.now();
-    return now - persistedData.timestamp < CACHE_TTL;
-  }, [persistedData]);
-
-  // Data fetcher for SWR
+  // Data fetcher for SWR - fetches all movies at once
   const fetchHomepageData = useCallback(async () => {
-    if (abortControllerRef.current) {
-      abortControllerRef.current.abort();
-    }
-    
-    abortControllerRef.current = new AbortController();
-    const signal = abortControllerRef.current.signal;
-    
     try {
-      // 1. Gọi các API riêng lẻ song song với Promise.allSettled để tránh lỗi nếu 1 API không thành công
-      const [newestResult, popularResult, featuredResult, trendingResult] = await Promise.allSettled([
-        getNewestMovies(),
-        getPopularMovies(),
-        getFeaturedMovies(),
-        getTrendingMovies()
-      ]);
-
-      // Lấy dữ liệu hoặc mảng rỗng nếu API thất bại
-      const newest = newestResult.status === 'fulfilled' ? newestResult.value : [];
-      const popular = popularResult.status === 'fulfilled' ? popularResult.value : [];
-      const featured = featuredResult.status === 'fulfilled' ? featuredResult.value : [];
-      const trending = trendingResult.status === 'fulfilled' ? trendingResult.value : [];
-        
-      // 2. Fetch genres song song - sử dụng Promise.allSettled để không bị lỗi nếu 1 request thất bại
-      const genrePromises = [
-        movieService.getMoviesByGenre(1, 10),
-        movieService.getMoviesByGenre(3, 10)
-      ];
+      const allMovies = await getAllMovies();
       
-      const [actionResult, dramaResult] = await Promise.allSettled(genrePromises);
-      
-      // Khởi tạo đối tượng genres
-      const genres: {[id: number]: Movie[]} = {};
-      
-      // Xử lý kết quả genres
-      if (actionResult.status === 'fulfilled' && actionResult.value && actionResult.value.movies) {
-        genres[1] = actionResult.value.movies;
-      } else {
-        genres[1] = [];
-      }
-      
-      if (dramaResult.status === 'fulfilled' && dramaResult.value && dramaResult.value.movies) {
-        genres[3] = dramaResult.value.movies;
-      } else {
-        genres[3] = [];
+      if (!allMovies) {
+        throw new Error('Failed to fetch movies');
       }
 
-      const newData = {
-        newest,
-        popular,
-        featured,
-        trending,
-        genres
-      };
-      
-      // Lưu vào localStorage với timestamp
-      if (isMounted.current) {
-        setPersistedData({
-          data: newData,
-          timestamp: Date.now()
-        });
-      }
-      
-      return newData;
+      // Process each section
+      const sectionsData = sections.reduce((acc, section) => {
+        let movies = [...allMovies];
+
+        // Apply filter if exists
+        if (section.filterFn) {
+          movies = movies.filter(section.filterFn);
+        }
+
+        // Apply sort if exists
+        if (section.sortFn) {
+          movies.sort(section.sortFn);
+        }
+
+        // Apply limit
+        if (section.limit) {
+          movies = movies.slice(0, section.limit);
+        }
+
+        acc[section.type] = movies;
+        return acc;
+      }, {} as HomepageData['sections']);
+
+      return { sections: sectionsData };
     } catch (err) {
       console.error('Error fetching homepage data:', err);
       throw err;
     }
-  }, [getNewestMovies, getPopularMovies, getFeaturedMovies, getTrendingMovies, setPersistedData]);
+  }, [getAllMovies, sections]);
 
-  // Setup SWR with initial data from localStorage if valid
-  const initialData = isCacheValid() ? persistedData!.data : undefined;
-
-  // Configure SWR options
-  const swrOptions = {
-    revalidateOnFocus: false,       // Don't revalidate when window gains focus
-    revalidateOnReconnect: false,   // Don't revalidate when reconnecting
-    revalidateIfStale: true,        // Revalidate if data is stale
-    revalidateOnMount: !isCacheValid(), // Only revalidate on mount if cache is invalid
-    dedupingInterval: 5000,         // Dedupe requests within 5 seconds
-    fallbackData: initialData       // Use localStorage data as fallback
-  };
-
-  // Use SWR for fetching and caching
+  // Use SWR for data fetching and caching
   const { 
     data, 
     error: swrError, 
     isLoading: swrIsLoading, 
     isValidating, 
     mutate 
-  } = useSWR(
+  } = useSWR<HomepageData>(
     SWR_CACHE_KEY, 
     fetchHomepageData, 
-    swrOptions
+    {
+      revalidateOnFocus: false,
+      revalidateOnReconnect: false,
+      revalidateIfStale: true,
+      dedupingInterval: 5000
+    }
   );
 
-  // Cleanup function to prevent memory leaks
-  useEffect(() => {
-    return () => {
-      isMounted.current = false;
-      if (abortControllerRef.current) {
-        abortControllerRef.current.abort();
-      }
-    };
-  }, []);
-
-  // Manual refresh function
-  const refreshData = useCallback(() => {
-    return mutate();
-  }, [mutate]);
+  // Memoize sections data to prevent unnecessary re-renders
+  const sectionsData = useMemo(() => {
+    if (!data?.sections) {
+      return sections.reduce((acc, section) => {
+        acc[section.type] = [];
+        return acc;
+      }, {} as HomepageData['sections']);
+    }
+    return data.sections;
+  }, [data?.sections, sections]);
 
   return {
-    ...data || initialData || { newest: [], popular: [], featured: [], trending: [], genres: {} },
-    isLoading: swrIsLoading && !initialData,
+    sections: sectionsData,
+    isLoading: swrIsLoading,
     error: swrError,
     isRefreshing: isValidating && !swrIsLoading,
-    refreshData
+    refreshData: mutate
   };
 };

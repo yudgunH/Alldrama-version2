@@ -34,7 +34,7 @@ const MovieSlider = ({
   genreId,
   variant = "default",
   className = "",
-  maxItems = 5,
+  maxItems = 7,
   size = 'md',
   showPopover = true,
   limit = 10
@@ -47,92 +47,25 @@ const MovieSlider = ({
   const isMobile = isMobileSmall;
   const isTablet = isMobileLarge && !isMobileSmall;
   
-  // State cho dữ liệu phim từ API
+  // State cho dữ liệu phim
   const [movieData, setMovieData] = useState<Movie[]>([]);
   const [loading, setLoading] = useState(!movies);
   const [error, setError] = useState<string | null>(null);
   
-  // Sử dụng hooks API
-  const { 
-    getFeaturedMovies,
-    getPopularMovies,
-    getTrendingMovies,
-    getNewestMovies,
-    getSimilarMovies,
-  } = useMovies();
-  
-  // Fetch dữ liệu từ API
-  const fetchMovies = useCallback(async () => {
-    // Nếu đã truyền movies thì sử dụng chúng, không cần gọi API
+  // Sử dụng dữ liệu từ props
+  useEffect(() => {
     if (movies && movies.length > 0) {
       setMovieData(movies);
       setLoading(false);
-      return;
-    }
-    
-    // Nếu không có endpoint và genreId thì không gọi API
-    if (!endpoint && !genreId) {
+    } else {
       setMovieData([]);
       setLoading(false);
-      return;
     }
-    
-    setLoading(true);
-    setError(null);
-    
-    try {
-      let result: Movie[] = [];
-      
-      if (genreId) {
-        // Khi có genreId, sử dụng getSimilarMovies hoặc getMoviesByGenre
-        const genreIdValue = typeof genreId === 'string' ? genreId : String(genreId);
-        result = await getSimilarMovies(genreIdValue);
-      } else if (endpoint) {
-        // Fetch movies theo endpoint
-        switch (endpoint) {
-          case "newest":
-            result = await getNewestMovies();
-            break;
-          case "popular":
-            result = await getPopularMovies();
-            break;
-          case "trending":
-            result = await getTrendingMovies();
-            break;
-          case "featured":
-            result = await getFeaturedMovies();
-            break;
-          case "topRated":
-            // Sử dụng getTrendingMovies để thay thế topRated
-            result = await getTrendingMovies();
-            break;
-          default:
-            result = [];
-        }
-      }
-      
-      // Nếu kết quả là null, đặt thành mảng rỗng để tránh lỗi
-      if (!result) {
-        result = [];
-      }
-      
-      setMovieData(result);
-    } catch (err) {
-      console.error("Error fetching movies:", err);
-      setError("Không thể tải dữ liệu phim");
-    } finally {
-      setLoading(false);
-    }
-  }, [endpoint, movies, genreId, getFeaturedMovies, getPopularMovies, getTrendingMovies, getNewestMovies, getSimilarMovies]);
-  
-  // Fetch data when component mounts or dependencies change
-  useEffect(() => {
-    fetchMovies();
-  }, [fetchMovies]);
+  }, [movies]);
   
   // Tính toán các thông số pagination và hiển thị
   const moviesForDisplay = movieData && movieData.length > 0 ? movieData : [];
-  const responsiveMaxItems = isTablet ? 4 : maxItems;
+  const responsiveMaxItems = isMobile ? 3 : (isTablet ? 5 : maxItems);
   const totalPages = Math.ceil(moviesForDisplay.length / responsiveMaxItems);
   const startIndex = currentPage * responsiveMaxItems;
   const displayMovies = moviesForDisplay.slice(startIndex, startIndex + responsiveMaxItems);
@@ -158,13 +91,10 @@ const MovieSlider = ({
   };
   
   const handleTouchEnd = () => {
-    // No action needed - we're using native scroll behavior instead of pagination
-    // Reset values
     setTouchStart(0);
     setTouchEnd(0);
   };
   
-  // Chlu1ec9 mu1ed9t return duy nhu1ea5t u1edf cuu1ed1i cu1ee7a component
   return (
     <div className={cn("w-full mb-8 md:mb-12", className)}>
       <div className="flex justify-between items-center mb-4">
@@ -212,12 +142,11 @@ const MovieSlider = ({
 
       {/* Case 1: Loading */}
       {loading && (
-        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4 md:gap-5">
-          {Array.from({ length: 5 }).map((_, index) => (
+        <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-7 gap-3 md:gap-4">
+          {Array.from({ length: responsiveMaxItems }).map((_, index) => (
             <div key={index} className="flex flex-col gap-2">
-              <Skeleton className="w-full aspect-[2/3] rounded-md h-64 sm:h-72" />
-              <Skeleton className="h-4 w-3/4" />
-              <Skeleton className="h-3 w-1/2" />
+              <Skeleton className="w-full aspect-[2/3] rounded-md h-48 sm:h-56 md:h-64" />
+              <Skeleton className="h-4 w-3/4 rounded-sm" />
             </div>
           ))}
         </div>
@@ -230,11 +159,11 @@ const MovieSlider = ({
         </div>
       )}
       
-      {/* Case 3: Clu00f3 du1eef liu1ec7u */}
+      {/* Case 3: Có dữ liệu */}
       {!loading && !error && movieData && movieData.length > 0 && (
         <>
           {isMobile ? (
-            // Mobile/tablet view with horizontal scrolling
+            // Mobile view with horizontal scrolling
             <div 
               className="overflow-x-auto flex gap-3 snap-x snap-mandatory scrollbar-hide pb-4"
               style={{ 
@@ -248,7 +177,7 @@ const MovieSlider = ({
                   key={String(movie.id)}
                   className="flex-shrink-0 snap-start" 
                   style={{ 
-                    width: isMobile ? 'calc(50% - 0.75rem)' : 'calc(33.333% - 1rem)',
+                    width: 'calc(33.333% - 0.75rem)',
                     scrollSnapAlign: 'start'
                   }}
                 >
@@ -267,7 +196,6 @@ const MovieSlider = ({
                         <Link 
                           href={generateMovieUrl(movie.id, movie.title)} 
                           className="transition-transform hover:scale-[1.03] duration-300 block w-full h-full"
-                          onClick={() => console.log(`Clicked movie: ${movie.title} (ID: ${movie.id}), URL: ${generateMovieUrl(movie.id, movie.title)}`)}
                         >
                           <MovieCard
                             movie={movie}
@@ -288,7 +216,7 @@ const MovieSlider = ({
             </div>
           ) : (
             // Desktop view with grid layout
-            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4 md:gap-5">
+            <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-7 gap-3 md:gap-4">
               {displayMovies.map((movie, index) => (
                 <motion.div
                   key={String(movie.id)}
@@ -306,7 +234,6 @@ const MovieSlider = ({
                       <Link 
                         href={generateMovieUrl(movie.id, movie.title)} 
                         className="transition-transform hover:scale-[1.03] duration-300 block w-full h-full"
-                        onClick={() => console.log(`Clicked movie: ${movie.title} (ID: ${movie.id}), URL: ${generateMovieUrl(movie.id, movie.title)}`)}
                       >
                         <MovieCard
                           movie={movie}
@@ -328,20 +255,19 @@ const MovieSlider = ({
         </>
       )}
 
-      {/* Case 4: Non data */}
+      {/* Case 4: Không có dữ liệu */}
       {!loading && !error && (!movieData || movieData.length === 0) && (
-        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4 md:gap-5">
-          {Array.from({ length: 5 }).map((_, index) => (
+        <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-7 gap-3 md:gap-4">
+          {Array.from({ length: responsiveMaxItems }).map((_, index) => (
             <div key={index} className="flex flex-col gap-2">
-              <Skeleton className="w-full aspect-[2/3] rounded-md h-64 sm:h-72" />
-              <Skeleton className="h-4 w-3/4" />
-              <Skeleton className="h-3 w-1/2" />
+              <Skeleton className="w-full aspect-[2/3] rounded-md h-48 sm:h-56 md:h-64" />
+              <Skeleton className="h-4 w-3/4 rounded-sm" />
             </div>
           ))}
         </div>
       )}
     </div>
-  )
-}
+  );
+};
 
 export default MovieSlider

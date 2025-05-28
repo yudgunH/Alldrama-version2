@@ -126,7 +126,7 @@ const ProfileContent = () => {
     setPasswordSuccess('');
     
     // Kiểm tra mật khẩu
-    if (!currentPassword || !newPassword || !confirmPassword) {
+    if (!newPassword || !confirmPassword) {
       setPasswordError('Vui lòng điền đầy đủ thông tin.');
       return;
     }
@@ -148,13 +148,13 @@ const ProfileContent = () => {
       if (user?.id) {
         const response = await changePassword(
           user.id,
-          currentPassword,
+          user.full_name || '',
+          user.email || '',
           newPassword
         );
         
         if (response) {
           setPasswordSuccess('Mật khẩu đã được cập nhật thành công!');
-          setCurrentPassword('');
           setNewPassword('');
           setConfirmPassword('');
         }

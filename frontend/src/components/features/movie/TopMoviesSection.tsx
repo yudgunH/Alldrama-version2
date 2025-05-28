@@ -49,10 +49,9 @@ const TopMoviesSection = ({
   // Hiển thị skeleton khi đang loading hoặc không có dữ liệu
   if (isLoading || topMovies.length === 0) {
     return (
-      <div className="py-10 bg-gradient-to-b from-[#0F111A] to-[#151823]">
+      <div className="py-10 bg-gray-950">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex justify-between items-center mb-5">
-            {/* Tiêu đề không chứa bất kỳ phần tử con nào khác ngoài text */}
             <div className="flex items-start">
               <h3 className="text-2xl md:text-3xl font-bold">
                 <span className="bg-gradient-to-r from-amber-500 to-red-500 bg-clip-text text-transparent">{title}</span>
@@ -64,8 +63,8 @@ const TopMoviesSection = ({
             {[...Array(5)].map((_, index) => (
               <div key={index} className="relative flex-shrink-0 w-[calc(100%/5-12px)] min-w-[190px] py-4">
                 <div className="relative transition-all duration-300">
-                  <div className="relative overflow-hidden shadow-[0_4px_12px_rgba(0,0,0,0.2)] bg-[#1A1C25]">
-                <Skeleton className="aspect-[2/3] w-full rounded-lg" />
+                  <div className="relative overflow-hidden shadow-[0_4px_12px_rgba(0,0,0,0.2)] bg-gray-900">
+                    <Skeleton className="aspect-[2/3] w-full rounded-md" />
                     <div className="p-2.5">
                       <Skeleton className="h-4 w-3/4 mb-2" />
                       <Skeleton className="h-3 w-full mb-2" />
@@ -85,28 +84,26 @@ const TopMoviesSection = ({
   }
   
   return (
-    <div className="py-10 bg-gradient-to-b from-[#0F111A] to-[#151823]">
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+    <div className="py-10 bg-gray-950">
+      <div className=" mx-auto px-4 sm:px-6 lg:px-8">
         <div className="flex justify-between items-center mb-5">
-          {/* Tiêu đề Section */}
           <div className="flex items-start">
             <h3 className="text-2xl md:text-3xl font-bold">
               <span className="bg-gradient-to-r from-amber-500 to-red-500 bg-clip-text text-transparent">{title}</span>
             </h3>
           </div>
           
-          {/* Nút điều hướng */}
           <div className="flex items-center gap-2">
             <button 
               onClick={handlePrevClick}
-              className="p-2 rounded-full bg-gray-800/70 hover:bg-amber-600/80 text-white transition-colors"
+              className="p-2 rounded-full bg-gray-800/70 hover:bg-indigo-600/80 text-white transition-colors"
               aria-label="Previous"
             >
               <ChevronLeft size={18} />
             </button>
             <button 
               onClick={handleNextClick}
-              className="p-2 rounded-full bg-gray-800/70 hover:bg-amber-600/80 text-white transition-colors"
+              className="p-2 rounded-full bg-gray-800/70 hover:bg-indigo-600/80 text-white transition-colors"
               aria-label="Next"
             >
               <ChevronRight size={18} />
@@ -134,7 +131,7 @@ const TopMoviesSection = ({
                     <div className="relative transition-all duration-300 z-5">
                       <Link href={generateMovieUrl(movie.id, movie.title)}>
                         <div 
-                          className="relative overflow-hidden shadow-[0_4px_12px_rgba(0,0,0,0.2)] transition-all duration-300 bg-[#1A1C25] group hover:shadow-[0_6px_16px_rgba(0,0,0,0.3)] hover:scale-[1.035] transform-gpu"
+                          className="relative overflow-hidden shadow-[0_4px_12px_rgba(0,0,0,0.2)] transition-all duration-300 bg-gray-900 group hover:shadow-[0_6px_16px_rgba(0,0,0,0.3)] hover:scale-[1.035] transform-gpu"
                           style={{
                             borderRadius: '10px 10px 10px 10px',
                             clipPath: index % 2 === 0 
@@ -164,16 +161,16 @@ const TopMoviesSection = ({
                             
                             {/* Overlay badges */}
                             <div className="absolute bottom-1.5 left-1.5 flex gap-1">
-                              <span className="bg-[#4B5563] text-white text-[9px] px-1 py-0.5 rounded-md font-medium">
+                              <span className="bg-gray-800 text-white text-[9px] px-1 py-0.5 rounded-md font-medium">
                                 PD.{movie.releaseYear ? String(movie.releaseYear).substring(2) : 'NA'}
                               </span>
-                              <span className="bg-[#22C55E] text-white text-[9px] px-1 py-0.5 rounded-md font-medium">
+                              <span className="bg-indigo-600 text-white text-[9px] px-1 py-0.5 rounded-md font-medium">
                                 TM.{movie.releaseYear ? String(movie.releaseYear).substring(2) : 'NA'}
                               </span>
                             </div>
                             
                             {/* Gradient overlay */}
-                            <div className="absolute inset-0 bg-gradient-to-t from-[#0F111A] via-transparent to-transparent opacity-70"></div>
+                            <div className="absolute inset-0 bg-gradient-to-t from-gray-950 via-transparent to-transparent opacity-70"></div>
                           </div>
                           
                           {/* Content */}
@@ -189,8 +186,8 @@ const TopMoviesSection = ({
                                   T{movie.releaseYear ? String(movie.releaseYear).substring(2) : 'NA'}
                                 </span>
                                 <div className="flex items-center gap-1">
-                                  <Star className="w-3 h-3 text-[#FFD95A]" fill="#FFD95A" />
-                                  <span className="text-[#FFD95A] font-medium">
+                                  <Star className="w-3 h-3 text-amber-400" fill="currentColor" />
+                                  <span className="text-amber-400 font-medium">
                                     {movie.rating 
                                       ? (typeof movie.rating === 'number' 
                                           ? movie.rating.toFixed(1) 
@@ -200,9 +197,8 @@ const TopMoviesSection = ({
                                 </div>
                               </div>
                               
-                              {/* Số thứ tự phim được đặt bên dưới */}
                               <div>
-                                <span style={{fontFamily: 'Georgia, serif'}} className="text-2xl font-extrabold text-[#FFD95A] leading-none drop-shadow-[0_2px_2px_rgba(0,0,0,0.7)]">
+                                <span style={{fontFamily: 'Georgia, serif'}} className="text-2xl font-extrabold text-amber-400 leading-none drop-shadow-[0_2px_2px_rgba(0,0,0,0.7)]">
                                   {index + 1}
                                 </span>
                               </div>
@@ -211,7 +207,7 @@ const TopMoviesSection = ({
                           
                           {/* Play button overlay */}
                           <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 duration-300 bg-black/30 transition-all">
-                            <div className="p-2.5 rounded-full bg-[#22C55E] text-white transform scale-0 group-hover:scale-100 duration-300 shadow-lg">
+                            <div className="p-2.5 rounded-full bg-indigo-600 text-white transform scale-0 group-hover:scale-100 duration-300 shadow-lg">
                               <Play fill="white" size={20} />
                             </div>
                           </div>

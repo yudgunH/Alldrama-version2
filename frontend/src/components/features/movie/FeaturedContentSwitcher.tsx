@@ -214,8 +214,8 @@ const FeaturedContentSwitcher = ({
   // Hiển thị skeleton khi đang loading hoặc không có dữ liệu
   if (isLoading) {
     return wrapContainer ? (
-      <section className="bg-gradient-to-b from-gray-950 to-black">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+      <section className="bg-gray-950">
+        <div className="w-full">
           <div className="py-12">
             <Skeleton className="h-8 w-48 mb-6" />
             <Skeleton className="w-full aspect-[21/9] rounded-lg" />
@@ -259,7 +259,7 @@ const FeaturedContentSwitcher = ({
           variant === 'dark' ? 'bg-black/60 text-white' : 'bg-card'
         )}>
           <CardContent className="p-0">
-            <div className="relative w-full aspect-[21/9] overflow-hidden">
+            <div className="relative w-full aspect-[30/9] overflow-hidden">
               {selectedItem && (
                 <AnimatePresence mode="wait">
                   <motion.div
@@ -346,14 +346,14 @@ const FeaturedContentSwitcher = ({
             {/* Desktop thumbnails */}
             <div className="absolute bottom-0 left-0 right-0 translate-y-1/2 px-8 hidden md:block">
               <div className="flex justify-center">
-                <div className="inline-flex bg-black/70 backdrop-blur-md p-2 rounded-xl space-x-6 shadow-xl">
+                <div className="inline-flex p-2 rounded-xl space-x-6 shadow-xl">
                   {items.slice(0, visibleThumbs).map((item, index) => (
                     <div
                       key={item.id || index}
                       className={cn(
                         'relative rounded-md overflow-hidden transition-all duration-200 cursor-pointer h-27 w-20',
                         index === selectedIndex 
-                          ? 'ring-2 ring-primary ring-offset-2 ring-offset-black z-10 scale-110' 
+                          ? 'ring-2 ring-indigo-600 ring-offset-2 ring-offset-gray-950 z-10 scale-110' 
                           : 'opacity-70 hover:opacity-100'
                       )}
                       onClick={() => handleItemSelect(index)}
@@ -366,14 +366,14 @@ const FeaturedContentSwitcher = ({
                       <div className={cn(
                         "absolute bottom-0 left-0 right-0 py-1 px-1.5 text-[10px] font-medium truncate",
                         index === selectedIndex 
-                          ? `bg-gradient-to-r ${styles.gradient} text-white`
-                          : 'bg-black/60 text-gray-300'
+                          ? 'bg-indigo-600 text-white'
+                          : 'bg-gray-900/80 text-gray-300'
                       )}>
                         {item.title || `Movie ${index + 1}`}
                       </div>
                       {index === selectedIndex && (
-                        <div className="absolute inset-0 bg-black/30 flex items-center justify-center">
-                          <div className="rounded-full bg-primary/80 p-1">
+                        <div className="absolute inset-0 bg-gray-900/50 flex items-center justify-center">
+                          <div className="rounded-full bg-indigo-600/80 p-1">
                             <Play className="h-3 w-3 text-white" />
                           </div>
                         </div>
@@ -386,7 +386,7 @@ const FeaturedContentSwitcher = ({
             
             {/* Mobile dots navigation */}
             <div className="md:hidden flex items-center justify-center mt-8">
-              <div className="inline-flex bg-black/70 backdrop-blur-md px-3 py-2 rounded-full space-x-2">
+              <div className="inline-flex bg-gray-900/90 backdrop-blur-md px-3 py-2 rounded-full space-x-2">
                 {items.map((_, index) => (
                   <button
                     key={index}
@@ -394,8 +394,8 @@ const FeaturedContentSwitcher = ({
                     className={cn(
                       'rounded-full transition-all',
                       index === selectedIndex 
-                        ? 'bg-primary w-3 h-3' 
-                        : 'bg-white/30 w-2 h-2 hover:bg-white/60'
+                        ? 'bg-indigo-600 w-3 h-3' 
+                        : 'bg-gray-700 w-2 h-2 hover:bg-gray-600'
                     )}
                     aria-label={`Go to item ${index + 1}`}
                   />
@@ -414,7 +414,7 @@ const FeaturedContentSwitcher = ({
                 onClick={() => handleItemSelect(index)}
                 className={cn(
                   'w-1.5 h-1.5 rounded-full transition-all',
-                  index === selectedIndex ? 'bg-primary w-3' : 'bg-muted hover:bg-muted-foreground/50'
+                  index === selectedIndex ? 'bg-indigo-600 w-3' : 'bg-gray-700 hover:bg-gray-600'
                 )}
                 aria-label={`Go to item ${index + 1}`}
               />
@@ -428,8 +428,8 @@ const FeaturedContentSwitcher = ({
   // Wrap in container if needed
   if (wrapContainer) {
     return (
-      <section className="bg-gradient-to-b from-gray-950 to-black">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+      <section className="bg-gray-950">
+        <div className="w-full">
           {content}
         </div>
       </section>
@@ -437,8 +437,8 @@ const FeaturedContentSwitcher = ({
   }
   if (isLoading) {
     return (
-      <div className="h-[70vh] bg-gray-800 animate-pulse flex items-center justify-center">
-        <Skeleton className="w-3/4 h-[80%] max-w-7xl mx-auto rounded-xl" />
+      <div className="h-[70vh] bg-gray-950 animate-pulse flex items-center justify-center">
+        <Skeleton className="w-full h-[80%] rounded-xl" />
       </div>
     );
   }

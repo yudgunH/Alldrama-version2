@@ -4,13 +4,42 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
-import IconButton from './IconButton';
+import { Tooltip, TooltipContent, TooltipTrigger, TooltipProvider } from "@/components/ui/tooltip";
 import { generateWatchUrl } from '@/utils/url';
 import { useMobile } from "@/hooks/use-mobile";
 import { useAuth } from '@/hooks/api/useAuth';
 import { useFavorites } from '@/hooks/api/useFavorites';
 import { useRouter } from 'next/navigation';
 import Image from 'next/image';
+
+// IconButton component merged into this file
+interface IconButtonProps {
+  icon: React.ReactNode;
+  tooltip: string;
+  onClick?: () => void;
+}
+
+function IconButton({ icon, tooltip, onClick }: IconButtonProps) {
+  return (
+    <TooltipProvider>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <Button 
+            variant="ghost" 
+            size="icon" 
+            className="text-gray-400 hover:text-white"
+            onClick={onClick}
+          >
+            {icon}
+          </Button>
+        </TooltipTrigger>
+        <TooltipContent>
+          <p>{tooltip}</p>
+        </TooltipContent>
+      </Tooltip>
+    </TooltipProvider>
+  );
+}
 
 interface ContentInfoCardProps {
   movie: any;
@@ -41,17 +70,11 @@ export default function ContentInfoCard({
   const handleBookmarkClick = async () => {
     if (!isAuthenticated || !movie) return;
     
-    if (!favoriteChecked && !isCheckingFavorite) {
-      setIsCheckingFavorite(true);
-      try {
-        const status = await isFavorite(movie.id);
-        setIsFavorited(status === true);
-        setFavoriteChecked(true);
-      } catch (err) {
-        console.error('Error checking favorite status:', err);
-      } finally {
-        setIsCheckingFavorite(false);
-      }
+    if (!favoriteChecked) {
+      // Use store-based check first
+      const status = isFavorite(movie.id);
+      setIsFavorited(status);
+      setFavoriteChecked(true);
     } else {
       try {
         const newStatus = await toggleFavorite(movie.id);

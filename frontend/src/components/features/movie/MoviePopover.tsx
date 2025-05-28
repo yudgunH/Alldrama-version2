@@ -63,20 +63,12 @@ const MoviePopover = ({
   
   // Check if the movie is in favorites when component mounts
   useEffect(() => {
-    const checkFavoriteStatus = async () => {
-      if (isAuthenticated && movie) {
-        try {
-          const favorited = await isFavorite(movie.id)
-          setIsLiked(favorited)
-        } catch (error) {
-          console.error("Error checking favorite status:", error)
-        }
-      }
-    }
-    
-    // Only run this effect if the user is authenticated
-    if (isAuthenticated) {
-      checkFavoriteStatus()
+    if (isAuthenticated && movie) {
+      // Use store-based check instead of API call
+      const favorited = isFavorite(movie.id);
+      setIsLiked(favorited);
+    } else {
+      setIsLiked(false);
     }
   }, [isAuthenticated, movie, isFavorite])
 

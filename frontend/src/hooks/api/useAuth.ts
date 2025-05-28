@@ -207,16 +207,18 @@ export const useAuth = () => {
    */
   const changePassword = useCallback(async (
     userId: string | number, 
-    currentPassword: string, 
-    newPassword: string
+    full_name: string,
+    email: string,
+    password: string
   ) => {
     setLoading(true);
     setError(null);
     
     try {
       const response = await authService.changePassword(userId, { 
-        currentPassword, 
-        newPassword 
+        full_name,
+        email,
+        password
       });
       toast.success('Đổi mật khẩu thành công!');
       return response;

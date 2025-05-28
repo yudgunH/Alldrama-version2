@@ -264,25 +264,10 @@ class ApiClient {
       if (window.location.pathname.includes('/login')) {
         return;
       }
-      
-      // Kiểm tra xem đã hiển thị thông báo trong 3 giây qua chưa
-      const lastToastTime = window.localStorage.getItem('auth_last_toast_time');
-      const now = Date.now();
-      
-      if (lastToastTime && now - parseInt(lastToastTime) < 3000) {
-        // Nếu đã hiển thị thông báo trong 3 giây qua, không hiển thị nữa
-        return;
-      }
-      
-      // Lưu thời gian hiển thị thông báo cuối cùng
-      window.localStorage.setItem('auth_last_toast_time', now.toString());
     }
     
     // Hiển thị thông báo không chặn trải nghiệm
     toast.error('Phiên đăng nhập đã hết hạn. Vui lòng đăng nhập lại khi cần thiết.');
-    
-    // Không chuyển hướng đến trang đăng nhập - để người dùng tiếp tục xem nội dung
-    // window.location.href = '/login';
   }
 
   // Phương thức get generic

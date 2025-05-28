@@ -270,7 +270,9 @@ export default function WatchPage() {
         </div>
 
         {/* ---------- player box ---------- */}
-        <div className="relative">
+        <div className="relative 
+          w-full max-w-3xl mx-auto
+          md:max-w-none md:mx-0">
           {/* Sheet mobile */}
           {isSeries && (
             <MobileEpisodeSheet
@@ -280,7 +282,6 @@ export default function WatchPage() {
               movieTitle={movie.title}
               episodeView={viewMode}
               setEpisodeView={(mode) => {
-                // Prevent unnecessary re-renders by checking if value actually changed
                 if (mode !== viewMode) {
                   setViewMode(mode);
                 }
@@ -290,7 +291,7 @@ export default function WatchPage() {
 
           {/* player */}
           <VideoPlayer
-            key={`${videoSrc}-${startTime}`} // Use a stable key to prevent unnecessary re-renders
+            key={`${videoSrc}-${startTime}`}
             src={videoSrc}
             poster={posterSrc}
             title={title}
