@@ -140,7 +140,23 @@ async function updateJobMetadata(metadata) {
   }
 }
 
-// Cập nhật hàm processHLS để sử dụng các chức năng mới
+// Hàm đọc đệ quy tất cả file trong thư mục
+function getAllFiles(dirPath, arrayOfFiles = []) {
+  const files = fs.readdirSync(dirPath);
+
+  files.forEach(file => {
+    const fullPath = path.join(dirPath, file);
+    if (fs.statSync(fullPath).isDirectory()) {
+      arrayOfFiles = getAllFiles(fullPath, arrayOfFiles);
+    } else {
+      arrayOfFiles.push(fullPath);
+    }
+  });
+
+  return arrayOfFiles;
+}
+
+// Cập nhật hàm processHLS
 async function processHLS() {
   try {
     console.log(`[HLS Processor] Bắt đầu xử lý: ${inputFile}`);
@@ -174,11 +190,15 @@ async function processHLS() {
     masterPlaylistContent += '#EXT-X-VERSION:7\n';
     masterPlaylistContent += '#EXT-X-INDEPENDENT-SEGMENTS\n';
     
+    // Biến theo dõi số độ phân giải đã hoàn thành
+    let completedResolutions = 0;
+    
     // Xử lý từng độ phân giải và thu thập thông tin cho master playlist
     const streamInfos = [];
     for (const resolution of resolutionsToUse) {
-      const streamInfo = await processResolution(resolution);
+      const streamInfo = await processResolution(resolution, duration, completedResolutions, resolutionsToUse);
       streamInfos.push(streamInfo);
+      completedResolutions++;
     }
     
     // Thêm thông tin stream vào master playlist theo thứ tự bitrate tăng dần
@@ -203,10 +223,17 @@ async function processHLS() {
     const r2HlsPath = `episodes/${movieId}/${episodeId}/hls`;
     
     try {
-      // Upload tất cả file khác trước master.m3u8
-      const files = fs.readdirSync(outputDir).filter(f => f !== 'master.m3u8');
-      for (const file of files) {
-        await uploadFileToR2(path.join(outputDir, file), `${r2HlsPath}/${file}`);
+      // Lấy tất cả file trong thư mục output
+      const allFiles = getAllFiles(outputDir);
+      console.log(`[HLS Processor] Tìm thấy ${allFiles.length} file cần upload`);
+      
+      // Upload tất cả file trừ master.m3u8
+      for (const filePath of allFiles) {
+        if (filePath !== masterPlaylistPath) {
+          const relativePath = path.relative(outputDir, filePath);
+          const r2Key = path.join(r2HlsPath, relativePath).replace(/\\/g, '/');
+          await uploadFileToR2(filePath, r2Key);
+        }
       }
       
       // Upload master.m3u8 cuối cùng
@@ -303,7 +330,7 @@ function getVideoDuration(file) {
 }
 
 // Hàm xử lý một độ phân giải và trả về thông tin cho master playlist
-async function processResolution(resolution) {
+async function processResolution(resolution, duration, completedResolutions, resolutionsToUse) {
   const { height, bitrate } = resolution;
   return new Promise((resolve, reject) => {
     console.log(`[HLS Processor] Đang xử lý độ phân giải ${height}p với bitrate ${bitrate}`);
@@ -464,19 +491,42 @@ async function uploadFileToR2(filePath, r2Key) {
   else if (r2Key.endsWith('.ts')) contentType = 'video/MP2T';
   else if (r2Key.endsWith('.m4s')) contentType = 'video/iso.segment';
   else if (r2Key.endsWith('.mp4')) contentType = 'video/mp4';
+  else if (r2Key.endsWith('.jpg')) contentType = 'image/jpeg';
   
-  console.log(`[HLS Processor] Uploading ${path.basename(filePath)} to ${r2Key}`);
+  console.log(`[HLS Processor] Uploading ${filePath} to R2: ${r2Key} (${contentType})`);
   
   try {
+    // Kiểm tra file tồn tại
+    if (!fs.existsSync(filePath)) {
+      throw new Error(`File không tồn tại: ${filePath}`);
+    }
+
+    // Đọc file và kiểm tra kích thước
+    const fileContent = fs.readFileSync(filePath);
+    console.log(`[HLS Processor] File size: ${fileContent.length} bytes`);
+
+    // Upload lên R2
     await s3.putObject({
       Bucket: r2Bucket,
       Key: r2Key,
-      Body: fs.readFileSync(filePath),
+      Body: fileContent,
       ContentType: contentType
     }).promise();
     
-    console.log(`[HLS Processor] Uploaded ${path.basename(filePath)} successfully`);
+    // Kiểm tra file đã upload thành công
+    try {
+      const headResult = await s3.headObject({
+        Bucket: r2Bucket,
+        Key: r2Key
+      }).promise();
+      
+      console.log(`[HLS Processor] Uploaded successfully: ${r2Key}`);
+      console.log(`[HLS Processor] R2 object size: ${headResult.ContentLength} bytes`);
+    } catch (headError) {
+      throw new Error(`File uploaded but not accessible: ${headError.message}`);
+    }
   } catch (error) {
+    console.error(`[HLS Processor] Upload error for ${r2Key}: ${error.message}`);
     throw new Error(`Failed to upload ${path.basename(filePath)}: ${error.message}`);
   }
 }
