@@ -42,14 +42,44 @@ try {
   }
 }
 
-// Cấu hình R2
-const s3 = new AWS.S3({
-  endpoint: `https://${r2AccountId}.r2.cloudflarestorage.com`,
-  accessKeyId: r2AccessKey,
-  secretAccessKey: r2Secret,
-  signatureVersion: 'v4',
-  region: 'auto'
-});
+// Thêm cấu hình giới hạn tài nguyên và timeout
+const CONFIG = {
+  MAX_CONCURRENT_UPLOADS: 3,
+  UPLOAD_TIMEOUT: 30000, // 30 seconds
+  FFMPEG_TIMEOUT: 3600000, // 1 hour
+  RETRY_ATTEMPTS: 3,
+  RETRY_DELAY: 2000 // 2 seconds
+};
+
+// Pool kết nối R2 để tái sử dụng
+const s3Pool = {
+  connections: [],
+  getConnection() {
+    if (this.connections.length === 0) {
+      return new AWS.S3({
+        endpoint: `https://${r2AccountId}.r2.cloudflarestorage.com`,
+        accessKeyId: r2AccessKey,
+        secretAccessKey: r2Secret,
+        signatureVersion: 'v4',
+        region: 'auto',
+        maxRetries: 3,
+        retryDelayOptions: {
+          base: 1000
+        }
+      });
+    }
+    return this.connections.pop();
+  },
+  
+  releaseConnection(conn) {
+    if (this.connections.length < 5) { // Max 5 connections in pool
+      this.connections.push(conn);
+    }
+  }
+};
+
+// Cấu hình R2 với connection pooling
+const s3 = s3Pool.getConnection();
 
 // Các độ phân giải và bitrate cho HLS
 const RESOLUTIONS = [
@@ -72,19 +102,28 @@ const HLS_SEGMENT_DURATION = '6';
 // Thêm biến để theo dõi lỗi ffmpeg
 let ffmpegErrorOutput = '';
 
+// Hàm tạo thư mục riêng cho mỗi quá trình xử lý
+function createProcessDirectory(baseDir, movieId, episodeId) {
+  const processDir = path.join(baseDir, `process_${movieId}_${episodeId}_${Date.now()}`);
+  fs.mkdirSync(processDir, { recursive: true });
+  console.log(`[HLS Processor] Đã tạo thư mục xử lý: ${processDir}`);
+  return processDir;
+}
+
 // Hàm tạo thumbnail từ video
-async function createThumbnail(videoPath, timeInSeconds = 10) {
+async function createThumbnail(videoPath, processDir, timeInSeconds = 10) {
   return new Promise((resolve, reject) => {
     console.log(`[HLS Processor] Đang tạo thumbnail tại giây thứ ${timeInSeconds}`);
     
-    const thumbnailDir = path.join(outputDir, 'thumbnail');
-    if (!fs.existsSync(thumbnailDir)) {
-      fs.mkdirSync(thumbnailDir, { recursive: true });
-    }
-    
+    const thumbnailDir = path.join(processDir, 'thumbnail');
     const thumbnailPath = path.join(thumbnailDir, 'thumbnail.jpg');
     
+    // Tạo thư mục thumbnail
+    fs.mkdirSync(thumbnailDir, { recursive: true });
+    console.log(`[HLS Processor] Đã tạo thư mục thumbnail: ${thumbnailDir}`);
+    
     const ffmpeg = spawn('ffmpeg', [
+      '-y',  // Tự động ghi đè file nếu tồn tại
       '-i', videoPath,
       '-ss', timeInSeconds.toString(),
       '-vframes', '1',
@@ -93,23 +132,41 @@ async function createThumbnail(videoPath, timeInSeconds = 10) {
       thumbnailPath
     ]);
     
+    let ffmpegError = '';
+    
     ffmpeg.stderr.on('data', (data) => {
+      ffmpegError += data.toString();
       console.log(`[ffmpeg thumbnail] ${data.toString()}`);
     });
     
     ffmpeg.on('close', async (code) => {
       if (code === 0) {
         try {
+          // Kiểm tra file thumbnail đã được tạo
+          if (!fs.existsSync(thumbnailPath)) {
+            reject(new Error('Thumbnail file was not created'));
+            return;
+          }
+
+          // Kiểm tra kích thước file
+          const stats = fs.statSync(thumbnailPath);
+          if (stats.size === 0) {
+            reject(new Error('Thumbnail file is empty'));
+            return;
+          }
+
+          console.log(`[HLS Processor] Thumbnail created successfully: ${thumbnailPath} (${stats.size} bytes)`);
+
           // Upload thumbnail lên R2
           const r2ThumbnailPath = `episodes/${movieId}/${episodeId}/thumbnail.jpg`;
           await uploadFileToR2(thumbnailPath, r2ThumbnailPath);
           console.log(`[HLS Processor] Đã tạo và upload thumbnail thành công`);
           resolve(r2ThumbnailPath);
         } catch (error) {
-          reject(new Error(`Lỗi khi upload thumbnail: ${error.message}`));
+          reject(new Error(`Lỗi khi xử lý thumbnail: ${error.message}`));
         }
       } else {
-        reject(new Error(`ffmpeg exited with code ${code} when creating thumbnail`));
+        reject(new Error(`ffmpeg exited with code ${code} when creating thumbnail. Error: ${ffmpegError}`));
       }
     });
   });
@@ -124,10 +181,13 @@ async function updateJobMetadata(metadata) {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
+        'X-Backend-Secret': 'alldrama-backend-secret'
       },
       body: JSON.stringify({
         status: 'metadata_update',
-        metadata: metadata
+        metadata: metadata,
+        movieId,
+        episodeId
       })
     });
     
@@ -156,19 +216,80 @@ function getAllFiles(dirPath, arrayOfFiles = []) {
   return arrayOfFiles;
 }
 
+// Hàm xóa thư mục đệ quy
+function removeDirectory(dirPath) {
+  if (fs.existsSync(dirPath)) {
+    console.log(`[HLS Processor] Xóa thư mục cũ: ${dirPath}`);
+    fs.rmSync(dirPath, { recursive: true, force: true });
+  }
+}
+
+// Cải thiện hàm copy file với timeout và retry
+function copyFile(source, target) {
+  return new Promise((resolve, reject) => {
+    console.log(`[HLS Processor] Copying ${source} to ${target}`);
+    
+    // Kiểm tra file source trước khi copy
+    if (!fs.existsSync(source)) {
+      return reject(new Error(`Source file không tồn tại: ${source}`));
+    }
+    
+    const readStream = fs.createReadStream(source);
+    const writeStream = fs.createWriteStream(target);
+    
+    // Timeout cho copy operation
+    const timeout = setTimeout(() => {
+      readStream.destroy();
+      writeStream.destroy();
+      reject(new Error('Copy operation timeout'));
+    }, CONFIG.UPLOAD_TIMEOUT);
+    
+    readStream.on('error', (error) => {
+      clearTimeout(timeout);
+      reject(new Error(`Error reading source file: ${error.message}`));
+    });
+    
+    writeStream.on('error', (error) => {
+      clearTimeout(timeout);
+      reject(new Error(`Error writing target file: ${error.message}`));
+    });
+    
+    writeStream.on('finish', () => {
+      clearTimeout(timeout);
+      
+      // Kiểm tra kích thước file sau khi copy
+      const sourceStats = fs.statSync(source);
+      const targetStats = fs.statSync(target);
+      
+      if (sourceStats.size !== targetStats.size) {
+        reject(new Error(`File size mismatch: source ${sourceStats.size}, target ${targetStats.size}`));
+        return;
+      }
+      
+      console.log(`[HLS Processor] File copied successfully (${targetStats.size} bytes)`);
+      resolve();
+    });
+    
+    readStream.pipe(writeStream);
+  });
+}
+
 // Cập nhật hàm processHLS
 async function processHLS() {
   try {
     console.log(`[HLS Processor] Bắt đầu xử lý: ${inputFile}`);
     
-    // Tạo thư mục đầu ra nếu chưa tồn tại
-    if (!fs.existsSync(outputDir)) {
-      fs.mkdirSync(outputDir, { recursive: true });
-    }
+    // Tạo thư mục riêng cho quá trình này
+    const processDir = createProcessDirectory(outputDir, movieId, episodeId);
+    
+    // Copy file original.mp4 vào thư mục process
+    const processInputFile = path.join(processDir, 'original.mp4');
+    await copyFile(inputFile, processInputFile);
+    console.log(`[HLS Processor] Đã copy file input vào thư mục process`);
     
     // Lấy thông tin video để quyết định độ phân giải và cập nhật metadata
     console.log(`[HLS Processor] Đang lấy thông tin video...`);
-    const duration = await getVideoDuration(inputFile);
+    const duration = await getVideoDuration(processInputFile);
     console.log(`[HLS Processor] Video có thời lượng: ${duration} giây`);
     
     // Cập nhật metadata
@@ -179,7 +300,7 @@ async function processHLS() {
     });
     
     // Tạo thumbnail
-    await createThumbnail(inputFile);
+    await createThumbnail(processInputFile, processDir);
     
     // Nếu video dài hơn 20 phút, sử dụng ít độ phân giải hơn
     const resolutionsToUse = duration > 1200 ? REDUCED_RESOLUTIONS : RESOLUTIONS;
@@ -196,7 +317,7 @@ async function processHLS() {
     // Xử lý từng độ phân giải và thu thập thông tin cho master playlist
     const streamInfos = [];
     for (const resolution of resolutionsToUse) {
-      const streamInfo = await processResolution(resolution, duration, completedResolutions, resolutionsToUse);
+      const streamInfo = await processResolution(resolution, duration, completedResolutions, resolutionsToUse, processDir);
       streamInfos.push(streamInfo);
       completedResolutions++;
     }
@@ -210,7 +331,7 @@ async function processHLS() {
       });
     
     // Ghi master playlist sau khi đã có đầy đủ thông tin
-    const masterPlaylistPath = path.join(outputDir, 'master.m3u8');
+    const masterPlaylistPath = path.join(processDir, 'master.m3u8');
     fs.writeFileSync(masterPlaylistPath, masterPlaylistContent);
     console.log(`[HLS Processor] Đã tạo master playlist với ${streamInfos.length} streams`);
     
@@ -223,17 +344,28 @@ async function processHLS() {
     const r2HlsPath = `episodes/${movieId}/${episodeId}/hls`;
     
     try {
-      // Lấy tất cả file trong thư mục output
-      const allFiles = getAllFiles(outputDir);
+      // Lấy tất cả file trong thư mục process
+      const allFiles = getAllFiles(processDir);
       console.log(`[HLS Processor] Tìm thấy ${allFiles.length} file cần upload`);
       
-      // Upload tất cả file trừ master.m3u8
+      // Chuẩn bị danh sách upload tasks, loại trừ master.m3u8 và original.mp4
+      const uploadTasks = [];
       for (const filePath of allFiles) {
-        if (filePath !== masterPlaylistPath) {
-          const relativePath = path.relative(outputDir, filePath);
+        if (filePath !== masterPlaylistPath && filePath !== processInputFile) {
+          const relativePath = path.relative(processDir, filePath);
           const r2Key = path.join(r2HlsPath, relativePath).replace(/\\/g, '/');
-          await uploadFileToR2(filePath, r2Key);
+          uploadTasks.push({
+            filePath,
+            r2Key,
+            uploadPromise: uploadFileToR2(filePath, r2Key)
+          });
         }
+      }
+      
+      // Upload files với giới hạn concurrent
+      if (uploadTasks.length > 0) {
+        console.log(`[HLS Processor] Uploading ${uploadTasks.length} files in batches`);
+        await uploadFilesWithLimit(uploadTasks);
       }
       
       // Upload master.m3u8 cuối cùng
@@ -249,12 +381,38 @@ async function processHLS() {
         duration: duration,
         resolutions: resolutionsToUse.map(r => `${r.height}p`)
       });
+
+      // Xóa thư mục process sau khi hoàn thành
+      fs.rmSync(processDir, { recursive: true, force: true });
+      console.log(`[HLS Processor] Đã xóa thư mục process: ${processDir}`);
+
+      // Xóa file original.mp4 gốc một cách an toàn
+      try {
+        // Kiểm tra xem có process nào khác đang sử dụng file này không
+        const lockFile = `${inputFile}.lock`;
+        if (!fs.existsSync(lockFile)) {
+          fs.unlinkSync(inputFile);
+          console.log(`[HLS Processor] Đã xóa file original.mp4 gốc: ${inputFile}`);
+        } else {
+          console.log(`[HLS Processor] File original.mp4 đang được sử dụng bởi process khác, bỏ qua việc xóa`);
+        }
+      } catch (unlinkError) {
+        console.warn(`[HLS Processor] Không thể xóa file original.mp4 gốc: ${unlinkError.message}`);
+      }
+      
+      // Release R2 connection back to pool
+      s3Pool.releaseConnection(s3);
+      
     } catch (uploadError) {
       // Cập nhật metadata khi lỗi upload
       await updateJobMetadata({
         status: 'error',
         error: `Failed to upload files: ${uploadError.message}`
       });
+      
+      // Release R2 connection even on error
+      s3Pool.releaseConnection(s3);
+      
       throw uploadError;
     }
     
@@ -330,12 +488,12 @@ function getVideoDuration(file) {
 }
 
 // Hàm xử lý một độ phân giải và trả về thông tin cho master playlist
-async function processResolution(resolution, duration, completedResolutions, resolutionsToUse) {
+async function processResolution(resolution, duration, completedResolutions, resolutionsToUse, processDir) {
   const { height, bitrate } = resolution;
   return new Promise((resolve, reject) => {
     console.log(`[HLS Processor] Đang xử lý độ phân giải ${height}p với bitrate ${bitrate}`);
     
-    const outputFile = path.join(outputDir, `${height}p.m3u8`);
+    const outputFile = path.join(processDir, `${height}p.m3u8`);
     
     // Lấy thông tin video gốc để tính toán width
     const ffprobe = spawn('ffprobe', [
@@ -377,11 +535,12 @@ async function processResolution(resolution, duration, completedResolutions, res
       // Reset error output for this resolution
       ffmpegErrorOutput = '';
 
-      // Thêm -vf "scale=w=trunc(oh*a/2)*2:h=trunc(ih*240/ih/2)*2" để đảm bảo kích thước luôn chẵn
+      // Command ffmpeg để chuyển đổi video sang HLS với fMP4
       const ffmpeg = spawn('ffmpeg', [
+        '-y',  // Tự động ghi đè file nếu tồn tại
         '-i', inputFile,
         '-profile:v', 'main',
-        '-vf', `scale=w=trunc(oh*a/2)*2:h=${height}`,
+        '-vf', `scale=${width}:${height}`,
         '-c:v', 'h264',
         '-crf', '23',
         '-b:v', bitrate,
@@ -394,8 +553,7 @@ async function processResolution(resolution, duration, completedResolutions, res
         '-hls_list_size', '0',
         '-hls_segment_type', 'fmp4',
         '-hls_fmp4_init_filename', `init-${height}p.mp4`,
-        '-hls_segment_filename', path.join(outputDir, `segment_${height}p_%03d.m4s`),
-        '-y', // Ghi đè file nếu tồn tại
+        '-hls_segment_filename', path.join(processDir, `segment_${height}p_%03d.m4s`),
         outputFile
       ]);
       
@@ -446,6 +604,12 @@ async function processResolution(resolution, duration, completedResolutions, res
           console.log(`[HLS Processor] Độ phân giải ${height}p hoàn tất`);
           
           try {
+            // Kiểm tra file playlist và segments đã được tạo
+            if (!fs.existsSync(outputFile)) {
+              reject(new Error(`Playlist file was not created: ${outputFile}`));
+              return;
+            }
+
             // Đọc nội dung playlist
             let playlistContent = fs.readFileSync(outputFile, 'utf8');
             
@@ -462,6 +626,18 @@ async function processResolution(resolution, duration, completedResolutions, res
             
             // Ghi lại playlist
             fs.writeFileSync(outputFile, playlistContent);
+            
+            // Kiểm tra các segment files
+            const segmentPattern = new RegExp(`segment_${height}p_\\d+\\.m4s`);
+            const files = fs.readdirSync(processDir);
+            const segments = files.filter(f => segmentPattern.test(f));
+            
+            if (segments.length === 0) {
+              reject(new Error(`No segment files were created for ${height}p`));
+              return;
+            }
+
+            console.log(`[HLS Processor] Created ${segments.length} segments for ${height}p`);
             
             // Trả về thông tin cho master playlist
             resolve({
@@ -483,8 +659,8 @@ async function processResolution(resolution, duration, completedResolutions, res
   });
 }
 
-// Hàm upload một file lên R2
-async function uploadFileToR2(filePath, r2Key) {
+// Hàm upload một file lên R2 với retry và timeout
+async function uploadFileToR2(filePath, r2Key, retryCount = 0) {
   // Xác định ContentType dựa vào phần mở rộng
   let contentType = 'application/octet-stream';
   if (r2Key.endsWith('.m3u8')) contentType = 'application/vnd.apple.mpegurl';
@@ -493,7 +669,7 @@ async function uploadFileToR2(filePath, r2Key) {
   else if (r2Key.endsWith('.mp4')) contentType = 'video/mp4';
   else if (r2Key.endsWith('.jpg')) contentType = 'image/jpeg';
   
-  console.log(`[HLS Processor] Uploading ${filePath} to R2: ${r2Key} (${contentType})`);
+  console.log(`[HLS Processor] Uploading ${filePath} to R2: ${r2Key} (${contentType}) - Attempt ${retryCount + 1}`);
   
   try {
     // Kiểm tra file tồn tại
@@ -505,13 +681,20 @@ async function uploadFileToR2(filePath, r2Key) {
     const fileContent = fs.readFileSync(filePath);
     console.log(`[HLS Processor] File size: ${fileContent.length} bytes`);
 
-    // Upload lên R2
-    await s3.putObject({
+    // Upload lên R2 với timeout
+    const uploadPromise = s3.putObject({
       Bucket: r2Bucket,
       Key: r2Key,
       Body: fileContent,
       ContentType: contentType
     }).promise();
+    
+    // Thêm timeout cho upload
+    const timeoutPromise = new Promise((_, reject) => {
+      setTimeout(() => reject(new Error('Upload timeout')), CONFIG.UPLOAD_TIMEOUT);
+    });
+    
+    await Promise.race([uploadPromise, timeoutPromise]);
     
     // Kiểm tra file đã upload thành công
     try {
@@ -522,13 +705,55 @@ async function uploadFileToR2(filePath, r2Key) {
       
       console.log(`[HLS Processor] Uploaded successfully: ${r2Key}`);
       console.log(`[HLS Processor] R2 object size: ${headResult.ContentLength} bytes`);
+      
+      // Verify file size
+      if (headResult.ContentLength !== fileContent.length) {
+        throw new Error(`Size mismatch: local ${fileContent.length}, R2 ${headResult.ContentLength}`);
+      }
     } catch (headError) {
       throw new Error(`File uploaded but not accessible: ${headError.message}`);
     }
   } catch (error) {
     console.error(`[HLS Processor] Upload error for ${r2Key}: ${error.message}`);
-    throw new Error(`Failed to upload ${path.basename(filePath)}: ${error.message}`);
+    
+    // Retry logic
+    if (retryCount < CONFIG.RETRY_ATTEMPTS - 1) {
+      console.log(`[HLS Processor] Retrying upload for ${r2Key} in ${CONFIG.RETRY_DELAY}ms...`);
+      await new Promise(resolve => setTimeout(resolve, CONFIG.RETRY_DELAY));
+      return uploadFileToR2(filePath, r2Key, retryCount + 1);
+    }
+    
+    throw new Error(`Failed to upload ${path.basename(filePath)} after ${CONFIG.RETRY_ATTEMPTS} attempts: ${error.message}`);
   }
+}
+
+// Hàm upload nhiều files với giới hạn concurrent
+async function uploadFilesWithLimit(uploadTasks) {
+  const results = [];
+  
+  for (let i = 0; i < uploadTasks.length; i += CONFIG.MAX_CONCURRENT_UPLOADS) {
+    const batch = uploadTasks.slice(i, i + CONFIG.MAX_CONCURRENT_UPLOADS);
+    console.log(`[HLS Processor] Uploading batch ${Math.floor(i/CONFIG.MAX_CONCURRENT_UPLOADS) + 1}, ${batch.length} files`);
+    
+    const batchResults = await Promise.all(
+      batch.map(task => task.uploadPromise.catch(error => ({ error, task })))
+    );
+    
+    // Kiểm tra lỗi trong batch
+    const errors = batchResults.filter(result => result.error);
+    if (errors.length > 0) {
+      throw new Error(`Upload batch failed: ${errors.map(e => e.error.message).join(', ')}`);
+    }
+    
+    results.push(...batchResults);
+    
+    // Delay nhỏ giữa các batch để tránh overwhelm R2
+    if (i + CONFIG.MAX_CONCURRENT_UPLOADS < uploadTasks.length) {
+      await new Promise(resolve => setTimeout(resolve, 1000));
+    }
+  }
+  
+  return results;
 }
 
 // Gửi callback
