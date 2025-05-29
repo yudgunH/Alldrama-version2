@@ -172,10 +172,20 @@ Docker container "alldrama-hls-processor" sẽ tự động:
   ```json
   {
     "episodeId": 1,
-    "isProcessed": true,
-    "processingError": null,
-    "playlistUrl": "https://cdn.example.com/episodes/1/1/hls/master.m3u8",
-    "thumbnailUrl": "https://cdn.example.com/episodes/1/1/thumbnail.jpg"
+    "processingStatus": "processing",
+    "playlistUrl": null,
+    "thumbnailUrl": null,
+    "progress": 65,
+    "lastUpdated": "2024-01-15T10:30:00.000Z",
+    "estimatedTimeRemaining": 70,
+    "jobMetadata": {
+      "status": "PROCESSING",
+      "progress": 65,
+      "error": null,
+      "thumbnailUrl": "episodes/1/1/thumbnail.jpg",
+      "masterPlaylistUrl": "episodes/1/1/hls/master.m3u8",
+      "lastUpdated": "2024-01-15T10:30:00.000Z"
+    }
   }
   ```
 
@@ -210,56 +220,41 @@ Docker container "alldrama-hls-processor" sẽ tự động:
         ...
 ```
 
-## 4. Xử lý HLS bằng Docker Container
+## 4. Trạng thái xử lý (Processing Status)
 
-### 4.1. Cấu trúc Docker Container
+### 4.1. Các trạng thái có thể:
 
-Container sử dụng FFmpeg để xử lý video và NodeJS để điều phối quy trình:
+- **`pending`**: Đang chờ xử lý
+- **`processing`**: Đang xử lý HLS
+- **`completed`**: Xử lý hoàn thành
+- **`failed`**: Xử lý thất bại
+- **`unknown`**: Không xác định
+
+### 4.2. Tiến độ xử lý (Progress):
+
+- **0-10%**: Tạo thumbnail
+- **10-80%**: Chuyển đổi video các độ phân giải
+- **80-95%**: Upload file lên R2
+- **95-100%**: Hoàn tất và cleanup
+
+### 4.3. Kiểm tra trạng thái:
+
+#### API cơ bản:
 
 ```
-/hls-processor/
-  /processor.js     # Script chính điều phối quy trình
-  /package.json     # Dependencies
-  /Dockerfile       # Cấu hình container
-  /docker-compose.yml # Cấu hình chạy container
+GET /api/media/episodes/{episodeId}/processing-status
 ```
 
-### 4.2. Luồng làm việc
+#### API chi tiết:
 
-1. **Khởi động container**:
+```
+GET /api/media/episodes/{movieId}/{episodeId}/processing-status-detailed
+```
 
-   - Backend API nhận yêu cầu xử lý từ Worker
-   - Backend tải video từ R2
-   - Backend khởi động Docker container với các tham số cần thiết
+#### API tổng hợp (tất cả tập phim):
 
-2. **Xử lý trong container**:
-
-   - Tải video từ đường dẫn local hoặc URL
-   - Phát hiện độ phân giải gốc và thời lượng video
-   - Tạo thumbnail từ frame của video
-   - Xử lý chuyển đổi HLS với các độ phân giải khác nhau
-   - Upload kết quả lên R2 Storage
-
-3. **Kết thúc xử lý**:
-   - Gửi callback đến backend API
-   - Tự động xóa container
-   - Backend cập nhật trạng thái trong cơ sở dữ liệu
-
-### 4.3. Tham số Docker Container
-
-```shell
-docker run --rm \
-  -v /path/to/videos:/videos \
-  -e SOURCE_VIDEO=/videos/input.mp4 \
-  -e OUTPUT_DIR=/videos/output \
-  -e MOVIE_ID=123 \
-  -e EPISODE_ID=456 \
-  -e CALLBACK_URL=https://api.example.com/callback \
-  -e R2_ACCESS_KEY=access_key \
-  -e R2_SECRET_KEY=secret_key \
-  -e R2_ENDPOINT=https://storage.example.com \
-  -e R2_BUCKET=media-bucket \
-  alldrama-hls-processor
+```
+GET /api/media/movies/{movieId}/processing-status
 ```
 
 ## 5. Lưu ý quan trọng
