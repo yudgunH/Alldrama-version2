@@ -1,48 +1,22 @@
-version: '3.8'
+version: '3'
 
 services:
   hls-processor:
-    build: .
-    container_name: hls-processor-${MOVIE_ID}-${EPISODE_ID}
-    deploy:
-      resources:
-        limits:
-          cpus: '2.0'        # Giới hạn 2 CPU cores
-          memory: 4G         # Giới hạn 4GB RAM
-        reservations:
-          cpus: '0.5'        # Đảm bảo tối thiểu 0.5 CPU
-          memory: 1G         # Đảm bảo tối thiểu 1GB RAM
+    build:
+      context: .
+    image: alldrama-hls-processor:latest
     volumes:
-      - ${INPUT_FILE}:/data/input/original.mp4:ro  # Read-only mount
-      - ./output:/data/output
+      - ./temp:/input
+      - ./output:/output
     environment:
-      - MOVIE_ID=${MOVIE_ID}
-      - EPISODE_ID=${EPISODE_ID}
-      - R2_ACCOUNT_ID=${R2_ACCOUNT_ID}
-      - R2_ACCESS_KEY=${R2_ACCESS_KEY}
-      - R2_SECRET_KEY=${R2_SECRET_KEY}
-      - R2_BUCKET=${R2_BUCKET}
-      - CALLBACK_URL=${CALLBACK_URL}
-    command: >
-      node processor.js 
-      /data/input/original.mp4 
-      /data/output 
-      ${MOVIE_ID} 
-      ${EPISODE_ID} 
-      ${R2_ACCOUNT_ID} 
-      ${R2_ACCESS_KEY} 
-      ${R2_SECRET_KEY} 
-      ${R2_BUCKET} 
-      ${CALLBACK_URL}
-    restart: "no"  # Không tự động restart
-    networks:
-      - hls-network
-
-networks:
-  hls-network:
-    driver: bridge
-    driver_opts:
-      com.docker.network.driver.mtu: 1450
+      - NODE_ENV=production
+    restart: "no"
+    network_mode: "host"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    user: "root"
+    # Sẽ chạy thông qua command line, không tự động start
+    command: ["echo", "HLS processor container is ready"]
 
   test-run:
     image: alldrama-hls-processor:latest

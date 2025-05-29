@@ -513,31 +513,14 @@ export const processVideoFromWorker = async (req: Request, res: Response): Promi
     let backendHost;
     const isProd = process.env.NODE_ENV === 'production';
     
-    if (isProd) {
-      // Trong môi trường production (VPS), ưu tiên sử dụng PUBLIC_DOMAIN
-      if (process.env.PUBLIC_DOMAIN) {
-        backendHost = process.env.PUBLIC_DOMAIN;
-        logger.debug(`Using public domain for callback: ${backendHost}`);
-      } else {
-        // Nếu không có PUBLIC_DOMAIN, sử dụng IP public của VPS
-        try {
-          const { stdout } = await new Promise<{stdout: string, stderr: string}>((resolve) => {
-            exec('curl -s ifconfig.me', (error, stdout, stderr) => {
-              resolve({ stdout, stderr });
-            });
-          });
-          backendHost = stdout.trim();
-          logger.debug(`Using VPS public IP for callback: ${backendHost}`);
-        } catch (error) {
-          // Fallback to localhost if cannot get public IP
-          backendHost = '127.0.0.1';
-          logger.warn(`Failed to get public IP, falling back to: ${backendHost}`);
-        }
-      }
+    if (isProd && process.env.PUBLIC_DOMAIN) {
+      // Sử dụng tên miền public trong môi trường production
+      backendHost = process.env.PUBLIC_DOMAIN; // ví dụ: 'alldramaz.com'
+      logger.debug(`Using public domain for callback: ${backendHost}`);
     } else {
-      // Development environment
+      // Trong môi trường dev, sử dụng IP cục bộ
       backendHost = '127.0.0.1';
-      logger.debug(`Using localhost for callback in development: ${backendHost}`);
+      logger.debug(`Using localhost IP for callback: ${backendHost}`);
     }
     
     const backendPort = process.env.PORT || '5000';
@@ -759,13 +742,13 @@ export const hlsProcessorCallback = async (req: Request, res: Response): Promise
     
     // Xác thực Secret từ header nếu cần
     const backendSecret = req.header('X-Backend-Secret');
-    if (backendSecret !== process.env.BACKEND_SECRET && backendSecret !== 'alldrama-backend-secret') {
+    if (backendSecret !== 'alldrama-backend-secret') {
       logger.warn("Unauthorized callback - invalid backend secret");
       res.status(401).json({ error: 'Unauthorized' });
       return;
     }
     
-    const { status, movieId, episodeId, error, metadata, containerId } = req.body;
+    const { status, movieId, episodeId, error } = req.body;
     
     if (!status || !movieId || !episodeId) {
       logger.warn("Missing required fields in callback");
@@ -778,92 +761,35 @@ export const hlsProcessorCallback = async (req: Request, res: Response): Promise
     
     logger.info(`HLS processing ${status} for movie ${movieId}, episode ${episodeId}`);
     
-    // Kiểm tra container ID nếu có
-    if (containerId) {
-      try {
-        const { stdout: containerStatus } = await new Promise<{stdout: string, stderr: string}>((resolve) => {
-          exec(`docker ps -a --filter id=${containerId} --format "{{.Status}}"`, (error, stdout, stderr) => {
-            resolve({ stdout, stderr });
-          });
-        });
-        logger.debug(`Container ${containerId} status: ${containerStatus.trim()}`);
-      } catch (containerError) {
-        logger.warn(`Error checking container status: ${containerError}`);
-      }
-    }
-    
     if (status === 'completed') {
       // Cập nhật trạng thái và URL playlist
       const workerDomain = process.env.CLOUDFLARE_WORKER_DOMAIN || process.env.WORKER_DOMAIN;
       const playlistUrl = `https://${workerDomain}/episodes/${movieId}/${episodeId}/hls/master.m3u8`;
       
-      try {
-        await Episode.update(
-          { 
-            processingStatus: 'completed',
-            playlistUrl: playlistUrl,
-            processingError: null // Clear any previous error
-          },
-          { where: { id: episodeId } }
-        );
-        
-        logger.info(`HLS processing completed for episode ${episodeId}, updated playlist URL: ${playlistUrl}`);
-        
-        // Cleanup volume sau khi đã cập nhật database thành công
-        await cleanupVolume('hls-processor-data');
-      } catch (dbError) {
-        logger.error(`Error updating episode status: ${dbError}`);
-        throw dbError;
-      }
+      await Episode.update(
+        { 
+          processingStatus: 'completed',
+          playlistUrl: playlistUrl
+        },
+        { where: { id: episodeId } }
+      );
       
+      logger.info(`HLS processing completed for episode ${episodeId}, updated playlist URL: ${playlistUrl}`);
     } else if (status === 'error') {
       // Cập nhật trạng thái lỗi
-      try {
-        await Episode.update(
-          { 
-            processingStatus: 'failed',
-            processingError: error || 'Unknown error in HLS processing',
-            playlistUrl: null // Clear playlist URL if exists
-          },
-          { where: { id: episodeId } }
-        );
-        
-        logger.error(`HLS processing failed for episode ${episodeId}: ${error}`);
-        
-        // Cleanup volume khi có lỗi
-        await cleanupVolume('hls-processor-data');
-      } catch (dbError) {
-        logger.error(`Error updating episode error status: ${dbError}`);
-        throw dbError;
-      }
+      await Episode.update(
+        { 
+          processingStatus: 'failed',
+          processingError: error || 'Unknown error in HLS processing'
+        },
+        { where: { id: episodeId } }
+      );
       
-    } else if (status === 'metadata_update') {
-      // Xử lý cập nhật metadata mà KHÔNG cleanup volume
-      logger.debug(`HLS metadata update for episode ${episodeId}:`, metadata);
-      
-      if (metadata) {
-        try {
-          await Episode.update(
-            { 
-              processingStatus: 'processing',
-              duration: metadata.duration || null,
-              resolution: metadata.resolution || null,
-              bitrate: metadata.bitrate || null,
-              // Thêm các metadata khác nếu cần
-            },
-            { where: { id: episodeId } }
-          );
-          
-          logger.debug(`Updated episode ${episodeId} metadata successfully`);
-        } catch (dbError) {
-          logger.error(`Error updating episode metadata: ${dbError}`);
-          // Không throw error vì đây chỉ là cập nhật metadata
-        }
-      }
-      
-      // KHÔNG cleanup volume - container vẫn đang xử lý
-      logger.debug(`Metadata update processed, container continues processing...`);
+      logger.error(`HLS processing failed for episode ${episodeId}: ${error}`);
     }
+    
+    // Cleanup volume sau khi xử lý xong
+    await cleanupVolume('hls-processor-data');
     
     res.json({ 
       success: true,
@@ -905,9 +831,7 @@ const createVolumeIfNotExists = async (volumeName: string): Promise<boolean> => 
 
 const cleanupVolume = async (volumeName: string): Promise<void> => {
   try {
-    logger.debug(`Starting cleanup for volume: ${volumeName}`);
-
-    // 1. Kiểm tra các container đang sử dụng volume
+    // Kiểm tra và kill các container đang sử dụng volume
     const { stdout: usingContainers } = await new Promise<{stdout: string, stderr: string}>((resolve) => {
       exec(`docker ps -q --filter volume=${volumeName}`, (error, stdout, stderr) => {
         resolve({ stdout, stderr });
@@ -915,104 +839,35 @@ const cleanupVolume = async (volumeName: string): Promise<void> => {
     });
 
     if (usingContainers.trim()) {
-      logger.debug(`Found containers using volume: ${usingContainers}`);
-      
-      // Thử stop container trước khi force remove
-      for (const containerId of usingContainers.split('\n').filter(id => id)) {
-        try {
-          logger.debug(`Attempting to stop container: ${containerId}`);
-          execSync(`docker stop ${containerId}`);
-        } catch (stopError) {
-          logger.warn(`Failed to stop container ${containerId}, will try force remove:`, stopError);
-        }
-        
-        try {
-          logger.debug(`Removing container: ${containerId}`);
-          execSync(`docker rm -f ${containerId}`);
-        } catch (removeError) {
-          logger.error(`Failed to remove container ${containerId}:`, removeError);
-          // Continue with other containers
-        }
-      }
+      // Kill các container đang sử dụng volume
+      execSync(`docker rm -f ${usingContainers.split('\n').join(' ')}`);
+      logger.debug(`Removed containers using volume ${volumeName}`);
     }
 
-    // 2. Đảm bảo thư mục mount point trống trước khi xóa volume
-    try {
-      const { stdout: mountPoint } = await new Promise<{stdout: string, stderr: string}>((resolve) => {
-        exec(`docker volume inspect ${volumeName} --format '{{ .Mountpoint }}'`, (error, stdout, stderr) => {
-          resolve({ stdout, stderr });
-        });
-      });
-      
-      if (mountPoint.trim()) {
-        logger.debug(`Cleaning mount point: ${mountPoint.trim()}`);
-        // Sử dụng container tạm để cleanup
-        execSync(`docker run --rm -v ${volumeName}:/data alpine sh -c "rm -rf /data/*"`);
-      }
-    } catch (mountError) {
-      logger.warn(`Error cleaning mount point:`, mountError);
-    }
-
-    // 3. Xóa volume
-    try {
-      logger.debug(`Removing volume: ${volumeName}`);
-      execSync(`docker volume rm -f ${volumeName}`);
-      logger.info(`Successfully removed Docker volume: ${volumeName}`);
-    } catch (volumeError) {
-      logger.error(`Failed to remove volume ${volumeName}:`, volumeError);
-      throw volumeError; // Re-throw để caller có thể xử lý
-    }
+    // Xóa volume
+    execSync(`docker volume rm -f ${volumeName}`);
+    logger.debug(`Removed Docker volume: ${volumeName}`);
   } catch (error) {
-    logger.error(`Error during volume cleanup ${volumeName}:`, error);
-    throw error; // Re-throw để caller có thể xử lý
+    logger.warn(`Error cleaning up Docker volume ${volumeName}:`, error);
   }
 };
 
 const checkVolumeSpace = async (volumeName: string): Promise<boolean> => {
   try {
-    logger.debug(`Checking available space for volume: ${volumeName}`);
+    // Tạo container tạm để kiểm tra dung lượng
+    const tempContainer = `space-check-${Date.now()}`;
+    execSync(`docker run --rm -v ${volumeName}:/data --name ${tempContainer} alpine df -h /data`);
     
-    // Kiểm tra dung lượng trống trên filesystem của volume
-    const { stdout: dfOutput } = await new Promise<{stdout: string, stderr: string}>((resolve) => {
-      exec(
-        `docker run --rm -v ${volumeName}:/data alpine df -P /data | tail -1`,
-        (error, stdout, stderr) => {
-          resolve({ stdout, stderr });
-        }
-      );
+    // Phân tích output để kiểm tra dung lượng trống
+    const { stdout } = await new Promise<{stdout: string, stderr: string}>((resolve) => {
+      exec(`docker run --rm -v ${volumeName}:/data alpine df /data | tail -1 | awk '{print $4}'`, (error, stdout, stderr) => {
+        resolve({ stdout, stderr });
+      });
     });
-    
-    // Parse output của df command
-    const [filesystem, blocks, used, available] = dfOutput.trim().split(/\s+/);
-    const availableGB = Math.floor(parseInt(available) / (1024 * 1024)); // Convert KB to GB
-    
-    logger.debug(`Volume ${volumeName} has ${availableGB}GB available space`);
-    
-    // Kiểm tra filesystem type để đảm bảo volume được mount đúng
-    const { stdout: mountOutput } = await new Promise<{stdout: string, stderr: string}>((resolve) => {
-      exec(
-        `docker run --rm -v ${volumeName}:/data alpine mount | grep /data`,
-        (error, stdout, stderr) => {
-          resolve({ stdout, stderr });
-        }
-      );
-    });
-    
-    logger.debug(`Volume ${volumeName} mount info: ${mountOutput.trim()}`);
-    
-    // Yêu cầu ít nhất 5GB trống và filesystem phải là local
-    const hasEnoughSpace = availableGB >= 5;
-    const isLocalFs = !mountOutput.includes('overlay') && !mountOutput.includes('tmpfs');
-    
-    if (!hasEnoughSpace) {
-      logger.warn(`Insufficient space on volume ${volumeName}: ${availableGB}GB available, need at least 5GB`);
-    }
-    
-    if (!isLocalFs) {
-      logger.warn(`Volume ${volumeName} may not be using a local filesystem: ${mountOutput.trim()}`);
-    }
-    
-    return hasEnoughSpace && isLocalFs;
+
+    const availableSpace = parseInt(stdout.trim());
+    // Yêu cầu ít nhất 5GB trống
+    return availableSpace > 5000000;
   } catch (error) {
     logger.error(`Error checking volume space for ${volumeName}:`, error);
     return false;
