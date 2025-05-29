@@ -32,11 +32,9 @@ Authorization: Bearer {accessToken}
 ```json
 {
   "episodeId": 123,
-  "isProcessed": false,
-  "processingError": null,
+  "processingStatus": "processing",
   "playlistUrl": null,
-  "thumbnailUrl": null,
-  "processingStatus": "processing"
+  "thumbnailUrl": null
 }
 ```
 
@@ -70,8 +68,6 @@ Authorization: Bearer {accessToken}
   "success": true,
   "episodeId": 123,
   "movieId": 456,
-  "isProcessed": false,
-  "processingError": null,
   "processingStatus": "processing",
   "playlistUrl": null,
   "thumbnailUrl": null,
@@ -96,8 +92,6 @@ Authorization: Bearer {accessToken}
   "success": true,
   "episodeId": 123,
   "movieId": 456,
-  "isProcessed": true,
-  "processingError": null,
   "processingStatus": "completed",
   "playlistUrl": "https://worker-domain/episodes/456/123/hls/master.m3u8",
   "thumbnailUrl": "https://worker-domain/episodes/456/123/thumbnail.jpg"
@@ -147,9 +141,7 @@ Authorization: Bearer {accessToken}
       "episodeId": 123,
       "episodeNumber": 1,
       "title": "Tập 1",
-      "isProcessed": true,
       "processingStatus": "completed",
-      "processingError": null,
       "playlistUrl": "https://worker-domain/episodes/456/123/hls/master.m3u8",
       "thumbnailUrl": "https://worker-domain/episodes/456/123/thumbnail.jpg"
     },
@@ -157,9 +149,7 @@ Authorization: Bearer {accessToken}
       "episodeId": 124,
       "episodeNumber": 2,
       "title": "Tập 2",
-      "isProcessed": false,
       "processingStatus": "processing",
-      "processingError": null,
       "playlistUrl": null,
       "thumbnailUrl": null
     }

@@ -153,7 +153,7 @@ export class MediaService {
         videoUrl: originalUrl,
         thumbnailUrl,
         duration,
-        isProcessed: false 
+        processingStatus: 'pending'
       }, { where: { id: episodeId } });
       
       // Xóa file tạm
@@ -238,6 +238,14 @@ export class MediaService {
           }
           
           if (!downloadSuccess) {
+            // Cập nhật trạng thái thất bại
+            await Episode.update(
+              {
+                processingStatus: 'failed'
+              },
+              { where: { id: episodeId, movieId } }
+            );
+            
             throw new Error(`Không thể tải video sau 3 lần thử: ${lastError?.message || 'Lỗi không xác định'}`);
           }
           
@@ -248,7 +256,7 @@ export class MediaService {
           // Cập nhật trạng thái lỗi cho episode
           await Episode.update(
             {
-              isProcessed: false,
+              processingStatus: 'error',
               processingError: `Lỗi khi tải video: ${downloadError instanceof Error ? downloadError.message : String(downloadError)}`
             },
             { where: { id: episodeId, movieId } }
@@ -278,8 +286,7 @@ export class MediaService {
       // Cập nhật trạng thái episode trong database
       await Episode.update(
         {
-          isProcessed: true,
-          processingError: null,
+          processingStatus: 'completed',
           playlistUrl,
           thumbnailUrl
         },
@@ -322,8 +329,7 @@ export class MediaService {
       try {
         await Episode.update(
           {
-            isProcessed: false,
-            processingError: error instanceof Error ? error.message : 'Lỗi không xác định'
+            processingStatus: 'failed'
           },
           { where: { id: episodeId, movieId } }
         );
@@ -400,7 +406,7 @@ export class MediaService {
       
       // Cập nhật trạng thái episode là đang xử lý
       await Episode.update(
-        { isProcessed: false, processingError: null },
+        { processingStatus: 'pending' },
         { where: { id: episodeId, movieId } }
       );
       
@@ -548,11 +554,9 @@ export class MediaService {
    */
   public async getVideoProcessingStatus(episodeId: number): Promise<{
     episodeId: number;
-    isProcessed: boolean;
-    processingError: string | null;
+    processingStatus: string;
     playlistUrl: string | null;
     thumbnailUrl: string | null;
-    processingStatus?: string;
     progress?: number;
     lastUpdated?: string;
     jobMetadata?: any;
@@ -566,11 +570,9 @@ export class MediaService {
     // Thông tin cơ bản từ database
     const basicStatus = {
       episodeId,
-      isProcessed: episode.isProcessed,
-      processingError: episode.processingError,
+      processingStatus: episode.processingStatus || 'unknown',
       playlistUrl: episode.playlistUrl,
-      thumbnailUrl: episode.thumbnailUrl,
-      processingStatus: episode.processingStatus || 'unknown'
+      thumbnailUrl: episode.thumbnailUrl
     };
 
     // Nếu đang xử lý, lấy thêm thông tin chi tiết từ job-metadata

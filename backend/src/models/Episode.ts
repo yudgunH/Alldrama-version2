@@ -58,18 +58,6 @@ export class Episode extends Model {
   duration!: number;
 
   @Column({
-    type: DataType.BOOLEAN,
-    defaultValue: false
-  })
-  isProcessed!: boolean;
-
-  @Column({
-    type: DataType.TEXT,
-    allowNull: true
-  })
-  processingError!: string;
-
-  @Column({
     type: DataType.STRING,
     allowNull: true,
     defaultValue: 'pending'

@@ -442,8 +442,6 @@ export const getDetailedProcessingStatus = async (req: Request, res: Response): 
     const basicStatus = {
       episodeId: Number(episodeId),
       movieId: Number(movieId),
-      isProcessed: episode.isProcessed,
-      processingError: episode.processingError,
       processingStatus: episode.processingStatus || 'unknown',
       playlistUrl: episode.playlistUrl,
       thumbnailUrl: episode.thumbnailUrl
@@ -850,8 +848,7 @@ export const hlsProcessorCallback = async (req: Request, res: Response): Promise
       // Cập nhật trạng thái lỗi
       await Episode.update(
         { 
-          processingStatus: 'failed',
-          processingError: error || 'Unknown error in HLS processing'
+          processingStatus: 'failed'
         },
         { where: { id: episodeId } }
       );
@@ -983,7 +980,7 @@ export const getMovieProcessingStatus = async (req: Request, res: Response): Pro
     const episodes = await Episode.findAll({
       where: { movieId: Number(movieId) },
       order: [['episodeNumber', 'ASC']],
-      attributes: ['id', 'episodeNumber', 'title', 'isProcessed', 'processingStatus', 'processingError', 'playlistUrl', 'thumbnailUrl']
+      attributes: ['id', 'episodeNumber', 'title', 'processingStatus', 'playlistUrl', 'thumbnailUrl']
     });
     
     if (episodes.length === 0) {
@@ -1012,9 +1009,7 @@ export const getMovieProcessingStatus = async (req: Request, res: Response): Pro
         episodeId: episode.id,
         episodeNumber: episode.episodeNumber,
         title: episode.title,
-        isProcessed: episode.isProcessed,
         processingStatus: status,
-        processingError: episode.processingError,
         playlistUrl: episode.playlistUrl,
         thumbnailUrl: episode.thumbnailUrl
       };
