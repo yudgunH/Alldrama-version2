@@ -72,7 +72,75 @@ const HLS_SEGMENT_DURATION = '6';
 // Thêm biến để theo dõi lỗi ffmpeg
 let ffmpegErrorOutput = '';
 
-// Chuyển đổi video sang HLS với fMP4
+// Hàm tạo thumbnail từ video
+async function createThumbnail(videoPath, timeInSeconds = 10) {
+  return new Promise((resolve, reject) => {
+    console.log(`[HLS Processor] Đang tạo thumbnail tại giây thứ ${timeInSeconds}`);
+    
+    const thumbnailDir = path.join(outputDir, 'thumbnail');
+    if (!fs.existsSync(thumbnailDir)) {
+      fs.mkdirSync(thumbnailDir, { recursive: true });
+    }
+    
+    const thumbnailPath = path.join(thumbnailDir, 'thumbnail.jpg');
+    
+    const ffmpeg = spawn('ffmpeg', [
+      '-i', videoPath,
+      '-ss', timeInSeconds.toString(),
+      '-vframes', '1',
+      '-vf', 'scale=480:-1',
+      '-q:v', '2',
+      thumbnailPath
+    ]);
+    
+    ffmpeg.stderr.on('data', (data) => {
+      console.log(`[ffmpeg thumbnail] ${data.toString()}`);
+    });
+    
+    ffmpeg.on('close', async (code) => {
+      if (code === 0) {
+        try {
+          // Upload thumbnail lên R2
+          const r2ThumbnailPath = `episodes/${movieId}/${episodeId}/thumbnail.jpg`;
+          await uploadFileToR2(thumbnailPath, r2ThumbnailPath);
+          console.log(`[HLS Processor] Đã tạo và upload thumbnail thành công`);
+          resolve(r2ThumbnailPath);
+        } catch (error) {
+          reject(new Error(`Lỗi khi upload thumbnail: ${error.message}`));
+        }
+      } else {
+        reject(new Error(`ffmpeg exited with code ${code} when creating thumbnail`));
+      }
+    });
+  });
+}
+
+// Hàm cập nhật job metadata
+async function updateJobMetadata(metadata) {
+  if (!callbackUrl) return;
+  
+  try {
+    const response = await fetch(callbackUrl, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        status: 'metadata_update',
+        metadata: metadata
+      })
+    });
+    
+    if (!response.ok) {
+      throw new Error(`HTTP error! status: ${response.status}`);
+    }
+    console.log(`[HLS Processor] Đã cập nhật metadata thành công`);
+  } catch (error) {
+    console.error(`[HLS Processor] Lỗi khi cập nhật metadata: ${error.message}`);
+  }
+}
+
+// Cập nhật hàm processHLS để sử dụng các chức năng mới
 async function processHLS() {
   try {
     console.log(`[HLS Processor] Bắt đầu xử lý: ${inputFile}`);
@@ -82,10 +150,20 @@ async function processHLS() {
       fs.mkdirSync(outputDir, { recursive: true });
     }
     
-    // Lấy thông tin video để quyết định độ phân giải
+    // Lấy thông tin video để quyết định độ phân giải và cập nhật metadata
     console.log(`[HLS Processor] Đang lấy thông tin video...`);
     const duration = await getVideoDuration(inputFile);
     console.log(`[HLS Processor] Video có thời lượng: ${duration} giây`);
+    
+    // Cập nhật metadata
+    await updateJobMetadata({
+      duration: duration,
+      status: 'processing',
+      progress: 0
+    });
+    
+    // Tạo thumbnail
+    await createThumbnail(inputFile);
     
     // Nếu video dài hơn 20 phút, sử dụng ít độ phân giải hơn
     const resolutionsToUse = duration > 1200 ? REDUCED_RESOLUTIONS : RESOLUTIONS;
@@ -135,8 +213,22 @@ async function processHLS() {
       await uploadFileToR2(masterPlaylistPath, `${r2HlsPath}/master.m3u8`);
       
       console.log(`[HLS Processor] Upload hoàn tất`);
+
+      // Cập nhật metadata khi hoàn thành
+      await updateJobMetadata({
+        status: 'completed',
+        progress: 100,
+        hlsPath: r2HlsPath,
+        duration: duration,
+        resolutions: resolutionsToUse.map(r => `${r.height}p`)
+      });
     } catch (uploadError) {
-      throw new Error(`Failed to upload files: ${uploadError.message}`);
+      // Cập nhật metadata khi lỗi upload
+      await updateJobMetadata({
+        status: 'error',
+        error: `Failed to upload files: ${uploadError.message}`
+      });
+      throw uploadError;
     }
     
     // Gửi callback nếu có
@@ -150,6 +242,12 @@ async function processHLS() {
     process.exit(0);
   } catch (error) {
     console.error(`[HLS Processor] Lỗi: ${error.message}`);
+    
+    // Cập nhật metadata khi có lỗi
+    await updateJobMetadata({
+      status: 'error',
+      error: error.message
+    });
     
     // Gửi callback báo lỗi nếu có
     if (callbackUrl) {
@@ -276,17 +374,43 @@ async function processResolution(resolution) {
       
       // Giám sát tiến độ và lỗi ffmpeg
       let progressPattern = /time=(\d+:\d+:\d+.\d+)/;
-      ffmpeg.stderr.on('data', (data) => {
+      let lastProgress = 0;
+
+      ffmpeg.stderr.on('data', async (data) => {
         const dataString = data.toString();
         // Lưu lại output để debug
         ffmpegErrorOutput += dataString;
         
         const match = progressPattern.exec(dataString);
         if (match) {
-          console.log(`[ffmpeg-${height}p] Progress: ${match[1]}`);
-        } else {
-          // Log các thông báo không phải progress
-          console.log(`[ffmpeg-${height}p] ${dataString.trim()}`);
+          const timeStr = match[1];
+          // Chuyển định dạng HH:MM:SS.MS sang giây
+          const timeParts = timeStr.split(':');
+          const progressSeconds = 
+            parseFloat(timeParts[0]) * 3600 + 
+            parseFloat(timeParts[1]) * 60 + 
+            parseFloat(timeParts[2]);
+          
+          // Tính phần trăm tiến độ cho độ phân giải hiện tại
+          const currentProgress = Math.round((progressSeconds / duration) * 100);
+          
+          // Chỉ cập nhật khi tiến độ thay đổi đáng kể (mỗi 10%)
+          if (currentProgress % 10 === 0 && currentProgress !== lastProgress) {
+            lastProgress = currentProgress;
+            
+            // Tính toán tổng tiến độ dựa trên số lượng độ phân giải đã hoàn thành
+            const totalProgress = Math.round(
+              ((completedResolutions * 100) + currentProgress) / resolutionsToUse.length
+            );
+            
+            // Cập nhật metadata với tiến độ mới
+            await updateJobMetadata({
+              status: 'processing',
+              progress: totalProgress,
+              currentResolution: `${height}p`,
+              resolutionProgress: currentProgress
+            });
+          }
         }
       });
       
