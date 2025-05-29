@@ -14,6 +14,7 @@ const r2AccessKey = process.argv[7];      // R2 Access Key
 const r2Secret = process.argv[8];         // R2 Secret Key
 const r2Bucket = process.argv[9];         // R2 Bucket Name
 const callbackUrl = process.argv[10];     // Callback URL
+const volumeName = process.argv[11];      // Volume Name để cleanup
 
 console.log(`[HLS Processor] Khởi động với parameters:`);
 console.log(`- Input File: ${inputFile}`);
@@ -23,6 +24,7 @@ console.log(`- Episode ID: ${episodeId}`);
 console.log(`- R2 Account: ${r2AccountId}`);
 console.log(`- R2 Bucket: ${r2Bucket}`);
 console.log(`- Callback URL: ${callbackUrl}`);
+console.log(`- Volume Name: ${volumeName}`);
 
 // Kiểm tra file đầu vào tồn tại
 try {
@@ -81,6 +83,7 @@ async function createThumbnail(inputPath, outputPath) {
       '-ss', '00:00:02',
       '-frames:v', '1',
       '-vf', 'scale=480:-1',
+      '-y', // Tự động ghi đè file nếu tồn tại
       outputPath
     ]);
 
@@ -142,7 +145,7 @@ async function processHLS() {
     await updateJobMetadata(movieId, episodeId, 'PROCESSING', 0);
     
     // Tạo thumbnail
-    const thumbnailPath = path.join(outputDir, 'thumbnail.jpg');
+    const thumbnailPath = path.join(outputDir, `thumbnail_${movieId}_${episodeId}.jpg`);
     await createThumbnail(inputFile, thumbnailPath);
     await updateJobMetadata(movieId, episodeId, 'PROCESSING', 10);
     
@@ -162,9 +165,14 @@ async function processHLS() {
     
     // Xử lý từng độ phân giải và thu thập thông tin cho master playlist
     const streamInfos = [];
-    for (const resolution of resolutionsToUse) {
+    for (let i = 0; i < resolutionsToUse.length; i++) {
+      const resolution = resolutionsToUse[i];
       const streamInfo = await processResolution(resolution);
       streamInfos.push(streamInfo);
+      
+      // Cập nhật tiến độ: 20% -> 80% cho việc xử lý các độ phân giải
+      const progress = 20 + Math.round((i + 1) / resolutionsToUse.length * 60);
+      await updateJobMetadata(movieId, episodeId, 'PROCESSING', progress);
     }
     
     // Thêm thông tin stream vào master playlist theo thứ tự bitrate tăng dần
@@ -195,31 +203,27 @@ async function processHLS() {
         await uploadFileToR2(path.join(outputDir, file), `${r2HlsPath}/${file}`);
       }
       
+      // Cập nhật tiến độ upload: 85%
+      await updateJobMetadata(movieId, episodeId, 'PROCESSING', 85);
+      
       // Upload master.m3u8 cuối cùng
       await uploadFileToR2(masterPlaylistPath, `${r2HlsPath}/master.m3u8`);
       
-      // Upload thumbnail lên R2
+      // Upload thumbnail lên R2 (giữ tên chuẩn để tương thích với backend)
       const thumbnailKey = `episodes/${movieId}/${episodeId}/thumbnail.jpg`;
       await uploadFileToR2(thumbnailPath, thumbnailKey);
       
+      // Cập nhật tiến độ cuối: 95%
+      await updateJobMetadata(movieId, episodeId, 'PROCESSING', 95);
+      
       console.log(`[HLS Processor] Upload hoàn tất`);
+      
+      // Hoàn thành
+      await updateJobMetadata(movieId, episodeId, 'COMPLETED', 100);
     } catch (uploadError) {
       throw new Error(`Failed to upload files: ${uploadError.message}`);
     }
     
-    // Cập nhật tiến độ sau mỗi độ phân giải
-    const resolutions = ['240p', '360p', '480p', '720p', '1080p'];
-    for (let i = 0; i < resolutions.length; i++) {
-      await updateJobMetadata(movieId, episodeId, 'PROCESSING', 20 + (i * 15));
-    }
-
-    // Upload các file lên R2
-    // ... existing code ...
-    await updateJobMetadata(movieId, episodeId, 'PROCESSING', 95);
-
-    // Hoàn thành
-    await updateJobMetadata(movieId, episodeId, 'COMPLETED', 100);
-
     // Gửi callback nếu có
     if (callbackUrl) {
       await sendCallback('completed');
@@ -231,6 +235,9 @@ async function processHLS() {
     process.exit(0);
   } catch (error) {
     console.error(`[HLS Processor] Lỗi: ${error.message}`);
+    
+    // Cập nhật metadata với trạng thái lỗi
+    await updateJobMetadata(movieId, episodeId, 'ERROR', 0, error.message);
     
     // Gửi callback báo lỗi nếu có
     if (callbackUrl) {
@@ -457,7 +464,8 @@ async function sendCallback(status, error = null) {
             status,
             movieId,
             episodeId,
-            error
+            error,
+            volumeName
           }),
           timeout: 10000 // 10 seconds timeout
         });

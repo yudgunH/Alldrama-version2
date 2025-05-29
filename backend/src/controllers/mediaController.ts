@@ -530,8 +530,8 @@ export const processVideoFromWorker = async (req: Request, res: Response): Promi
     // Tạo job ID
     const jobId = `hls-job-${Date.now()}`;
     
-    // Tạo và kiểm tra volume
-    const volumeName = 'hls-processor-data';
+    // Tạo và kiểm tra volume với tên riêng cho mỗi job
+    const volumeName = `hls-processor-data-${movieId}-${episodeId}-${Date.now()}`;
     const volumeCreated = await createVolumeIfNotExists(volumeName);
     if (!volumeCreated) {
       throw new Error('Failed to create or verify Docker volume');
@@ -641,7 +641,7 @@ export const processVideoFromWorker = async (req: Request, res: Response): Promi
         '--rm', // Tự động xóa container sau khi chạy xong
         '--network', 'host', // Sử dụng network của host
         '--add-host=host.docker.internal:host-gateway', // Thêm host.docker.internal vào /etc/hosts
-        '-v', 'hls-processor-data:/data',
+        '-v', `${volumeName}:/data`,
         'alldrama-hls-processor',
         '/data/input/original.mp4',
         '/data/output',
@@ -651,7 +651,8 @@ export const processVideoFromWorker = async (req: Request, res: Response): Promi
         `${r2AccessKey}`,
         `${r2SecretKey}`,
         `${r2BucketName}`,
-        `${callbackUrl}`
+        `${callbackUrl}`,
+        `${volumeName}` // Truyền tên volume để cleanup
       ].join(' ');
       
       // Log lệnh Docker để debug
@@ -748,7 +749,7 @@ export const hlsProcessorCallback = async (req: Request, res: Response): Promise
       return;
     }
     
-    const { status, movieId, episodeId, error } = req.body;
+    const { status, movieId, episodeId, error, volumeName } = req.body;
     
     if (!status || !movieId || !episodeId) {
       logger.warn("Missing required fields in callback");
@@ -788,8 +789,14 @@ export const hlsProcessorCallback = async (req: Request, res: Response): Promise
       logger.error(`HLS processing failed for episode ${episodeId}: ${error}`);
     }
     
-    // Cleanup volume sau khi xử lý xong
-    await cleanupVolume('hls-processor-data');
+    // Cleanup volume sau khi xử lý xong (sử dụng tên volume đúng từ callback)
+    if (volumeName) {
+      await cleanupVolume(volumeName);
+    } else {
+      // Fallback cho trường hợp cũ
+      logger.warn(`No volumeName provided in callback, attempting cleanup with pattern`);
+      await cleanupVolumesByPattern(`hls-processor-data-${movieId}-${episodeId}`);
+    }
     
     res.json({ 
       success: true,
@@ -871,5 +878,28 @@ const checkVolumeSpace = async (volumeName: string): Promise<boolean> => {
   } catch (error) {
     logger.error(`Error checking volume space for ${volumeName}:`, error);
     return false;
+  }
+};
+
+const cleanupVolumesByPattern = async (pattern: string): Promise<void> => {
+  try {
+    // Tìm tất cả volume có tên chứa pattern
+    const { stdout: volumes } = await new Promise<{stdout: string, stderr: string}>((resolve) => {
+      exec(`docker volume ls --format "{{.Name}}" | grep "${pattern}"`, (error, stdout, stderr) => {
+        resolve({ stdout, stderr });
+      });
+    });
+
+    if (volumes.trim()) {
+      const volumeList = volumes.trim().split('\n');
+      for (const volume of volumeList) {
+        await cleanupVolume(volume.trim());
+      }
+      logger.debug(`Cleaned up volumes matching pattern: ${pattern}`);
+    } else {
+      logger.debug(`No volumes found matching pattern: ${pattern}`);
+    }
+  } catch (error) {
+    logger.warn(`Error cleaning up volumes by pattern ${pattern}:`, error);
   }
 }; 
