@@ -70,6 +70,13 @@ export class Episode extends Model {
   processingError!: string;
 
   @Column({
+    type: DataType.STRING,
+    allowNull: true,
+    defaultValue: 'pending'
+  })
+  processingStatus!: string; // pending, processing, completed, failed
+
+  @Column({
     type: DataType.INTEGER,
     defaultValue: 0
   })

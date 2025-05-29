@@ -423,6 +423,76 @@ export const getVideoProcessingStatus = async (req: Request, res: Response): Pro
   }
 };
 
+// Lấy trạng thái xử lý video chi tiết (bao gồm thông tin từ job-metadata)
+export const getDetailedProcessingStatus = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { movieId, episodeId } = req.params;
+    
+    // Lấy thông tin episode cơ bản
+    const episode = await Episode.findByPk(episodeId);
+    if (!episode) {
+      res.status(404).json({ 
+        success: false, 
+        error: 'Không tìm thấy tập phim' 
+      });
+      return;
+    }
+
+    // Thông tin cơ bản
+    const basicStatus = {
+      episodeId: Number(episodeId),
+      movieId: Number(movieId),
+      isProcessed: episode.isProcessed,
+      processingError: episode.processingError,
+      processingStatus: episode.processingStatus || 'unknown',
+      playlistUrl: episode.playlistUrl,
+      thumbnailUrl: episode.thumbnailUrl
+    };
+
+    // Nếu đang xử lý, lấy thông tin chi tiết từ job-metadata
+    if (episode.processingStatus === 'processing' || episode.processingStatus === 'pending') {
+      try {
+        const { downloadFromR2AsBuffer } = await import('../services/media/r2Service');
+        const metadataKey = `episodes/${movieId}/${episodeId}/hls/job-metadata.json`;
+        
+        const metadataBuffer = await downloadFromR2AsBuffer(metadataKey);
+        const jobMetadata = JSON.parse(metadataBuffer.toString());
+        
+        res.json({
+          success: true,
+          ...basicStatus,
+          progress: jobMetadata.progress || 0,
+          lastUpdated: jobMetadata.lastUpdated,
+          estimatedTimeRemaining: jobMetadata.progress ? Math.round((100 - jobMetadata.progress) * 2) : null, // ước tính thời gian còn lại (giây)
+          jobMetadata: {
+            status: jobMetadata.status,
+            progress: jobMetadata.progress,
+            error: jobMetadata.error,
+            thumbnailUrl: jobMetadata.thumbnailUrl,
+            masterPlaylistUrl: jobMetadata.masterPlaylistUrl,
+            lastUpdated: jobMetadata.lastUpdated
+          }
+        });
+        return;
+      } catch (metadataError) {
+        logger.warn(`Không thể lấy job metadata cho episode ${episodeId}:`, metadataError);
+        // Nếu không lấy được metadata, chỉ trả về thông tin cơ bản
+      }
+    }
+    
+    res.json({
+      success: true,
+      ...basicStatus
+    });
+  } catch (error) {
+    logger.error('Lỗi khi lấy trạng thái xử lý video chi tiết:', error);
+    res.status(500).json({ 
+      success: false, 
+      error: 'Lỗi khi lấy trạng thái xử lý video' 
+    });
+  }
+};
+
 // Hàm xử lý yêu cầu từ Worker
 export const processVideo = async (req: Request, res: Response): Promise<void> => {
   try {
@@ -901,5 +971,66 @@ const cleanupVolumesByPattern = async (pattern: string): Promise<void> => {
     }
   } catch (error) {
     logger.warn(`Error cleaning up volumes by pattern ${pattern}:`, error);
+  }
+};
+
+// Lấy trạng thái xử lý của tất cả tập phim trong một phim
+export const getMovieProcessingStatus = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { movieId } = req.params;
+    
+    // Lấy tất cả tập phim của phim
+    const episodes = await Episode.findAll({
+      where: { movieId: Number(movieId) },
+      order: [['episodeNumber', 'ASC']],
+      attributes: ['id', 'episodeNumber', 'title', 'isProcessed', 'processingStatus', 'processingError', 'playlistUrl', 'thumbnailUrl']
+    });
+    
+    if (episodes.length === 0) {
+      res.status(404).json({ 
+        success: false, 
+        error: 'Không tìm thấy tập phim nào cho phim này' 
+      });
+      return;
+    }
+
+    // Phân loại trạng thái
+    const statusSummary = {
+      total: episodes.length,
+      completed: 0,
+      processing: 0,
+      pending: 0,
+      failed: 0,
+      unknown: 0
+    };
+
+    const episodeStatuses = episodes.map(episode => {
+      const status = episode.processingStatus || 'unknown';
+      statusSummary[status as keyof typeof statusSummary]++;
+      
+      return {
+        episodeId: episode.id,
+        episodeNumber: episode.episodeNumber,
+        title: episode.title,
+        isProcessed: episode.isProcessed,
+        processingStatus: status,
+        processingError: episode.processingError,
+        playlistUrl: episode.playlistUrl,
+        thumbnailUrl: episode.thumbnailUrl
+      };
+    });
+
+    res.json({
+      success: true,
+      movieId: Number(movieId),
+      summary: statusSummary,
+      episodes: episodeStatuses
+    });
+  } catch (error) {
+    logger.error('Lỗi khi lấy trạng thái xử lý của phim:', error);
+    res.status(500).json({ 
+      success: false, 
+      error: 'Lỗi khi lấy trạng thái xử lý của phim' 
+    });
   }
 }; 

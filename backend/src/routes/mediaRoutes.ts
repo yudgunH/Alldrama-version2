@@ -7,6 +7,8 @@ import {
   getPresignedUploadUrl,
   deleteMedia,
   getVideoProcessingStatus,
+  getDetailedProcessingStatus,
+  getMovieProcessingStatus,
   processVideo,
   deleteEpisode,
   deleteMovie,
@@ -98,6 +100,12 @@ router.get('/episodes/:episodeId/processing-status',
   getVideoProcessingStatus
 );
 
+// Route lấy trạng thái xử lý video chi tiết (bao gồm thông tin từ job-metadata)
+router.get('/episodes/:movieId/:episodeId/processing-status-detailed',
+  authenticate,
+  getDetailedProcessingStatus
+);
+
 // Thêm route cho xử lý video từ worker
 router.post('/process-video', runAsyncWrapper(processVideoFromWorker));
 
@@ -110,5 +118,11 @@ router.delete('/movies/:movieId/:mediaType', authenticate, runAsyncWrapper(delet
 // Thêm route mới
 // Callback từ container HLS processor
 router.post('/hls-processor/callback', runAsyncWrapper(hlsProcessorCallback));
+
+// Route lấy trạng thái xử lý của tất cả tập phim trong một phim
+router.get('/movies/:movieId/processing-status',
+  authenticate,
+  getMovieProcessingStatus
+);
 
 export default router; 

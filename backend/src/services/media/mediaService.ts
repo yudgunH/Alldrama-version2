@@ -8,7 +8,8 @@ import {
   deleteFileFromR2,
   deleteHlsFiles,
   downloadFromR2,
-  uploadDirectoryToR2
+  uploadDirectoryToR2,
+  downloadFromR2AsBuffer
 } from './r2Service';
 import { 
   convertToHls, 
@@ -551,20 +552,59 @@ export class MediaService {
     processingError: string | null;
     playlistUrl: string | null;
     thumbnailUrl: string | null;
+    processingStatus?: string;
+    progress?: number;
+    lastUpdated?: string;
+    jobMetadata?: any;
   }> {
     const episode = await Episode.findByPk(episodeId);
     
     if (!episode) {
       throw new Error('Không tìm thấy tập phim');
     }
-    
-    return {
+
+    // Thông tin cơ bản từ database
+    const basicStatus = {
       episodeId,
       isProcessed: episode.isProcessed,
       processingError: episode.processingError,
       playlistUrl: episode.playlistUrl,
-      thumbnailUrl: episode.thumbnailUrl
+      thumbnailUrl: episode.thumbnailUrl,
+      processingStatus: episode.processingStatus || 'unknown'
     };
+
+    // Nếu đang xử lý, lấy thêm thông tin chi tiết từ job-metadata
+    if (episode.processingStatus === 'processing' || episode.processingStatus === 'pending') {
+      try {
+        // Lấy movieId từ episode
+        const movieId = episode.movieId;
+        
+        // Tải job-metadata từ R2
+        const metadataKey = `episodes/${movieId}/${episodeId}/hls/job-metadata.json`;
+        
+        const metadataBuffer = await downloadFromR2AsBuffer(metadataKey);
+        const jobMetadata = JSON.parse(metadataBuffer.toString());
+        
+        return {
+          ...basicStatus,
+          progress: jobMetadata.progress || 0,
+          lastUpdated: jobMetadata.lastUpdated,
+          jobMetadata: {
+            status: jobMetadata.status,
+            progress: jobMetadata.progress,
+            error: jobMetadata.error,
+            thumbnailUrl: jobMetadata.thumbnailUrl,
+            masterPlaylistUrl: jobMetadata.masterPlaylistUrl,
+            lastUpdated: jobMetadata.lastUpdated
+          }
+        };
+      } catch (metadataError) {
+        // Nếu không lấy được metadata, chỉ trả về thông tin cơ bản
+        this.logger.warn(`Không thể lấy job metadata cho episode ${episodeId}:`, metadataError);
+      }
+    }
+    
+    return basicStatus;
   }
 
   /**
