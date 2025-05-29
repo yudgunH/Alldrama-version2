@@ -567,7 +567,7 @@ app.delete("/admin/delete-r2-object/*", async (c) => {
     }
     
     // Lấy đường dẫn file cần xóa
-    const path = c.req.path.substring(20); // Bỏ '/admin/delete-r2-object/'
+    const path = c.req.path.replace('/admin/delete-r2-object/', '');
     
     if (!path || path.length < 5) {
       return c.json({ 
@@ -611,7 +611,7 @@ app.delete("/admin/delete-r2-prefix/*", async (c) => {
     }
     
     // Lấy prefix cần xóa
-    const prefix = c.req.path.substring(21); // Bỏ '/admin/delete-r2-prefix/'
+    const prefix = c.req.path.replace('/admin/delete-r2-prefix/', '');
     
     if (!prefix || prefix.length < 3) {
       return c.json({ 
