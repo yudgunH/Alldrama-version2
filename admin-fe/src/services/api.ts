@@ -1320,6 +1320,31 @@ export const genreApi = {
   getAll: () => {
     return api.get("/api/genres");
   },
+
+  // Get genre by ID
+  getById: (id: number) => {
+    return api.get(`/api/genres/${id}`);
+  },
+
+  // Get movies by genre
+  getMovies: (id: number) => {
+    return api.get(`/api/genres/${id}/movies`);
+  },
+
+  // Create new genre
+  create: (data: { name: string }) => {
+    return api.post("/api/genres", data);
+  },
+
+  // Update genre
+  update: (id: number, data: { name: string }) => {
+    return api.put(`/api/genres/${id}`, data);
+  },
+
+  // Delete genre
+  delete: (id: number) => {
+    return api.delete(`/api/genres/${id}`);
+  },
 };
 
 // User API
@@ -1347,6 +1372,36 @@ export const userApi = {
   // Delete user
   delete: (id: number) => {
     return api.delete(`/api/users/${id}`);
+  },
+};
+
+// Comment API
+export const commentApi = {
+  // Lấy danh sách bình luận của phim
+  getByMovieId: (movieId: number, page = 1, limit = 10, sort = 'createdAt', order = 'DESC') => {
+    return api.get(`/api/comments/movies/${movieId}`, {
+      params: { page, limit, sort, order }
+    });
+  },
+
+  // Lấy chi tiết bình luận
+  getById: (id: number) => {
+    return api.get(`/api/comments/${id}`);
+  },
+
+  // Tạo bình luận mới
+  create: (data: { movieId: number; comment: string }) => {
+    return api.post("/api/comments", data);
+  },
+
+  // Cập nhật bình luận
+  update: (id: number, data: { comment: string }) => {
+    return api.put(`/api/comments/${id}`, data);
+  },
+
+  // Xóa bình luận
+  delete: (id: number) => {
+    return api.delete(`/api/comments/${id}`);
   },
 };
 

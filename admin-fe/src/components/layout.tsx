@@ -1,7 +1,7 @@
 "use client"
 
 import { Button } from "@/components/ui/button"
-import { BarChart3, DollarSign, Film, LogOut, MessageSquare, Settings, Users } from "lucide-react"
+import { BarChart3, DollarSign, Film, LogOut, MessageSquare, Settings, Users, Tag } from "lucide-react"
 import { useAuth } from "@/components/auth-provider"
 import { useRouter, usePathname } from "next/navigation"
 import type React from "react"
@@ -50,6 +50,14 @@ export default function DashboardLayout({
           >
             <Film className="h-4 w-4" />
             Movies
+          </Button>
+          <Button
+            variant={isActive("/genres") ? "default" : "ghost"}
+            className="w-full justify-start gap-2"
+            onClick={() => handleNavigation("/genres")}
+          >
+            <Tag className="h-4 w-4" />
+            Thể loại
           </Button>
           <Button
             variant={isActive("/comments") ? "default" : "ghost"}
