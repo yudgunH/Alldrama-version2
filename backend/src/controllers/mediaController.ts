@@ -12,7 +12,9 @@ import {
   deleteFileFromR2,
   deleteHlsFiles,
   uploadDirectoryToR2,
-  downloadFromR2AsBuffer
+  downloadFromR2AsBuffer,
+  listFiles,
+  deleteFilesByPrefix as deleteFilesByPrefixR2
 } from '../services/media/r2Service';
 import { 
   convertToHls, 
@@ -1026,6 +1028,102 @@ export const getMovieProcessingStatus = async (req: Request, res: Response): Pro
     res.status(500).json({ 
       success: false, 
       error: 'Lỗi khi lấy trạng thái xử lý của phim' 
+    });
+  }
+};
+
+/**
+ * Liệt kê files trên R2 theo prefix (admin only)
+ */
+export const listR2Files = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const prefix = req.params.prefix || '';
+    
+    logger.info(`Admin đang liệt kê files với prefix: ${prefix}`);
+    
+    const files = await listFiles(prefix);
+    
+    res.json({
+      success: true,
+      prefix,
+      totalFiles: files.length,
+      files: files.map(file => ({
+        key: file,
+        url: `https://${process.env.CLOUDFLARE_WORKER_DOMAIN || process.env.WORKER_DOMAIN}/${file}`
+      }))
+    });
+  } catch (error) {
+    logger.error('Error listing R2 files:', error);
+    res.status(500).json({
+      success: false,
+      error: error instanceof Error ? error.message : 'Lỗi không xác định'
+    });
+  }
+};
+
+/**
+ * Xóa tất cả file theo prefix (admin only - NGUY HIỂM)
+ */
+export const deleteFilesByPrefix = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const prefix = req.params.prefix;
+    
+    if (!prefix || prefix.length < 3) {
+      res.status(400).json({
+        success: false,
+        error: 'Prefix quá ngắn hoặc không hợp lệ (tối thiểu 3 ký tự)'
+      });
+      return;
+    }
+    
+    logger.warn(`Admin đang xóa tất cả files với prefix: ${prefix}`);
+    
+    const totalDeleted = await deleteFilesByPrefixR2(prefix);
+    
+    res.json({
+      success: true,
+      message: `Đã xóa thành công ${totalDeleted} files`,
+      prefix,
+      totalDeleted
+    });
+  } catch (error) {
+    logger.error('Error deleting files by prefix:', error);
+    res.status(500).json({
+      success: false,
+      error: error instanceof Error ? error.message : 'Lỗi không xác định'
+    });
+  }
+};
+
+/**
+ * Xóa file đơn lẻ theo key (admin only)
+ */
+export const deleteR2File = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const key = req.params.key;
+    
+    if (!key) {
+      res.status(400).json({
+        success: false,
+        error: 'Key file không được để trống'
+      });
+      return;
+    }
+    
+    logger.info(`Admin đang xóa file: ${key}`);
+    
+    await deleteFileFromR2(key);
+    
+    res.json({
+      success: true,
+      message: `Đã xóa file thành công`,
+      key
+    });
+  } catch (error) {
+    logger.error('Error deleting R2 file:', error);
+    res.status(500).json({
+      success: false,
+      error: error instanceof Error ? error.message : 'Lỗi không xác định'
     });
   }
 }; 

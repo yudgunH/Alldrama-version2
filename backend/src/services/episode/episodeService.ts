@@ -1,5 +1,9 @@
 import { Episode } from '../../models/Episode';
 import { Movie } from '../../models/Movie';
+import { deleteAllEpisodeFiles } from '../media/r2Service';
+import { Logger } from '../../utils/logger';
+
+const logger = Logger.getLogger('EpisodeService');
 
 /**
  * Interface cho dữ liệu tạo Episode mới
@@ -132,7 +136,7 @@ export class EpisodeService {
   }
 
   /**
-   * Xóa tập phim
+   * Xóa tập phim và tất cả file liên quan trên R2
    */
   public async deleteEpisode(id: number) {
     const episode = await Episode.findByPk(id);
@@ -142,14 +146,27 @@ export class EpisodeService {
     }
     
     const movieId = episode.movieId;
+    const episodeId = episode.id;
     
-    // Xóa tập phim
-    await episode.destroy();
-    
-    // Cập nhật tổng số tập cho phim
-    await this.updateMovieTotalEpisodes(movieId);
-    
-    return true;
+    try {
+      logger.info(`Bắt đầu xóa tập phim ${episodeId} (phim ${movieId}) và tất cả file liên quan`);
+      
+      // 1. Xóa tất cả file trên R2 trước
+      await deleteAllEpisodeFiles(movieId, episodeId);
+      logger.info(`Đã xóa tất cả file R2 cho tập phim ${episodeId}`);
+      
+      // 2. Xóa record trong database
+      await episode.destroy();
+      logger.info(`Đã xóa record database cho tập phim ${episodeId}`);
+      
+      // 3. Cập nhật tổng số tập cho phim
+      await this.updateMovieTotalEpisodes(movieId);
+      
+      return true;
+    } catch (error) {
+      logger.error(`Lỗi khi xóa tập phim ${episodeId}:`, error);
+      throw error;
+    }
   }
 
   /**

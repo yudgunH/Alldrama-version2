@@ -1,6 +1,8 @@
 import { Logger } from '../utils/logger';
 import { Request, Response } from 'express';
 import { getEpisodeService } from '../services';
+import { Episode } from '../models/Episode';
+import { deleteAllEpisodeFiles } from '../services/media/r2Service';
 
 const logger = Logger.getLogger('episodeController');
 
@@ -123,5 +125,36 @@ export const deleteEpisode = async (req: Request, res: Response) => {
       return res.status(404).json({ message: error.message });
     }
     return res.status(500).json({ message: 'Lỗi khi xóa tập phim' });
+  }
+};
+
+// Xóa tất cả file R2 của tập phim (không xóa record database)
+export const deleteEpisodeFiles = async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    
+    // Kiểm tra tập phim có tồn tại không
+    const episode = await Episode.findByPk(Number(id));
+    if (!episode) {
+      return res.status(404).json({ message: 'Không tìm thấy tập phim' });
+    }
+    
+    // Xóa tất cả file từ R2
+    await deleteAllEpisodeFiles(episode.movieId, episode.id);
+    
+    // Cập nhật database để xóa tất cả URL media
+    await episode.update({ 
+      playlistUrl: null,
+      thumbnailUrl: null
+    });
+    
+    res.status(200).json({ 
+      message: 'Đã xóa tất cả file của tập phim thành công',
+      episodeId: Number(id),
+      movieId: episode.movieId
+    });
+  } catch (error) {
+    logger.error(`Error deleting episode files:`, error);
+    res.status(500).json({ message: 'Lỗi khi xóa tất cả file của tập phim' });
   }
 }; 

@@ -499,24 +499,37 @@ export const mediaApi = {
         mediaApi.handleR2ApiCall(
           () => mediaApi.deleteEpisodeR2Folder(movieId, episodeId),
           `xóa episode ${episodeId} của movie ${movieId} (pattern)`
-        ).catch((error) => {
-          // Ignore errors cho episodes không tồn tại
-          return { success: false, error }
+        ).then((result) => {
+          // Explicit success return
+          return { success: true, episodeId, method: result.method }
+        }).catch((error) => {
+          // Check for CORS success specifically
+          if (error.message?.includes('200 (OK)') || 
+              error.message?.includes('net::ERR_FAILED 200')) {
+            console.log(`✅ Episode ${episodeId} xóa thành công (CORS nhưng status 200)`)
+            return { success: true, episodeId, method: 'cors-success' }
+          }
+          
+          // Real failure
+          return { success: false, episodeId, error: error.message || 'Unknown error' }
         })
       )
     }
     
-    const results = await Promise.allSettled(deletePromises)
-    const successful = results.filter(r => 
-      r.status === 'fulfilled' && r.value.success
-    ).length
+    const results = await Promise.all(deletePromises)
+    const successful = results.filter(r => r.success).length
+    const successfulEpisodes = results.filter(r => r.success).map(r => r.episodeId)
     
     console.log(`🎯 Đã xóa ${successful}/${maxEpisodeId} episodes theo pattern của movie ${movieId}`)
+    if (successful > 0) {
+      console.log(`📝 Episodes đã xóa: ${successfulEpisodes.join(', ')}`)
+    }
     
     return { 
       success: successful > 0, 
       deletedCount: successful, 
       totalCount: maxEpisodeId,
+      deletedEpisodes: successfulEpisodes,
       method: 'pattern'
     }
   },
@@ -548,14 +561,27 @@ export const mediaApi = {
         } else {
           consecutiveFailures++
         }
-      } catch (error) {
-        consecutiveFailures++
-        console.log(`❌ Lần ${attempt}: Thất bại hoặc không còn episodes`)
-        
-        // Nếu thất bại liên tiếp 3 lần thì dừng
-        if (consecutiveFailures >= 3) {
-          console.log(`🛑 Dừng sau ${consecutiveFailures} lần thất bại liên tiếp`)
-          break
+      } catch (error: any) {
+        // Check for CORS success specifically
+        if (error.message?.includes('200 (OK)') || 
+            error.message?.includes('net::ERR_FAILED 200')) {
+          deletedCount++
+          consecutiveFailures = 0
+          console.log(`✅ Lần ${attempt}: Đã xóa 1 episode của movie ${movieId} (CORS nhưng status 200)`)
+          
+          // Delay nhỏ giữa các lần gọi
+          if (attempt < maxRetries) {
+            await new Promise(resolve => setTimeout(resolve, 500))
+          }
+        } else {
+          consecutiveFailures++
+          console.log(`❌ Lần ${attempt}: Thất bại hoặc không còn episodes`)
+          
+          // Nếu thất bại liên tiếp 3 lần thì dừng
+          if (consecutiveFailures >= 3) {
+            console.log(`🛑 Dừng sau ${consecutiveFailures} lần thất bại liên tiếp`)
+            break
+          }
         }
       }
     }
@@ -567,6 +593,189 @@ export const mediaApi = {
       deletedCount,
       totalAttempts: Math.min(attempt, maxRetries),
       method: 'retry'
+    }
+  },
+  
+  // Xóa folder với chunking thông minh - chia nhỏ việc xóa
+  deleteR2FolderWithChunking: async (folderPath: string, maxChunks = 50, onProgress?: (progress: { deleted: number, chunks: number }) => void) => {
+    console.log(`🔄 Bắt đầu xóa folder ${folderPath} với chunking (tối đa ${maxChunks} chunks)...`)
+    
+    let totalDeleted = 0
+    let consecutiveFailures = 0
+    let chunkIndex = 0
+    
+    for (; chunkIndex < maxChunks; chunkIndex++) {
+      try {
+        const result = await mediaApi.handleR2ApiCall(
+          () => mediaApi.deleteR2Folder(folderPath),
+          `xóa chunk ${chunkIndex + 1} của folder ${folderPath}`
+        )
+        
+        if (result.success) {
+          totalDeleted++
+          consecutiveFailures = 0
+          console.log(`✅ Chunk ${chunkIndex + 1}: Đã xóa một phần của folder ${folderPath}`)
+          
+          // Callback progress
+          if (onProgress) {
+            onProgress({ deleted: totalDeleted, chunks: chunkIndex + 1 })
+          }
+          
+          // Delay giữa các chunks để tránh rate limiting
+          await new Promise(resolve => setTimeout(resolve, 1000))
+        } else {
+          consecutiveFailures++
+        }
+      } catch (error: any) {
+        // Check for CORS success
+        if (error.message?.includes('200 (OK)') || 
+            error.message?.includes('net::ERR_FAILED 200')) {
+          totalDeleted++
+          consecutiveFailures = 0
+          console.log(`✅ Chunk ${chunkIndex + 1}: Đã xóa một phần của folder ${folderPath} (CORS nhưng status 200)`)
+          
+          // Callback progress
+          if (onProgress) {
+            onProgress({ deleted: totalDeleted, chunks: chunkIndex + 1 })
+          }
+          
+          // Delay giữa các chunks
+          await new Promise(resolve => setTimeout(resolve, 1000))
+        } else {
+          consecutiveFailures++
+          console.log(`❌ Chunk ${chunkIndex + 1}: Thất bại hoặc folder đã empty`)
+          
+          // Nếu thất bại liên tiếp 3 lần thì coi như đã xóa hết
+          if (consecutiveFailures >= 3) {
+            console.log(`🛑 Dừng sau ${consecutiveFailures} lần thất bại liên tiếp - folder có thể đã empty`)
+            break
+          }
+        }
+      }
+    }
+    
+    console.log(`🎯 Chunking completion: Đã xóa ${totalDeleted} chunks của folder ${folderPath}`)
+    
+    return {
+      success: totalDeleted > 0,
+      totalDeleted,
+      totalChunks: chunkIndex + 1,
+      method: 'chunking'
+    }
+  },
+  
+  // Xóa movie episodes với chunking thông minh
+  deleteMovieEpisodesWithChunking: async (movieId: number, maxChunks = 100, onProgress?: (progress: { deleted: number, chunks: number }) => void) => {
+    console.log(`🔄 Bắt đầu xóa episodes của movie ${movieId} với chunking...`)
+    
+    return await mediaApi.deleteR2FolderWithChunking(
+      `episodes/${movieId}`,
+      maxChunks,
+      onProgress
+    )
+  },
+  
+  // Xóa movie hoàn toàn với chunking
+  deleteCompleteMovieWithChunking: async (movieId: number, onProgress?: (progress: { 
+    step: 'movies' | 'episodes' | 'complete',
+    moviesDeleted: number,
+    episodesDeleted: number,
+    totalChunks: number
+  }) => void) => {
+    console.log(`🔄 Bắt đầu xóa hoàn toàn movie ${movieId} với chunking...`)
+    
+    let moviesDeleted = 0
+    let episodesDeleted = 0
+    let totalChunks = 0
+    
+    try {
+      // Bước 1: Xóa movies folder
+      if (onProgress) {
+        onProgress({ step: 'movies', moviesDeleted: 0, episodesDeleted: 0, totalChunks: 0 })
+      }
+      
+      const moviesResult = await mediaApi.deleteR2FolderWithChunking(
+        `movies/${movieId}`,
+        20, // Ít chunks hơn vì movies folder thường nhỏ hơn
+        (progress) => {
+          moviesDeleted = progress.deleted
+          totalChunks = progress.chunks
+          if (onProgress) {
+            onProgress({ step: 'movies', moviesDeleted, episodesDeleted, totalChunks })
+          }
+        }
+      )
+      
+      moviesDeleted = moviesResult.totalDeleted
+      
+      // Bước 2: Xóa episodes folder (thường lớn hơn nhiều)
+      if (onProgress) {
+        onProgress({ step: 'episodes', moviesDeleted, episodesDeleted: 0, totalChunks })
+      }
+      
+      const episodesResult = await mediaApi.deleteMovieEpisodesWithChunking(
+        movieId,
+        100, // Nhiều chunks hơn vì episodes thường lớn
+        (progress) => {
+          episodesDeleted = progress.deleted
+          totalChunks = moviesResult.totalChunks + progress.chunks
+          if (onProgress) {
+            onProgress({ step: 'episodes', moviesDeleted, episodesDeleted, totalChunks })
+          }
+        }
+      )
+      
+      episodesDeleted = episodesResult.totalDeleted
+      totalChunks = moviesResult.totalChunks + episodesResult.totalChunks
+      
+      // Hoàn thành
+      if (onProgress) {
+        onProgress({ step: 'complete', moviesDeleted, episodesDeleted, totalChunks })
+      }
+      
+      const totalDeleted = moviesDeleted + episodesDeleted
+      console.log(`🎯 Hoàn thành xóa movie ${movieId}: ${totalDeleted} chunks (${moviesDeleted} movies + ${episodesDeleted} episodes)`)
+      
+      return {
+        success: totalDeleted > 0,
+        moviesDeleted,
+        episodesDeleted,
+        totalDeleted,
+        totalChunks,
+        method: 'complete-chunking'
+      }
+    } catch (error) {
+      console.error(`❌ Lỗi khi xóa movie ${movieId} với chunking:`, error)
+      throw error
+    }
+  },
+  
+  // Helper để estimate kích thước folder trước khi xóa
+  estimateFolderSize: async (folderPath: string) => {
+    try {
+      const contents = await mediaApi.listR2FolderContents(folderPath)
+      const objects = contents.data?.objects || []
+      
+      const totalSize = objects.reduce((sum: number, obj: any) => sum + (obj.size || 0), 0)
+      const totalObjects = objects.length
+      
+      // Estimate chunks needed based on object count and size
+      const estimatedChunks = Math.ceil(totalObjects / 1000) + Math.ceil(totalSize / (100 * 1024 * 1024)) // 100MB chunks
+      
+      return {
+        totalObjects,
+        totalSize,
+        estimatedChunks: Math.max(1, estimatedChunks),
+        sizeFormatted: (totalSize / (1024 * 1024)).toFixed(2) + ' MB'
+      }
+    } catch (error) {
+      console.warn(`Không thể estimate size của folder ${folderPath}:`, error)
+      return {
+        totalObjects: 0,
+        totalSize: 0,
+        estimatedChunks: 10, // Default estimate
+        sizeFormatted: 'Unknown'
+      }
     }
   },
   
@@ -615,6 +824,347 @@ export const mediaApi = {
     } catch (error) {
       console.error(`Lỗi khi kiểm tra storage của movie ${movieId}:`, error)
       throw error
+    }
+  },
+  
+  // Advanced R2 Deletion APIs
+  
+  // Xóa toàn bộ objects trong folder bằng cách list trước rồi xóa từng batch
+  deleteR2FolderRecursive: async (folderPath: string, onProgress?: (progress: { 
+    listed: number, 
+    deleted: number, 
+    batches: number,
+    currentBatch: number,
+    failed: number
+  }) => void) => {
+    console.log(`🔄 Bắt đầu xóa recursive folder ${folderPath}...`)
+    
+    try {
+      // Bước 1: List tất cả objects trong folder
+      console.log(`📋 Listing objects trong folder ${folderPath}...`)
+      const listResponse = await axios.get(
+        `https://media.alldrama.tech/admin/list-r2-prefix/${folderPath}?detailed=true`,
+        {
+          headers: {
+            "Content-Type": "application/json",
+            "Authorization": "Bearer alldrama-production-token"
+          }
+        }
+      )
+      
+      const objects = listResponse.data?.objects || []
+      console.log(`📦 Tìm thấy ${objects.length} objects trong folder ${folderPath}`)
+      
+      if (objects.length === 0) {
+        console.log(`📂 Folder ${folderPath} đã trống hoặc không tồn tại`)
+        return {
+          success: true,
+          totalListed: 0,
+          totalDeleted: 0,
+          totalBatches: 0,
+          totalFailed: 0,
+          method: 'recursive-empty'
+        }
+      }
+      
+      // Bước 2: Chia objects thành batches (tối đa 100 objects mỗi batch)
+      const batchSize = 100
+      const batches = []
+      for (let i = 0; i < objects.length; i += batchSize) {
+        batches.push(objects.slice(i, i + batchSize))
+      }
+      
+      console.log(`📦 Chia thành ${batches.length} batches, mỗi batch ${batchSize} objects`)
+      
+      // Bước 3: Xóa từng batch với delay
+      let totalDeleted = 0
+      let totalFailed = 0
+      
+      for (let batchIndex = 0; batchIndex < batches.length; batchIndex++) {
+        const batch = batches[batchIndex]
+        console.log(`🗑️  Đang xóa batch ${batchIndex + 1}/${batches.length} (${batch.length} objects)...`)
+        
+        try {
+          // Gọi API xóa batch
+          const deleteResponse = await axios.delete(
+            `https://media.alldrama.tech/admin/delete-r2-batch`,
+            {
+              headers: {
+                "Content-Type": "application/json",
+                "Authorization": "Bearer alldrama-production-token"
+              },
+              data: {
+                objects: batch.map((obj: any) => ({ Key: obj.key || obj.Key }))
+              }
+            }
+          )
+          
+          const deletedCount = deleteResponse.data?.deleted || batch.length
+          totalDeleted += deletedCount
+          console.log(`✅ Batch ${batchIndex + 1}: Đã xóa ${deletedCount}/${batch.length} objects`)
+          
+        } catch (batchError: any) {
+          // Check for CORS success
+          if (batchError.message?.includes('200 (OK)') || 
+              batchError.message?.includes('net::ERR_FAILED 200')) {
+            totalDeleted += batch.length
+            console.log(`✅ Batch ${batchIndex + 1}: Đã xóa ${batch.length} objects (CORS nhưng status 200)`)
+          } else {
+            totalFailed += batch.length
+            console.error(`❌ Batch ${batchIndex + 1} thất bại:`, batchError.message)
+          }
+        }
+        
+        // Update progress
+        if (onProgress) {
+          onProgress({
+            listed: objects.length,
+            deleted: totalDeleted,
+            batches: batches.length,
+            currentBatch: batchIndex + 1,
+            failed: totalFailed
+          })
+        }
+        
+        // Delay giữa các batches để tránh rate limiting
+        if (batchIndex < batches.length - 1) {
+          await new Promise(resolve => setTimeout(resolve, 1500))
+        }
+      }
+      
+      console.log(`🎯 Recursive deletion hoàn thành: ${totalDeleted}/${objects.length} objects đã xóa, ${totalFailed} thất bại`)
+      
+      return {
+        success: totalDeleted > 0,
+        totalListed: objects.length,
+        totalDeleted,
+        totalBatches: batches.length,
+        totalFailed,
+        method: 'recursive-batch'
+      }
+      
+    } catch (error: any) {
+      console.error(`❌ Lỗi recursive deletion folder ${folderPath}:`, error)
+      throw error
+    }
+  },
+  
+  // Xóa movie episodes với recursive approach
+  deleteMovieEpisodesRecursive: async (movieId: number, onProgress?: (progress: { 
+    listed: number, 
+    deleted: number, 
+    batches: number,
+    currentBatch: number,
+    failed: number
+  }) => void) => {
+    console.log(`🔄 Bắt đầu xóa recursive episodes của movie ${movieId}...`)
+    return await mediaApi.deleteR2FolderRecursive(`episodes/${movieId}`, onProgress)
+  },
+  
+  // Xóa movie hoàn toàn với recursive approach
+  deleteCompleteMovieRecursive: async (movieId: number, onProgress?: (progress: { 
+    step: 'movies' | 'episodes' | 'complete',
+    moviesListed: number,
+    moviesDeleted: number,
+    moviesFailed: number,
+    episodesListed: number,
+    episodesDeleted: number,
+    episodesFailed: number,
+    totalBatches: number,
+    currentBatch: number
+  }) => void) => {
+    console.log(`🔄 Bắt đầu xóa recursive hoàn toàn movie ${movieId}...`)
+    
+    let moviesResult = { totalListed: 0, totalDeleted: 0, totalFailed: 0, totalBatches: 0 }
+    let episodesResult = { totalListed: 0, totalDeleted: 0, totalFailed: 0, totalBatches: 0 }
+    
+    try {
+      // Bước 1: Xóa movies folder
+      if (onProgress) {
+        onProgress({ 
+          step: 'movies', 
+          moviesListed: 0, moviesDeleted: 0, moviesFailed: 0,
+          episodesListed: 0, episodesDeleted: 0, episodesFailed: 0,
+          totalBatches: 0, currentBatch: 0
+        })
+      }
+      
+      moviesResult = await mediaApi.deleteR2FolderRecursive(
+        `movies/${movieId}`,
+        (progress) => {
+          if (onProgress) {
+            onProgress({
+              step: 'movies',
+              moviesListed: progress.listed,
+              moviesDeleted: progress.deleted,
+              moviesFailed: progress.failed,
+              episodesListed: 0,
+              episodesDeleted: 0,
+              episodesFailed: 0,
+              totalBatches: progress.batches,
+              currentBatch: progress.currentBatch
+            })
+          }
+        }
+      )
+      
+      // Bước 2: Xóa episodes folder
+      if (onProgress) {
+        onProgress({ 
+          step: 'episodes', 
+          moviesListed: moviesResult.totalListed,
+          moviesDeleted: moviesResult.totalDeleted,
+          moviesFailed: moviesResult.totalFailed,
+          episodesListed: 0, episodesDeleted: 0, episodesFailed: 0,
+          totalBatches: moviesResult.totalBatches, currentBatch: 0
+        })
+      }
+      
+      episodesResult = await mediaApi.deleteMovieEpisodesRecursive(
+        movieId,
+        (progress) => {
+          if (onProgress) {
+            onProgress({
+              step: 'episodes',
+              moviesListed: moviesResult.totalListed,
+              moviesDeleted: moviesResult.totalDeleted,
+              moviesFailed: moviesResult.totalFailed,
+              episodesListed: progress.listed,
+              episodesDeleted: progress.deleted,
+              episodesFailed: progress.failed,
+              totalBatches: moviesResult.totalBatches + progress.batches,
+              currentBatch: progress.currentBatch
+            })
+          }
+        }
+      )
+      
+      // Hoàn thành
+      const totalDeleted = moviesResult.totalDeleted + episodesResult.totalDeleted
+      const totalListed = moviesResult.totalListed + episodesResult.totalListed
+      const totalFailed = moviesResult.totalFailed + episodesResult.totalFailed
+      
+      if (onProgress) {
+        onProgress({ 
+          step: 'complete', 
+          moviesListed: moviesResult.totalListed,
+          moviesDeleted: moviesResult.totalDeleted,
+          moviesFailed: moviesResult.totalFailed,
+          episodesListed: episodesResult.totalListed,
+          episodesDeleted: episodesResult.totalDeleted,
+          episodesFailed: episodesResult.totalFailed,
+          totalBatches: moviesResult.totalBatches + episodesResult.totalBatches,
+          currentBatch: 0
+        })
+      }
+      
+      console.log(`🎯 Hoàn thành recursive deletion movie ${movieId}: ${totalDeleted}/${totalListed} objects (${totalFailed} failed)`)
+      
+      return {
+        success: totalDeleted > 0,
+        moviesResult,
+        episodesResult,
+        totalDeleted,
+        totalListed,
+        totalFailed,
+        method: 'complete-recursive'
+      }
+      
+    } catch (error) {
+      console.error(`❌ Lỗi recursive deletion movie ${movieId}:`, error)
+      throw error
+    }
+  },
+  
+  // Force cleanup - xóa theo pattern với brute force
+  forceCleanupMoviePattern: async (movieId: number, onProgress?: (progress: {
+    type: 'movies' | 'episodes' | 'individual',
+    attempted: number,
+    deleted: number,
+    failed: number,
+    current: string
+  }) => void) => {
+    console.log(`🔥 Bắt đầu force cleanup movie ${movieId} với pattern matching...`)
+    
+    let totalDeleted = 0
+    let totalAttempted = 0
+    let totalFailed = 0
+    
+    // Các patterns để thử xóa
+    const patterns = [
+      // Movies folder
+      `movies/${movieId}`,
+      `movies/${movieId}/poster.jpg`,
+      `movies/${movieId}/backdrop.jpg`, 
+      `movies/${movieId}/trailer.mp4`,
+      
+      // Episodes folder chính
+      `episodes/${movieId}`,
+      
+      // Individual episodes (thử từ 1-100)
+      ...Array.from({length: 100}, (_, i) => `episodes/${movieId}/${i + 1}`),
+      
+      // Specific episode files
+      ...Array.from({length: 50}, (_, i) => [
+        `episodes/${movieId}/${i + 1}/original.mp4`,
+        `episodes/${movieId}/${i + 1}/thumbnail.jpg`,
+        `episodes/${movieId}/${i + 1}/hls`,
+        `episodes/${movieId}/${i + 1}/hls/playlist.m3u8`,
+        `episodes/${movieId}/${i + 1}/thumbnails`
+      ]).flat()
+    ]
+    
+    for (const pattern of patterns) {
+      try {
+        totalAttempted++
+        
+        if (onProgress) {
+          onProgress({
+            type: pattern.startsWith('movies') ? 'movies' : 
+                  pattern.includes('/hls') || pattern.includes('.mp4') || pattern.includes('.jpg') ? 'individual' : 'episodes',
+            attempted: totalAttempted,
+            deleted: totalDeleted,
+            failed: totalFailed,
+            current: pattern
+          })
+        }
+        
+        // Detect if pattern is file or folder
+        const isFile = /\.(mp4|jpg|m3u8)$/.test(pattern)
+        
+        const result = await mediaApi.handleR2ApiCall(
+          () => isFile ? mediaApi.deleteR2File(pattern) : mediaApi.deleteR2Folder(pattern),
+          `force delete ${pattern}`
+        )
+        
+        if (result.success) {
+          totalDeleted++
+          console.log(`✅ Force deleted: ${pattern}`)
+        }
+        
+        // Small delay để không spam API
+        await new Promise(resolve => setTimeout(resolve, 200))
+        
+      } catch (error: any) {
+        if (error.message?.includes('200 (OK)') || 
+            error.message?.includes('net::ERR_FAILED 200')) {
+          totalDeleted++
+          console.log(`✅ Force deleted (CORS success): ${pattern}`)
+        } else {
+          totalFailed++
+          // Không log error vì nhiều pattern không tồn tại
+        }
+      }
+    }
+    
+    console.log(`🎯 Force cleanup hoàn thành: ${totalDeleted}/${totalAttempted} patterns (${totalFailed} failed)`)
+    
+    return {
+      success: totalDeleted > 0,
+      totalAttempted,
+      totalDeleted,
+      totalFailed,
+      method: 'force-pattern'
     }
   },
 };

@@ -29,4 +29,9 @@ router.delete('/:id', authenticate, requireAdmin, async (req: Request, res: Resp
   await episodeController.deleteEpisode(req, res);
 });
 
+// Xóa tất cả file R2 của tập phim mà không xóa record database - chỉ admin
+router.delete('/:id/files', authenticate, requireAdmin, async (req: Request, res: Response) => {
+  await episodeController.deleteEpisodeFiles(req, res);
+});
+
 export default router; 

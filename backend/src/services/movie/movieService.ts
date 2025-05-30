@@ -1,6 +1,8 @@
 import { Movie } from '../../models/Movie';
 import { Genre } from '../../models/Genre';
+import { Episode } from '../../models/Episode';
 import { cacheMovieData, getCachedMovieData, cacheSearchResults, getCachedSearchResults, CachedMovie } from '../redisService';
+import { deleteAllMovieFiles } from '../media/r2Service';
 import { Logger } from '../../utils/logger';
 
 const logger = Logger.getLogger('MovieService');
@@ -180,16 +182,37 @@ export class MovieService {
   }
 
   /**
-   * Xóa phim
+   * Xóa phim và tất cả các file liên quan trên R2
    */
   public async deleteMovie(id: number) {
-    const movie = await Movie.findByPk(id);
+    const movie = await Movie.findByPk(id, {
+      include: [
+        {
+          model: Episode,
+          attributes: ['id']
+        }
+      ]
+    });
     
     if (!movie) {
       return false;
     }
     
-    await movie.destroy();
-    return true;
+    try {
+      logger.info(`Bắt đầu xóa phim ${id} và tất cả file liên quan`);
+      
+      // 1. Xóa tất cả file trên R2 trước
+      await deleteAllMovieFiles(id);
+      logger.info(`Đã xóa tất cả file R2 cho phim ${id}`);
+      
+      // 2. Xóa các record trong database (episodes sẽ được xóa theo cascade)
+      await movie.destroy();
+      logger.info(`Đã xóa record database cho phim ${id}`);
+      
+      return true;
+    } catch (error) {
+      logger.error(`Lỗi khi xóa phim ${id}:`, error);
+      throw error;
+    }
   }
 } 

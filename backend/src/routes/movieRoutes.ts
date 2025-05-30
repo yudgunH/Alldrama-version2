@@ -34,4 +34,14 @@ router.delete('/:id', authenticate, requireAdmin, async (req: Request, res: Resp
   await movieController.deleteMovie(req, res);
 });
 
+// Xóa media cụ thể của phim (poster, backdrop, trailer) - chỉ admin
+router.delete('/:id/media/:mediaType', authenticate, requireAdmin, async (req: Request, res: Response) => {
+  await movieController.deleteMovieMedia(req, res);
+});
+
+// Xóa tất cả file R2 của phim mà không xóa record database - chỉ admin
+router.delete('/:id/files', authenticate, requireAdmin, async (req: Request, res: Response) => {
+  await movieController.deleteMovieFiles(req, res);
+});
+
 export default router; 

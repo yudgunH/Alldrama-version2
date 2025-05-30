@@ -18,6 +18,8 @@ import {
 import { imageUpload, videoUpload, validateFileType, authenticate, requireAdmin } from '../middleware';
 import { uploadLimiter } from '../middleware/rateLimit';
 import { runAsyncWrapper } from '../utils/runAsyncWrapper';
+import { Request, Response } from 'express';
+import * as mediaController from '../controllers/mediaController';
 
 const router = express.Router();
 
@@ -124,5 +126,22 @@ router.get('/movies/:movieId/processing-status',
   authenticate,
   getMovieProcessingStatus
 );
+
+// === ADMIN R2 MANAGEMENT ENDPOINTS ===
+
+// Liệt kê files trên R2 theo prefix (để debug)
+router.get('/admin/r2/list/:prefix(*)', authenticate, requireAdmin, async (req: Request, res: Response) => {
+  await mediaController.listR2Files(req, res);
+});
+
+// Xóa tất cả file theo prefix (nguy hiểm - chỉ admin)
+router.delete('/admin/r2/prefix/:prefix(*)', authenticate, requireAdmin, async (req: Request, res: Response) => {
+  await mediaController.deleteFilesByPrefix(req, res);
+});
+
+// Xóa file đơn lẻ theo key
+router.delete('/admin/r2/file/:key(*)', authenticate, requireAdmin, async (req: Request, res: Response) => {
+  await mediaController.deleteR2File(req, res);
+});
 
 export default router; 
