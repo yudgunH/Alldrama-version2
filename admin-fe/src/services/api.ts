@@ -225,19 +225,57 @@ export const mediaApi = {
   deleteMedia: (movieId: number, mediaType: "poster" | "backdrop" | "trailer") =>
     api.delete(`/api/movies/${movieId}/${mediaType}`),
     
-  // Xóa tập phim và media liên quan (bao gồm R2)
+  // === NEW IMPROVED DELETE APIs ===
+  
+  // Xóa phim hoàn toàn (improved API - xóa tất cả file R2 + database)
+  deleteMovieCompletely: (movieId: number) =>
+    api.delete(`/api/movies/${movieId}`),
+  
+  // Xóa media cụ thể của phim (improved API)
+  deleteMovieMedia: (movieId: number, mediaType: "poster" | "backdrop" | "trailer") =>
+    api.delete(`/api/movies/${movieId}/media/${mediaType}`),
+  
+  // Xóa tất cả file R2 của phim (giữ database)
+  deleteMovieFiles: (movieId: number) =>
+    api.delete(`/api/movies/${movieId}/files`),
+  
+  // Xóa tập phim hoàn toàn (improved API - xóa tất cả file R2 + database)
+  deleteEpisodeCompletely: (episodeId: number) =>
+    api.delete(`/api/episodes/${episodeId}`),
+  
+  // Xóa tất cả file R2 của tập phim (giữ database)
+  deleteEpisodeFiles: (episodeId: number) =>
+    api.delete(`/api/episodes/${episodeId}/files`),
+  
+  // === ADMIN R2 MANAGEMENT APIs ===
+  
+  // Liệt kê file theo prefix (admin only)
+  listR2FilesByPrefix: (prefix: string) =>
+    api.get(`/api/media/admin/r2/list/${prefix}`),
+  
+  // Xóa file theo prefix (admin only - NGUY HIỂM)
+  deleteR2FilesByPrefix: (prefix: string) =>
+    api.delete(`/api/media/admin/r2/prefix/${prefix}`),
+  
+  // Xóa file đơn lẻ (admin only)
+  deleteR2FileSingle: (key: string) =>
+    api.delete(`/api/media/admin/r2/file/${key}`),
+    
+  // === LEGACY DELETE APIs (keep for compatibility) ===
+    
+  // Xóa tập phim và media liên quan (bao gồm R2) - LEGACY
   deleteEpisode: (movieId: number, episodeId: number) =>
     api.delete(`/api/media/episodes/${movieId}/${episodeId}`),
   
-  // Xóa phim và tất cả media liên quan (bao gồm R2)
+  // Xóa phim và tất cả media liên quan (bao gồm R2) - LEGACY
   deleteMovie: (movieId: number) =>
     api.delete(`/api/media/movies/${movieId}`),
   
-  // Xóa tất cả media của phim (poster, backdrop, trailer) trên R2
+  // Xóa tất cả media của phim (poster, backdrop, trailer) trên R2 - LEGACY
   deleteAllMovieMedia: (movieId: number) =>
     api.delete(`/api/media/movies/${movieId}/all-media`),
   
-  // Xóa video và HLS files của episode trên R2
+  // Xóa video và HLS files của episode trên R2 - LEGACY
   deleteEpisodeMedia: (movieId: number, episodeId: number) =>
     api.delete(`/api/media/episodes/${movieId}/${episodeId}/video-media`),
   
@@ -1193,9 +1231,26 @@ export const movieApi = {
     return api.put(`/api/movies/${id}`, data);
   },
   
-  // Delete movie
+  // Delete movie (LEGACY - fallback to database only)
   delete: (id: number) => {
     return api.delete(`/api/movies/${id}`);
+  },
+  
+  // === IMPROVED DELETE METHODS ===
+  
+  // Xóa phim hoàn toàn (improved - xóa cả R2 files và database)
+  deleteCompletely: (id: number) => {
+    return mediaApi.deleteMovieCompletely(id);
+  },
+  
+  // Xóa media cụ thể của phim
+  deleteMedia: (id: number, mediaType: "poster" | "backdrop" | "trailer") => {
+    return mediaApi.deleteMovieMedia(id, mediaType);
+  },
+  
+  // Xóa tất cả file R2 (giữ database record)
+  deleteFiles: (id: number) => {
+    return mediaApi.deleteMovieFiles(id);
   },
   
   // Get movie episodes
@@ -1231,9 +1286,21 @@ export const episodeApi = {
     return api.put(`/api/episodes/${id}`, data);
   },
   
-  // Delete episode
+  // Delete episode (LEGACY - fallback to database only)
   delete: (id: number) => {
     return api.delete(`/api/episodes/${id}`);
+  },
+  
+  // === IMPROVED DELETE METHODS ===
+  
+  // Xóa tập phim hoàn toàn (improved - xóa cả R2 files và database)
+  deleteCompletely: (id: number) => {
+    return mediaApi.deleteEpisodeCompletely(id);
+  },
+  
+  // Xóa tất cả file R2 (giữ database record)
+  deleteFiles: (id: number) => {
+    return mediaApi.deleteEpisodeFiles(id);
   },
   
   // Get processing status

@@ -596,6 +596,208 @@ export function R2CleanupAdmin() {
     }
   }
 
+  // === IMPROVED DELETE APIs TESTING ===
+
+  // Test delete movie completely
+  const handleTestDeleteMovieCompletely = async () => {
+    const movieId = prompt("Nhập Movie ID để test Delete Movie Completely:")
+    if (!movieId || !movieId.trim()) return
+
+    if (!confirm(`Test DELETE MOVIE COMPLETELY ${movieId}?\n\nSẽ gọi improved API: DELETE /api/movies/${movieId}\nThao tác này KHÔNG THỂ HOÀN TÁC!`)) {
+      return
+    }
+
+    try {
+      setIsLoading(true)
+      console.log(`🧪 Testing deleteMovieCompletely API cho movie ${movieId}...`)
+      
+      const response = await mediaApi.deleteMovieCompletely(parseInt(movieId))
+      console.log(`✅ Improved API response:`, response.data)
+      
+      toast.success(`Test thành công: Đã xóa hoàn toàn movie ${movieId}`)
+      setResults(prev => [...prev, { 
+        path: `test-delete-movie-${movieId}`, 
+        type: 'test-improved-api', 
+        success: true, 
+        method: 'deleteMovieCompletely',
+        response: response.data
+      }])
+    } catch (error) {
+      console.error("Test deleteMovieCompletely thất bại:", error)
+      toast.error(`Test thất bại cho movie ${movieId}`)
+      setResults(prev => [...prev, { 
+        path: `test-delete-movie-${movieId}`, 
+        type: 'test-improved-api', 
+        success: false, 
+        method: 'deleteMovieCompletely',
+        error: (error as Error).message
+      }])
+    } finally {
+      setIsLoading(false)
+    }
+  }
+
+  // Test delete episode completely
+  const handleTestDeleteEpisodeCompletely = async () => {
+    const episodeId = prompt("Nhập Episode ID để test Delete Episode Completely:")
+    if (!episodeId || !episodeId.trim()) return
+
+    if (!confirm(`Test DELETE EPISODE COMPLETELY ${episodeId}?\n\nSẽ gọi improved API: DELETE /api/episodes/${episodeId}\nThao tác này KHÔNG THỂ HOÀN TÁC!`)) {
+      return
+    }
+
+    try {
+      setIsLoading(true)
+      console.log(`🧪 Testing deleteEpisodeCompletely API cho episode ${episodeId}...`)
+      
+      const response = await mediaApi.deleteEpisodeCompletely(parseInt(episodeId))
+      console.log(`✅ Improved API response:`, response.data)
+      
+      toast.success(`Test thành công: Đã xóa hoàn toàn episode ${episodeId}`)
+      setResults(prev => [...prev, { 
+        path: `test-delete-episode-${episodeId}`, 
+        type: 'test-improved-api', 
+        success: true, 
+        method: 'deleteEpisodeCompletely',
+        response: response.data
+      }])
+    } catch (error) {
+      console.error("Test deleteEpisodeCompletely thất bại:", error)
+      toast.error(`Test thất bại cho episode ${episodeId}`)
+      setResults(prev => [...prev, { 
+        path: `test-delete-episode-${episodeId}`, 
+        type: 'test-improved-api', 
+        success: false, 
+        method: 'deleteEpisodeCompletely',
+        error: (error as Error).message
+      }])
+    } finally {
+      setIsLoading(false)
+    }
+  }
+
+  // Test list R2 files
+  const handleTestListR2Files = async () => {
+    const prefix = prompt("Nhập prefix để test List R2 Files:", "movies/8")
+    if (!prefix || !prefix.trim()) return
+
+    try {
+      setIsLoading(true)
+      console.log(`🧪 Testing listR2FilesByPrefix API cho prefix ${prefix}...`)
+      
+      const response = await mediaApi.listR2FilesByPrefix(prefix)
+      console.log(`✅ List R2 Files response:`, response.data)
+      
+      const fileCount = response.data?.files?.length || 0
+      toast.success(`Test thành công: Tìm thấy ${fileCount} files với prefix ${prefix}`)
+      setResults(prev => [...prev, { 
+        path: `test-list-r2-${prefix}`, 
+        type: 'test-improved-api', 
+        success: true, 
+        method: 'listR2FilesByPrefix',
+        totalListed: fileCount,
+        response: response.data
+      }])
+    } catch (error) {
+      console.error("Test listR2FilesByPrefix thất bại:", error)
+      toast.error(`Test thất bại cho prefix ${prefix}`)
+      setResults(prev => [...prev, { 
+        path: `test-list-r2-${prefix}`, 
+        type: 'test-improved-api', 
+        success: false, 
+        method: 'listR2FilesByPrefix',
+        error: (error as Error).message
+      }])
+    } finally {
+      setIsLoading(false)
+    }
+  }
+
+  // Test delete R2 files by prefix
+  const handleTestDeleteR2FilesByPrefix = async () => {
+    const prefix = prompt("Nhập prefix để test Delete R2 by Prefix:", "episodes/999")
+    if (!prefix || !prefix.trim()) return
+
+    if (prefix.length < 3) {
+      toast.error("Prefix phải có ít nhất 3 ký tự để bảo vệ")
+      return
+    }
+
+    if (!confirm(`Test DELETE R2 BY PREFIX: ${prefix}?\n\nSẽ gọi improved API: DELETE /api/media/admin/r2/prefix/${prefix}\nThao tác này KHÔNG THỂ HOÀN TÁC!`)) {
+      return
+    }
+
+    try {
+      setIsLoading(true)
+      console.log(`🧪 Testing deleteR2FilesByPrefix API cho prefix ${prefix}...`)
+      
+      const response = await mediaApi.deleteR2FilesByPrefix(prefix)
+      console.log(`✅ Delete R2 by Prefix response:`, response.data)
+      
+      const deletedCount = response.data?.totalDeleted || 0
+      toast.success(`Test thành công: Đã xóa ${deletedCount} files với prefix ${prefix}`)
+      setResults(prev => [...prev, { 
+        path: `test-delete-r2-prefix-${prefix}`, 
+        type: 'test-improved-api', 
+        success: true, 
+        method: 'deleteR2FilesByPrefix',
+        totalDeleted: deletedCount,
+        response: response.data
+      }])
+    } catch (error) {
+      console.error("Test deleteR2FilesByPrefix thất bại:", error)
+      toast.error(`Test thất bại cho prefix ${prefix}`)
+      setResults(prev => [...prev, { 
+        path: `test-delete-r2-prefix-${prefix}`, 
+        type: 'test-improved-api', 
+        success: false, 
+        method: 'deleteR2FilesByPrefix',
+        error: (error as Error).message
+      }])
+    } finally {
+      setIsLoading(false)
+    }
+  }
+
+  // Test delete R2 single file
+  const handleTestDeleteR2FileSingle = async () => {
+    const fileKey = prompt("Nhập file key để test Delete R2 Single File:", "movies/999/poster.jpg")
+    if (!fileKey || !fileKey.trim()) return
+
+    if (!confirm(`Test DELETE R2 SINGLE FILE: ${fileKey}?\n\nSẽ gọi improved API: DELETE /api/media/admin/r2/file/${fileKey}\nThao tác này KHÔNG THỂ HOÀN TÁC!`)) {
+      return
+    }
+
+    try {
+      setIsLoading(true)
+      console.log(`🧪 Testing deleteR2FileSingle API cho file ${fileKey}...`)
+      
+      const response = await mediaApi.deleteR2FileSingle(fileKey)
+      console.log(`✅ Delete R2 Single File response:`, response.data)
+      
+      toast.success(`Test thành công: Đã xóa file ${fileKey}`)
+      setResults(prev => [...prev, { 
+        path: `test-delete-r2-file-${fileKey}`, 
+        type: 'test-improved-api', 
+        success: true, 
+        method: 'deleteR2FileSingle',
+        response: response.data
+      }])
+    } catch (error) {
+      console.error("Test deleteR2FileSingle thất bại:", error)
+      toast.error(`Test thất bại cho file ${fileKey}`)
+      setResults(prev => [...prev, { 
+        path: `test-delete-r2-file-${fileKey}`, 
+        type: 'test-improved-api', 
+        success: false, 
+        method: 'deleteR2FileSingle',
+        error: (error as Error).message
+      }])
+    } finally {
+      setIsLoading(false)
+    }
+  }
+
   // Clear results
   const clearResults = () => {
     setResults([])
@@ -948,6 +1150,58 @@ movies/8/poster.jpg`}
             >
               <AlertTriangle className="mr-2 h-4 w-4" />
               FORCE CLEANUP Movie
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Improved Delete APIs Testing */}
+      <Card>
+        <CardHeader>
+          <CardTitle>🚀 Improved Delete APIs (Test)</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+            <Button 
+              onClick={handleTestDeleteMovieCompletely}
+              disabled={isLoading}
+              variant="destructive"
+            >
+              <Trash2 className="mr-2 h-4 w-4" />
+              Test Delete Movie Completely
+            </Button>
+            <Button 
+              onClick={handleTestDeleteEpisodeCompletely}
+              disabled={isLoading}
+              variant="destructive"
+            >
+              <Trash2 className="mr-2 h-4 w-4" />
+              Test Delete Episode Completely
+            </Button>
+            <Button 
+              onClick={handleTestListR2Files}
+              disabled={isLoading}
+              variant="outline"
+            >
+              <Search className="mr-2 h-4 w-4" />
+              Test List R2 Files
+            </Button>
+            <Button 
+              onClick={handleTestDeleteR2FilesByPrefix}
+              disabled={isLoading}
+              variant="destructive"
+              className="bg-orange-600 hover:bg-orange-700"
+            >
+              <AlertTriangle className="mr-2 h-4 w-4" />
+              Test Delete R2 by Prefix
+            </Button>
+            <Button 
+              onClick={handleTestDeleteR2FileSingle}
+              disabled={isLoading}
+              variant="outline"
+            >
+              <Trash2 className="mr-2 h-4 w-4" />
+              Test Delete R2 Single File
             </Button>
           </div>
         </CardContent>

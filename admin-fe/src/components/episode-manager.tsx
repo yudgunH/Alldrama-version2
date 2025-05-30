@@ -309,9 +309,10 @@ export function EpisodeManager({ movieId, movieTitle }: EpisodeManagerProps) {
                     updatedAt: updatedAt,
                     estimatedTimeRemaining: "Đang xử lý...",
                     steps: [
-                      { name: "Tải lên video gốc", status: "completed", completedAt: createdAt },
-                      { name: "Xử lý HLS", status: "processing", progress: progress },
-                      { name: "Tạo playlist", status: status === "processing" ? "processing" : "pending" }
+                      { name: "Tải lên video gốc", status: "completed", completedAt: new Date().toISOString() },
+                      { name: "Tạo thumbnail", status: "processing", progress: progress },
+                      { name: "Chuyển đổi sang HLS", status: "pending" },
+                      { name: "Tạo playlist", status: "pending" }
                     ]
                   });
                 }
@@ -668,50 +669,67 @@ export function EpisodeManager({ movieId, movieTitle }: EpisodeManagerProps) {
         return
       }
       
-      // Bước 1: Xóa database trước (để tránh trạng thái inconsistent)
-      await episodeApi.delete(id)
+      console.log(`🗑️ Bắt đầu xóa episode ${id} với improved API...`)
       
-      // Bước 2: Xóa toàn bộ folder của episode trên R2
       try {
-        // Thử direct API trước với improved error handling
-        const result = await mediaApi.handleR2ApiCall(
-          () => mediaApi.deleteEpisodeR2Folder(movieId, id),
-          `xóa folder episode ${id}`
-        )
-        console.log(`Đã xóa folder R2 của episode ${id} qua ${result.method}`)
-      } catch (directError) {
-        console.warn(`Direct API thất bại cho episode ${id}:`, directError)
+        // Sử dụng improved delete API - xóa hoàn toàn (R2 + database)
+        console.log(`🚀 Gọi improved delete API cho episode ${id}...`)
+        await episodeApi.deleteCompletely(id)
+        console.log(`✅ Improved API đã xóa hoàn toàn episode ${id}`)
         
-        // Fallback: Xóa từng file riêng lẻ với improved handling
+        toast.success("Đã xóa tập phim và tất cả media liên quan thành công")
+        
+      } catch (improvedError: any) {
+        console.error(`❌ Improved API thất bại cho episode ${id}:`, improvedError)
+        
+        // Fallback to legacy method
+        console.log(`🔄 Fallback to legacy method cho episode ${id}...`)
+        
+        // Bước 1: Xóa database trước (để tránh trạng thái inconsistent)
+        await episodeApi.delete(id)
+        
+        // Bước 2: Xóa toàn bộ folder của episode trên R2
         try {
-          const cleanupResults = await Promise.allSettled([
-            // HLS folder
-            mediaApi.handleR2ApiCall(
-              () => mediaApi.deleteEpisodeHLSFolder(movieId, id),
-              `xóa HLS folder episode ${id}`
-            ).catch(() => api.delete(`/api/media/episodes/${movieId}/${id}/hls`)),
-            
-            // Original video
-            mediaApi.handleR2ApiCall(
-              () => mediaApi.deleteEpisodeOriginalVideo(movieId, id),
-              `xóa video gốc episode ${id}`
-            ).catch(() => api.delete(`/api/media/episodes/${movieId}/${id}/video`)),
-            
-            // Thumbnail
-            mediaApi.handleR2ApiCall(
-              () => mediaApi.deleteEpisodeThumbnail(movieId, id),
-              `xóa thumbnail episode ${id}`
-            ).catch(() => api.delete(`/api/media/episodes/${movieId}/${id}/thumbnail`)),
-          ])
+          // Thử direct API trước với improved error handling
+          const result = await mediaApi.handleR2ApiCall(
+            () => mediaApi.deleteEpisodeR2Folder(movieId, id),
+            `xóa folder episode ${id}`
+          )
+          console.log(`Đã xóa folder R2 của episode ${id} qua ${result.method}`)
+        } catch (directError) {
+          console.warn(`Direct API thất bại cho episode ${id}:`, directError)
           
-          const successful = cleanupResults.filter(r => r.status === 'fulfilled').length
-          console.log(`Đã xóa ${successful}/3 file media của episode ${id}`)
-        } catch (individualError) {
-          console.warn(`Không thể xóa các file riêng lẻ của episode ${id}:`, individualError)
+          // Fallback: Xóa từng file riêng lẻ với improved handling
+          try {
+            const cleanupResults = await Promise.allSettled([
+              // HLS folder
+              mediaApi.handleR2ApiCall(
+                () => mediaApi.deleteEpisodeHLSFolder(movieId, id),
+                `xóa HLS folder episode ${id}`
+              ).catch(() => api.delete(`/api/media/episodes/${movieId}/${id}/hls`)),
+              
+              // Original video
+              mediaApi.handleR2ApiCall(
+                () => mediaApi.deleteEpisodeOriginalVideo(movieId, id),
+                `xóa video gốc episode ${id}`
+              ).catch(() => api.delete(`/api/media/episodes/${movieId}/${id}/video`)),
+              
+              // Thumbnail
+              mediaApi.handleR2ApiCall(
+                () => mediaApi.deleteEpisodeThumbnail(movieId, id),
+                `xóa thumbnail episode ${id}`
+              ).catch(() => api.delete(`/api/media/episodes/${movieId}/${id}/thumbnail`)),
+            ])
+            
+            const successful = cleanupResults.filter(r => r.status === 'fulfilled').length
+            console.log(`Đã xóa ${successful}/3 file media của episode ${id}`)
+          } catch (individualError) {
+            console.warn(`Không thể xóa các file riêng lẻ của episode ${id}:`, individualError)
+          }
         }
+        
+        toast.success("Đã xóa tập phim và tất cả media liên quan thành công (fallback)")
       }
-      
-      toast.success("Đã xóa tập phim và tất cả media liên quan thành công")
       
       // Cleanup UI states
       setProcessingPollingIds(prev => prev.filter(episodeId => episodeId !== id))

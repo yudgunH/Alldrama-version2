@@ -148,149 +148,167 @@ export function MoviesManagement() {
       return
     }
     
-    console.log(`🗑️ Bắt đầu xóa movie ${id}...`)
+    console.log(`🗑️ Bắt đầu xóa movie ${id} với improved API...`)
     
     try {
-      // Debug: Kiểm tra tình trạng storage trước khi xóa
-      console.log(`🔍 Kiểm tra storage trước khi xóa movie ${id}...`)
-      try {
-        const beforeStatus = await mediaApi.checkMovieStorageStatus(id)
-        console.log(`📂 Storage trước khi xóa:`, beforeStatus)
-      } catch (debugError) {
-        console.warn(`Không thể kiểm tra storage trước khi xóa:`, debugError)
-      }
+      // Sử dụng improved delete API - xóa hoàn toàn (R2 + database)
+      console.log(`🚀 Gọi improved delete API cho movie ${id}...`)
+      await movieApi.deleteCompletely(id)
+      console.log(`✅ Improved API đã xóa hoàn toàn movie ${id}`)
       
-      // Bước 1: Xóa database trước (để tránh trạng thái inconsistent)
-      console.log(`🗄️ Xóa movie ${id} từ database...`)
-      await movieApi.delete(id)
-      console.log(`✅ Đã xóa movie ${id} từ database`)
-      
-      // Bước 2: Xóa toàn bộ folder của movie trên R2 (movies + episodes)
-      console.log(`📁 Bắt đầu xóa R2 storage cho movie ${id}...`)
-      try {
-        // Sử dụng helper function để xóa complete movie
-        const results = await Promise.allSettled([
-          mediaApi.handleR2ApiCall(
-            () => mediaApi.deleteMovieR2Folder(id),
-            `xóa movies folder ${id}`
-          ),
-          // Sử dụng retry method cho episodes vì API chỉ xóa 1 episode mỗi lần
-          mediaApi.deleteMovieEpisodesFolderWithRetry(id, 20)
-        ])
-        
-        const moviesResult = results[0]
-        const episodesResult = results[1]
-        
-        console.log(`Movies folder: ${moviesResult.status}`)
-        console.log(`Episodes folder: ${episodesResult.status === 'fulfilled' ? 
-          `${episodesResult.value.deletedCount} episodes deleted` : 'failed'}`)
-        
-        const moviesSuccess = moviesResult.status === 'fulfilled'
-        const episodesSuccess = episodesResult.status === 'fulfilled' && episodesResult.value.success
-        
-        if (!episodesSuccess) {
-          console.warn(`Episodes retry method không thành công, thử individual deletion...`)
-          
-          try {
-            const individualResult = await mediaApi.deleteAllMovieEpisodesIndividually(id)
-            console.log(`Individual episodes: ${individualResult.deletedCount}/${individualResult.totalCount}`)
-          } catch (individualError) {
-            console.warn(`Không thể xóa individual episodes:`, individualError)
-            
-            // Fallback cuối cùng: Xóa theo pattern
-            try {
-              console.log(`🚨 Fallback: Thử xóa episodes theo pattern...`)
-              const patternResult = await mediaApi.deleteMovieEpisodesByPattern(id, 50)
-              console.log(`Pattern deletion: ${patternResult.deletedCount}/${patternResult.totalCount}`)
-            } catch (patternError) {
-              console.warn(`Pattern deletion cũng thất bại:`, patternError)
-            }
-          }
-        }
-        
-        if (!moviesSuccess && !episodesSuccess) {
-          console.warn("Không thể xóa R2 storage, nhưng database đã xóa thành công")
-        }
-      } catch (completeError) {
-        console.warn(`Complete cleanup thất bại cho movie ${id}:`, completeError)
-        
-        // Fallback: Xóa từng item riêng lẻ
-        try {
-          console.log(`🔄 Fallback: Xóa từng file riêng lẻ...`)
-          const cleanupResults = await Promise.allSettled([
-            // Movie media files
-            mediaApi.handleR2ApiCall(
-              () => mediaApi.deleteMoviePosterFile(id),
-              `xóa poster movie ${id}`
-            ).catch(() => api.delete(`/api/media/movies/${id}/poster`)),
-            
-            mediaApi.handleR2ApiCall(
-              () => mediaApi.deleteMovieBackdropFile(id),
-              `xóa backdrop movie ${id}`
-            ).catch(() => api.delete(`/api/media/movies/${id}/backdrop`)), 
-            
-            mediaApi.handleR2ApiCall(
-              () => mediaApi.deleteMovieTrailerFile(id),
-              `xóa trailer movie ${id}`
-            ).catch(() => api.delete(`/api/media/movies/${id}/trailer`)),
-          ])
-          
-          // Xóa episodes bằng individual method
-          let episodesResult = { success: false, deletedCount: 0, totalCount: 0 }
-          try {
-            episodesResult = await mediaApi.deleteAllMovieEpisodesIndividually(id)
-          } catch (episodesError) {
-            console.warn(`Individual episodes deletion failed:`, episodesError)
-            
-            // Fallback cuối cùng: Xóa theo pattern
-            try {
-              console.log(`🚨 Fallback: Thử xóa episodes theo pattern...`)
-              const patternResult = await mediaApi.deleteMovieEpisodesByPattern(id, 50)
-              episodesResult = {
-                success: patternResult.success,
-                deletedCount: patternResult.deletedCount,
-                totalCount: patternResult.totalCount
-              }
-              console.log(`Pattern deletion: ${episodesResult.deletedCount}/${episodesResult.totalCount}`)
-            } catch (patternError) {
-              console.warn(`Pattern deletion cũng thất bại:`, patternError)
-            }
-          }
-          
-          const mediaSuccessful = cleanupResults.filter(r => r.status === 'fulfilled').length
-          console.log(`Đã xóa ${mediaSuccessful}/3 file media + ${episodesResult.deletedCount}/${episodesResult.totalCount} episodes của movie ${id}`)
-        } catch (individualError) {
-          console.warn(`Không thể xóa các file media riêng lẻ của movie ${id}:`, individualError)
-        }
-      }
-      
-      // Debug: Kiểm tra tình trạng storage sau khi xóa
-      setTimeout(async () => {
-        console.log(`🔍 Kiểm tra storage sau khi xóa movie ${id}...`)
-        try {
-          const afterStatus = await mediaApi.checkMovieStorageStatus(id)
-          console.log(`📂 Storage sau khi xóa:`, afterStatus)
-          
-          if (afterStatus.episodesFolder && afterStatus.episodesFolder.length > 0) {
-            console.warn(`⚠️ Vẫn còn ${afterStatus.episodesFolder.length} files trong episodes/${id}:`, afterStatus.episodesFolder)
-          }
-        } catch (debugError) {
-          console.log(`✅ Storage đã được xóa hoàn toàn (không tìm thấy folder)`)
-        }
-      }, 2000)
-      
-      console.log(`✅ Hoàn thành xóa movie ${id}`)
       toast.success("Đã xóa phim và tất cả media liên quan thành công")
       
       // Refresh danh sách movies
       await fetchMovies()
       
-    } catch (error) {
-      console.error(`❌ Lỗi khi xóa movie ${id}:`, error)
-      toast.error("Không thể xóa phim. Vui lòng thử lại.")
+    } catch (error: any) {
+      console.error(`❌ Improved API thất bại cho movie ${id}:`, error)
       
-      // Không để error làm crash trang
-      return false
+      // Fallback to legacy method
+      console.log(`🔄 Fallback to legacy method cho movie ${id}...`)
+      
+      try {
+        // Debug: Kiểm tra tình trạng storage trước khi xóa
+        console.log(`🔍 Kiểm tra storage trước khi xóa movie ${id}...`)
+        try {
+          const beforeStatus = await mediaApi.checkMovieStorageStatus(id)
+          console.log(`📂 Storage trước khi xóa:`, beforeStatus)
+        } catch (debugError) {
+          console.warn(`Không thể kiểm tra storage trước khi xóa:`, debugError)
+        }
+        
+        // Bước 1: Xóa database trước (để tránh trạng thái inconsistent)
+        console.log(`🗄️ Xóa movie ${id} từ database...`)
+        await movieApi.delete(id)
+        console.log(`✅ Đã xóa movie ${id} từ database`)
+        
+        // Bước 2: Xóa toàn bộ folder của movie trên R2 (movies + episodes)
+        console.log(`📁 Bắt đầu xóa R2 storage cho movie ${id}...`)
+        try {
+          // Sử dụng helper function để xóa complete movie
+          const results = await Promise.allSettled([
+            mediaApi.handleR2ApiCall(
+              () => mediaApi.deleteMovieR2Folder(id),
+              `xóa movies folder ${id}`
+            ),
+            // Sử dụng retry method cho episodes vì API chỉ xóa 1 episode mỗi lần
+            mediaApi.deleteMovieEpisodesFolderWithRetry(id, 20)
+          ])
+          
+          const moviesResult = results[0]
+          const episodesResult = results[1]
+          
+          console.log(`Movies folder: ${moviesResult.status}`)
+          console.log(`Episodes folder: ${episodesResult.status === 'fulfilled' ? 
+            `${episodesResult.value.deletedCount} episodes deleted` : 'failed'}`)
+          
+          const moviesSuccess = moviesResult.status === 'fulfilled'
+          const episodesSuccess = episodesResult.status === 'fulfilled' && episodesResult.value.success
+          
+          if (!episodesSuccess) {
+            console.warn(`Episodes retry method không thành công, thử individual deletion...`)
+            
+            try {
+              const individualResult = await mediaApi.deleteAllMovieEpisodesIndividually(id)
+              console.log(`Individual episodes: ${individualResult.deletedCount}/${individualResult.totalCount}`)
+            } catch (individualError) {
+              console.warn(`Không thể xóa individual episodes:`, individualError)
+              
+              // Fallback cuối cùng: Xóa theo pattern
+              try {
+                console.log(`🚨 Fallback: Thử xóa episodes theo pattern...`)
+                const patternResult = await mediaApi.deleteMovieEpisodesByPattern(id, 50)
+                console.log(`Pattern deletion: ${patternResult.deletedCount}/${patternResult.totalCount}`)
+              } catch (patternError) {
+                console.warn(`Pattern deletion cũng thất bại:`, patternError)
+              }
+            }
+          }
+          
+          if (!moviesSuccess && !episodesSuccess) {
+            console.warn("Không thể xóa R2 storage, nhưng database đã xóa thành công")
+          }
+        } catch (completeError) {
+          console.warn(`Complete cleanup thất bại cho movie ${id}:`, completeError)
+          
+          // Fallback: Xóa từng item riêng lẻ
+          try {
+            console.log(`🔄 Fallback: Xóa từng file riêng lẻ...`)
+            const cleanupResults = await Promise.allSettled([
+              // Movie media files
+              mediaApi.handleR2ApiCall(
+                () => mediaApi.deleteMoviePosterFile(id),
+                `xóa poster movie ${id}`
+              ).catch(() => api.delete(`/api/media/movies/${id}/poster`)),
+              
+              mediaApi.handleR2ApiCall(
+                () => mediaApi.deleteMovieBackdropFile(id),
+                `xóa backdrop movie ${id}`
+              ).catch(() => api.delete(`/api/media/movies/${id}/backdrop`)), 
+              
+              mediaApi.handleR2ApiCall(
+                () => mediaApi.deleteMovieTrailerFile(id),
+                `xóa trailer movie ${id}`
+              ).catch(() => api.delete(`/api/media/movies/${id}/trailer`)),
+            ])
+            
+            // Xóa episodes bằng individual method
+            let episodesResult = { success: false, deletedCount: 0, totalCount: 0 }
+            try {
+              episodesResult = await mediaApi.deleteAllMovieEpisodesIndividually(id)
+            } catch (episodesError) {
+              console.warn(`Individual episodes deletion failed:`, episodesError)
+              
+              // Fallback cuối cùng: Xóa theo pattern
+              try {
+                console.log(`🚨 Fallback: Thử xóa episodes theo pattern...`)
+                const patternResult = await mediaApi.deleteMovieEpisodesByPattern(id, 50)
+                episodesResult = {
+                  success: patternResult.success,
+                  deletedCount: patternResult.deletedCount,
+                  totalCount: patternResult.totalCount
+                }
+                console.log(`Pattern deletion: ${episodesResult.deletedCount}/${episodesResult.totalCount}`)
+              } catch (patternError) {
+                console.warn(`Pattern deletion cũng thất bại:`, patternError)
+              }
+            }
+            
+            const mediaSuccessful = cleanupResults.filter(r => r.status === 'fulfilled').length
+            console.log(`Đã xóa ${mediaSuccessful}/3 file media + ${episodesResult.deletedCount}/${episodesResult.totalCount} episodes của movie ${id}`)
+          } catch (individualError) {
+            console.warn(`Không thể xóa các file media riêng lẻ của movie ${id}:`, individualError)
+          }
+        }
+        
+        // Debug: Kiểm tra tình trạng storage sau khi xóa
+        setTimeout(async () => {
+          console.log(`🔍 Kiểm tra storage sau khi xóa movie ${id}...`)
+          try {
+            const afterStatus = await mediaApi.checkMovieStorageStatus(id)
+            console.log(`📂 Storage sau khi xóa:`, afterStatus)
+            
+            if (afterStatus.episodesFolder && afterStatus.episodesFolder.length > 0) {
+              console.warn(`⚠️ Vẫn còn ${afterStatus.episodesFolder.length} files trong episodes/${id}:`, afterStatus.episodesFolder)
+            }
+          } catch (debugError) {
+            console.log(`✅ Storage đã được xóa hoàn toàn (không tìm thấy folder)`)
+          }
+        }, 2000)
+        
+        console.log(`✅ Hoàn thành xóa movie ${id} với legacy method`)
+        toast.success("Đã xóa phim và tất cả media liên quan thành công (fallback)")
+        
+        // Refresh danh sách movies
+        await fetchMovies()
+        
+      } catch (legacyError) {
+        console.error(`❌ Legacy method cũng thất bại cho movie ${id}:`, legacyError)
+        toast.error("Không thể xóa phim. Vui lòng thử lại hoặc liên hệ admin.")
+        
+        // Không để error làm crash trang
+        return false
+      }
     }
   }
 
