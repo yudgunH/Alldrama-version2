@@ -9,6 +9,42 @@ import { Env } from "./types";
 // Start a Hono app
 const app = new Hono<{ Bindings: Env }>();
 
+// Thêm CORS middleware TRƯỚC tất cả các route
+app.use("*", async (c, next) => {
+  // Set CORS headers cho tất cả responses
+  const origin = c.req.header("Origin");
+  
+  // Cho phép localhost và production domains
+  const allowedOrigins = [
+    "http://localhost:3000",
+    "http://localhost:3001", 
+    "https://alldramaz.com",
+    "https://admin.alldramaz.com",
+    "https://alldrama.tech",
+    "https://admin.alldrama.tech"
+  ];
+  
+  if (origin && allowedOrigins.includes(origin)) {
+    c.header("Access-Control-Allow-Origin", origin);
+  } else if (origin && origin.includes("localhost")) {
+    c.header("Access-Control-Allow-Origin", origin);
+  } else {
+    c.header("Access-Control-Allow-Origin", "*");
+  }
+  
+  c.header("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS, HEAD");
+  c.header("Access-Control-Allow-Headers", "Content-Type, Authorization, Range, X-Worker-Secret");
+  c.header("Access-Control-Allow-Credentials", "true");
+  c.header("Access-Control-Max-Age", "86400");
+  
+  // Handle preflight requests
+  if (c.req.method === "OPTIONS") {
+    return new Response(null, { status: 204 });
+  }
+  
+  return await next();
+});
+
 // Setup OpenAPI registry
 const openapi = fromHono(app, {
 	docs_url: "/",
@@ -502,14 +538,8 @@ app.get("/hls/*", async (c) => {
     headers.set("Access-Control-Allow-Headers", "Content-Type, Range, Authorization");
     headers.set("Access-Control-Max-Age", "86400"); // 24 giờ
     
-    // Cài đặt cache headers để tối ưu hóa hiệu suất
-    if (path.endsWith(".m3u8")) {
-      // Playlist có thể thay đổi, nên cần cache ngắn hơn cho production
-      headers.set("Cache-Control", "public, max-age=300"); // 5 phút
-    } else {
-      // Segments và files khác thì không thay đổi, có thể cache lâu hơn
-      headers.set("Cache-Control", "public, max-age=31536000, immutable"); // 1 năm và immutable
-    }
+    // Cache cho files
+    headers.set("Cache-Control", "public, max-age=31536000, immutable"); // 1 năm
     
     return new Response(object.body, { headers });
   } catch (error) {
@@ -653,49 +683,6 @@ app.delete("/admin/delete-r2-prefix/*", async (c) => {
   }
 });
 
-// Thêm route OPTIONS cho preflight CORS requests
-app.options("*", (c) => {
-  // Lấy origin từ request header
-  const origin = c.req.header("Origin");
-  const headers = new Headers({
-    "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS, HEAD",
-    "Access-Control-Allow-Headers": "Content-Type, Authorization, X-Worker-Secret, Range",
-    "Access-Control-Max-Age": "86400",
-    "Access-Control-Allow-Credentials": "true"
-  });
-  
-  // Nếu có origin, sử dụng nó; nếu không cho phép tất cả
-  if (origin) {
-    headers.set("Access-Control-Allow-Origin", origin);
-  } else {
-    headers.set("Access-Control-Allow-Origin", "*");
-  }
-  
-  return new Response(null, {
-    status: 204,
-    headers
-  });
-});
-
-// Thêm CORS headers trực tiếp không sử dụng middleware
-app.use("*", async (c, next) => {
-  const response = await next();
-  
-  // Thêm CORS headers cho tất cả các responses
-  // Cho phép cả domain chính và các origin khác nếu cần
-  const origin = c.req.header("Origin");
-  if (origin) {
-    c.header("Access-Control-Allow-Origin", origin);
-  } else {
-    c.header("Access-Control-Allow-Origin", "*");
-  }
-  c.header("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS");
-  c.header("Access-Control-Allow-Headers", "Content-Type, Authorization, Range, X-Worker-Secret");
-  c.header("Access-Control-Allow-Credentials", "true");
-  
-  return response;
-});
-
 // Thêm route cho file gốc (đặt trước export default app hoặc ở cuối file)
 app.get("/*", async (c) => {
   try {
@@ -752,19 +739,6 @@ app.get("/*", async (c) => {
     console.error(`Error serving file: ${error}`);
     return c.json({ error: error instanceof Error ? error.message : "Unknown error" }, 500);
   }
-});
-
-// Thêm handler OPTIONS cho tất cả các route để hỗ trợ CORS preflight
-app.options("/*", (c) => {
-  return new Response(null, {
-    status: 204,
-    headers: {
-      "Access-Control-Allow-Origin": "*",
-      "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS, HEAD",
-      "Access-Control-Allow-Headers": "Content-Type, Authorization, X-Worker-Secret, Range",
-      "Access-Control-Max-Age": "86400",
-    },
-  });
 });
 
 // Hàm kiểm tra token

@@ -44,7 +44,15 @@ app.use(cookieParser());
 
 const allowedOrigins = [
   'http://localhost:3000',
+  'http://localhost:3001',
   'https://alldrama.tech',
+  'https://www.alldrama.tech',
+  'https://admin.alldrama.tech',
+  'https://media.alldrama.tech',
+  'https://alldramaz.com',
+  'https://www.alldramaz.com',
+  'https://admin.alldramaz.com',
+  'https://media.alldramaz.com',
   'https://alldrama2-urhb.vercel.app'
 ];
 

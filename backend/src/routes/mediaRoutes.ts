@@ -61,6 +61,15 @@ router.post('/episodes/:movieId/:episodeId/video',
   uploadEpisodeVideo
 );
 
+// Thêm endpoint để notify video đã upload (cho phương pháp dự phòng)
+router.post('/episodes/:movieId/:episodeId/video-uploaded',
+  authenticate,
+  requireAdmin,
+  async (req: Request, res: Response) => {
+    await mediaController.notifyVideoUploaded(req, res);
+  }
+);
+
 // Route tạo presigned URL
 router.post('/presigned-url',
   authenticate,
