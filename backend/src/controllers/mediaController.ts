@@ -1126,45 +1126,4 @@ export const deleteR2File = async (req: Request, res: Response): Promise<void> =
       error: error instanceof Error ? error.message : 'Lỗi không xác định'
     });
   }
-};
-
-/**
- * Notify video uploaded - endpoint dự phòng cho frontend
- */
-export const notifyVideoUploaded = async (req: Request, res: Response): Promise<void> => {
-  try {
-    const { movieId, episodeId } = req.params;
-    const { videoKey } = req.body;
-    
-    if (!videoKey) {
-      res.status(400).json({
-        success: false,
-        error: 'videoKey là bắt buộc'
-      });
-      return;
-    }
-    
-    logger.info(`Nhận notification video uploaded: ${videoKey} cho phim ${movieId}, tập ${episodeId}`);
-    
-    // Gọi processVideoFromWorker để xử lý HLS
-    const result = await mediaService.processVideoFromWorker(
-      videoKey,
-      Number(movieId),
-      Number(episodeId),
-      `job-${Date.now()}`
-    );
-    
-    res.json({
-      success: result.success,
-      message: result.success ? 'Đã bắt đầu xử lý HLS' : 'Lỗi khi bắt đầu xử lý HLS',
-      jobId: result.jobId,
-      error: result.error
-    });
-  } catch (error) {
-    logger.error('Error in notifyVideoUploaded:', error);
-    res.status(500).json({
-      success: false,
-      error: error instanceof Error ? error.message : 'Lỗi không xác định'
-    });
-  }
 }; 
