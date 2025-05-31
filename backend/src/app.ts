@@ -47,7 +47,8 @@ const allowedOrigins = [
   'https://alldrama.tech',
   'https://alldrama.net',
   'https://alldrama-version2.vercel.app',
-  'https://alldrama.online'
+  'https://alldrama.online',
+  'https://alldrama-vietnam-frontend.vercel.app'
 ];
 
 app.use(cors({
