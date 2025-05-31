@@ -46,6 +46,7 @@ const allowedOrigins = [
   'http://localhost:3000',
   'https://alldrama.tech',
   'https://alldrama.net',
+  'https://www.alldrama.net',
   'https://alldrama-version2.vercel.app',
   'https://alldrama.online',
   'https://alldrama-vietnam-frontend.vercel.app'
