@@ -31,7 +31,7 @@ import { useMovieDetail } from '@/hooks/api/useMovieDetail'
 import { useEpisodes } from '@/hooks/api/useEpisodes'
 import { useMovies } from '@/hooks/api/useMovies'
 import VideoPlayer from './VideoPlayer'
-import { getImageInfo } from "@/utils/image"
+import { getImageInfo, getEpisodeThumbnailInfo } from "@/utils/image"
 
 interface MovieDetailProps {
   movieId: string | number
@@ -749,7 +749,7 @@ const MovieDetail = ({ movieId, initialData }: MovieDetailProps) => {
                                 <>
                                   <div className="relative aspect-video overflow-hidden">
                                     {(() => {
-                                      const imageInfo = getImageInfo(episode.thumbnailUrl, movie.id, 'thumbnail')
+                                      const imageInfo = getEpisodeThumbnailInfo(episode.thumbnailUrl, movie.id, episode.id)
                                       
                                       return imageInfo.shouldShowSkeleton ? (
                                         <Skeleton className="w-full h-full" />

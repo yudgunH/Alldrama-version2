@@ -38,6 +38,11 @@ export function getImageInfo(
     }
     
     // Try auto-detection with movieId
+    // For thumbnails, we need episodeId as well, so we can't auto-detect without it
+    if (type === 'thumbnail') {
+      return { url: '', shouldShowSkeleton: true };
+    }
+    
     const autoUrl = getAutoDetectedImageUrl(`https://media.alldrama.tech/movies/${movieId}/${type}`);
     return { url: autoUrl, shouldShowSkeleton: false };
   }
@@ -49,6 +54,11 @@ export function getImageInfo(
   
   // If we have movieId, try auto-detection
   if (movieId) {
+    // For thumbnails, we need episodeId as well, so we can't auto-detect without it
+    if (type === 'thumbnail') {
+      return { url: '', shouldShowSkeleton: true };
+    }
+    
     const autoUrl = getAutoDetectedImageUrl(`https://media.alldrama.tech/movies/${movieId}/${type}`);
     return { url: autoUrl, shouldShowSkeleton: false };
   }
@@ -58,10 +68,39 @@ export function getImageInfo(
 }
 
 /**
+ * Get episode thumbnail info with skeleton flag
+ * @param thumbnailUrl - The thumbnail URL
+ * @param movieId - Movie ID
+ * @param episodeId - Episode ID
+ * @returns Object with url and shouldShowSkeleton flag
+ */
+export function getEpisodeThumbnailInfo(
+  thumbnailUrl: string | null | undefined,
+  movieId: number | string,
+  episodeId: number | string
+): { url: string; shouldShowSkeleton: boolean } {
+  // Check if should show skeleton first
+  if (shouldShowSkeleton(thumbnailUrl)) {
+    // Auto-detect with movieId and episodeId
+    const autoUrl = getAutoDetectedImageUrl(`https://media.alldrama.tech/episodes/${movieId}/${episodeId}/thumbnail`);
+    return { url: autoUrl, shouldShowSkeleton: false };
+  }
+  
+  // If we have a valid URL, use it
+  if (thumbnailUrl && thumbnailUrl.trim() !== '' && thumbnailUrl.startsWith('http')) {
+    return { url: thumbnailUrl, shouldShowSkeleton: false };
+  }
+  
+  // Auto-detect format for episode thumbnail
+  const autoUrl = getAutoDetectedImageUrl(`https://media.alldrama.tech/episodes/${movieId}/${episodeId}/thumbnail`);
+  return { url: autoUrl, shouldShowSkeleton: false };
+}
+
+/**
  * SIMPLE PATTERN TO FIX ReactDOM.preload() ERRORS:
  * 
  * // 1. Import utilities and Skeleton
- * import { getImageInfo } from '@/utils/image'
+ * import { getImageInfo, getEpisodeThumbnailInfo } from '@/utils/image'
  * import { Skeleton } from '@/components/ui/skeleton'
  * 
  * // 2. In your component, replace:
@@ -76,7 +115,13 @@ export function getImageInfo(
  * )}
  * 
  * // 3. For episode thumbnails:
- * const thumbInfo = getImageInfo(episode.thumbnailUrl, movieId, 'thumbnail')
+ * const thumbInfo = getEpisodeThumbnailInfo(episode.thumbnailUrl, movieId, episode.id)
+ * 
+ * {thumbInfo.shouldShowSkeleton ? (
+ *   <Skeleton className="w-full h-full" />
+ * ) : (
+ *   <img src={thumbInfo.url} alt="..." className="..." />
+ * )}
  * 
  * // This prevents ReactDOM.preload() errors by never passing empty URLs to Image components
  */
@@ -223,6 +268,7 @@ export function getSafeBackdropUrl(
  * @param type - Type of image ('poster' | 'backdrop' | 'thumbnail')
  * @param fallback - Fallback image path
  * @param preferredFormat - Preferred image format (deprecated, auto-detected now)
+ * @param episodeId - Episode ID (required for thumbnail type)
  * @returns A safe URL
  */
 export function getImageUrl(
@@ -230,11 +276,20 @@ export function getImageUrl(
   movieId?: number | string,
   type: 'poster' | 'backdrop' | 'thumbnail' = 'poster',
   fallback: string = "/placeholder.svg",
-  preferredFormat: string = 'jpg'
+  preferredFormat: string = 'jpg',
+  episodeId?: number | string
 ): string {
   if (shouldShowSkeleton(imageUrl)) {
     if (movieId) {
-      // Auto-detect format
+      // For thumbnails, use episodes path structure
+      if (type === 'thumbnail' && episodeId) {
+        return getAutoDetectedImageUrl(`https://media.alldrama.tech/episodes/${movieId}/${episodeId}/thumbnail`);
+      } else if (type === 'thumbnail') {
+        // Can't generate thumbnail URL without episodeId
+        return fallback;
+      }
+      
+      // Auto-detect format for poster/backdrop
       return getAutoDetectedImageUrl(`https://media.alldrama.tech/movies/${movieId}/${type}`);
     }
     return fallback;
@@ -247,6 +302,18 @@ export function getImageUrl(
   if (movieId) {
     // Check if imageUrl already has an extension
     const extension = getImageExtension(imageUrl!);
+    
+    if (type === 'thumbnail' && episodeId) {
+      if (extension) {
+        return `https://media.alldrama.tech/episodes/${movieId}/${episodeId}/thumbnail.${extension}`;
+      }
+      // Auto-detect format for thumbnail
+      return getAutoDetectedImageUrl(`https://media.alldrama.tech/episodes/${movieId}/${episodeId}/thumbnail`);
+    } else if (type === 'thumbnail') {
+      // Can't generate thumbnail URL without episodeId
+      return fallback;
+    }
+    
     if (extension) {
       return `https://media.alldrama.tech/movies/${movieId}/${type}.${extension}`;
     }
