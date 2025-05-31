@@ -49,8 +49,10 @@ export default function Home() {
 
   return (
     <div className="min-h-screen bg-gray-950">
-      <Hero />
-      
+      <Hero 
+        movies={sections.featured} 
+        isLoading={isLoading}
+      />
       {/* Top 10 Movies Section with trapezoid cards */}
       <TopMoviesSection 
         movies={sections.trending} 
@@ -72,7 +74,13 @@ export default function Home() {
             ))}
           </div>
         </section>
-
+        <FeaturedContentSwitcher
+          items={sections.featured}
+          title="Phim nổi bật"
+          variant="dark"
+          aspectRatio="video"
+          isLoading={isLoading}
+        />
         {/* Section for featured movie sliders */}
         <section className="py-4 space-y-12">
           {DEFAULT_SECTIONS.map((section) => (
@@ -82,16 +90,16 @@ export default function Home() {
               className={visibleSections.has(section.type) ? 'block' : 'h-96'}
             >
               {visibleSections.has(section.type) && (
-          <MovieSlider 
+                <MovieSlider 
                   title={section.title}
                   movies={sections[section.type]}
-            size="md"
+                  size="md"
                   variant={section.type === 'newest' ? 'new' : 
                           section.type === 'popular' ? 'popular' :
                           section.type === 'featured' ? 'top' :
                           section.type === 'trending' ? 'trending' : 'default'}
-            />
-          )}
+                />
+              )}
             </div>
           ))}
         </section>
@@ -100,14 +108,6 @@ export default function Home() {
         <section className="py-8 mt-8">
           <GenreList />
         </section>
-
-      <FeaturedContentSwitcher
-          items={sections.featured}
-        title="Phim nổi bật"
-        variant="dark"
-        aspectRatio="video"
-        isLoading={isLoading}
-      />
       </div>
     </div>
   );

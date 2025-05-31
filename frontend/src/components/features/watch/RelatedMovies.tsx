@@ -8,6 +8,7 @@ import { API_ENDPOINTS } from '@/lib/api/endpoints';
 import { movieService } from '@/lib/api/services/movieService';
 import { Movie } from '@/types';
 import Link from 'next/link';
+import { getSafePosterUrl } from '@/utils/image'
 
 interface RelatedMoviesProps {
   movieId?: string;
@@ -146,7 +147,7 @@ export default function RelatedMovies({ movieId, movie, relatedMoviesData }: Rel
               >
                 <div className="flex-shrink-0 w-16 h-24 rounded overflow-hidden bg-gray-900">
                   <img 
-                    src={relatedMovie.posterUrl || '/placeholders/movie.png'}
+                    src={getSafePosterUrl(relatedMovie.posterUrl, relatedMovie.id)}
                     alt={relatedMovie.title}
                     className="w-full h-full object-cover"
                     loading="lazy"

@@ -3,7 +3,7 @@
 import type { Movie, Episode } from "@/types"
 import Link from "next/link"
 import Image from "next/image"
-import { useState, useEffect } from "react"
+import { useState, useEffect, useMemo, useCallback } from "react"
 import { generateMovieUrl, generateWatchUrl } from "@/utils/url"
 import { Star, Play, Film, Clock, Calendar, Eye, ChevronDown, ChevronUp, Info, Heart, Bookmark, TrendingUp, BarChart3, Layers, Share, X, MessageCircle } from "lucide-react"
 import { Button } from "@/components/ui/button"
@@ -27,6 +27,11 @@ import useSWR from "swr"
 import { movieService } from "@/lib/api/services/movieService"
 import { cacheManager } from "@/lib/cache/cacheManager"
 import { episodeService } from "@/lib/api/services/episodeService"
+import { useMovieDetail } from '@/hooks/api/useMovieDetail'
+import { useEpisodes } from '@/hooks/api/useEpisodes'
+import { useMovies } from '@/hooks/api/useMovies'
+import VideoPlayer from './VideoPlayer'
+import { getImageInfo } from "@/utils/image"
 
 interface MovieDetailProps {
   movieId: string | number
@@ -37,11 +42,19 @@ const MovieDetail = ({ movieId, initialData }: MovieDetailProps) => {
   const { user, isAuthenticated } = useAuth()
   const { toggleFavorite, isFavorite } = useFavorites()
   
-  // Fetch similar movies with SWR
+  // Use the custom hook for movie details and episodes
+  const { 
+    movie, 
+    episodes, 
+    isLoading, 
+    error 
+  } = useMovieDetail(movieId, initialData);
+  
+  // Fetch similar movies with SWR and proper caching
   const { data: similarMovies } = useSWR(
-    movieId ? `similar-movies-${movieId}` : null,
+    movie ? `similar-movies-${movieId}` : null,
     async () => {
-      if (!initialData) return [];
+      if (!movie) return [];
       
       // Check cache first
       const cacheKey = `similar-${movieId}`;
@@ -50,12 +63,17 @@ const MovieDetail = ({ movieId, initialData }: MovieDetailProps) => {
         return cached;
       }
       
-      // Fetch similar movies
+      // Fetch similar movies based on genre
       let similar: Movie[] = [];
-      if (initialData.genres && initialData.genres.length > 0) {
-        const primaryGenreId = initialData.genres[0].id;
-        const result = await movieService.getMoviesByGenre(Number(primaryGenreId), 10);
-        similar = result.movies.filter((m: Movie) => String(m.id) !== String(initialData.id));
+      if (movie.genres && movie.genres.length > 0) {
+        try {
+          const primaryGenreId = movie.genres[0].id;
+          const result = await movieService.getMoviesByGenre(Number(primaryGenreId), 10);
+          similar = result.movies.filter((m: Movie) => String(m.id) !== String(movie.id));
+        } catch (error) {
+          console.error('Error fetching similar movies:', error);
+          similar = [];
+        }
       }
       
       // Cache for 15 minutes
@@ -66,58 +84,17 @@ const MovieDetail = ({ movieId, initialData }: MovieDetailProps) => {
       revalidateOnFocus: false,
       revalidateOnReconnect: false,
       dedupingInterval: 300000, // 5 minutes
+      errorRetryCount: 1,
+      shouldRetryOnError: false // Don't retry on error for similar movies
     }
   );
-
-  // Fetch episodes with SWR directly - much simpler
-  const { data: episodes = [], error: episodesError, isLoading: episodesLoading } = useSWR(
-    movieId ? `episodes-${movieId}` : null,
-    async () => {
-      if (!movieId) return [];
-      
-      console.log('MovieDetail - Fetching episodes for movie:', movieId);
-      
-      // Check cache first
-      const cached = cacheManager.getEpisodes(movieId);
-      if (cached && cached.length > 0) {
-        console.log('MovieDetail - Using cached episodes:', cached.length);
-        return cached;
-      }
-      
-      // Fetch from API
-      const episodesData = await episodeService.getEpisodesByMovieId(movieId);
-      console.log('MovieDetail - Fetched episodes from API:', episodesData.length);
-      
-      // Cache for 10 minutes
-      if (episodesData.length > 0) {
-        cacheManager.setEpisodes(movieId, episodesData, 10 * 60 * 1000);
-      }
-      
-      return episodesData;
-    },
-    {
-      revalidateOnFocus: false,
-      revalidateOnReconnect: false,
-      dedupingInterval: 60000, // 1 minute
-      errorRetryCount: 2,
-      shouldRetryOnError: (error) => {
-        // Only retry on network errors, not 4xx errors
-        return !error?.response || error.response.status >= 500;
-      }
-    }
-  );
-
-  // Use the provided initial data as movie
-  const movie = initialData
-  const isLoading = episodesLoading
-  const error = episodesError
   
   // Debug logging
   console.log('MovieDetail - Debug Info:', {
     movieId,
     hasMovie: !!movie,
     movieTitle: movie?.title,
-    episodesCount: episodes.length,
+    episodesCount: episodes?.length || 0,
     isLoading,
     error: error?.toString(),
     hasInitialData: !!initialData
@@ -288,6 +265,45 @@ const MovieDetail = ({ movieId, initialData }: MovieDetailProps) => {
     )
   }
 
+  // Episodes pagination state
+  const [episodesPage, setEpisodesPage] = useState(0)
+  const episodesPerPage = isMobile ? 6 : 9
+  const totalEpisodesPages = Math.ceil(episodes.length / episodesPerPage)
+  const startEpisodeIndex = episodesPage * episodesPerPage
+  const displayEpisodes = episodes.slice(startEpisodeIndex, startEpisodeIndex + episodesPerPage)
+
+  // Handle mouse wheel scroll for episodes
+  const handleEpisodesWheel = useCallback((e: React.WheelEvent) => {
+    // Only handle horizontal scroll on desktop when there are multiple pages
+    if (isMobile || totalEpisodesPages <= 1) return;
+    
+    e.preventDefault();
+    
+    // Determine scroll direction
+    const deltaY = e.deltaY;
+    const deltaX = e.deltaX;
+    
+    // Check if it's horizontal scroll or vertical scroll being converted to horizontal
+    const isHorizontalScroll = Math.abs(deltaX) > Math.abs(deltaY) || deltaY !== 0;
+    
+    if (isHorizontalScroll) {
+      // Use deltaX if available, otherwise use deltaY for horizontal scrolling
+      const scrollDirection = deltaX !== 0 ? deltaX : deltaY;
+      
+      if (scrollDirection > 0) {
+        // Scroll right (next page)
+        if (episodesPage < totalEpisodesPages - 1) {
+          setEpisodesPage(prev => prev + 1);
+        }
+      } else {
+        // Scroll left (previous page)
+        if (episodesPage > 0) {
+          setEpisodesPage(prev => prev - 1);
+        }
+      }
+    }
+  }, [isMobile, totalEpisodesPages, episodesPage]);
+
   return (
     <div className="text-foreground">
       {/* Hero Banner with parallax effect */}
@@ -326,21 +342,24 @@ const MovieDetail = ({ movieId, initialData }: MovieDetailProps) => {
           <>
             {/* Poster for mobile */}
             <div className="absolute top-4 left-4 md:hidden w-32 h-48 rounded-xl overflow-hidden shadow-2xl shadow-indigo-500/10 z-10">
-              <Image 
-                src={movie.posterUrl ? `https://media.alldrama.tech/movies/${movie.id}/poster.png` : "/placeholder.svg"} 
-                alt={movie.title} 
-                fill 
-                priority
-                className="object-cover transform hover:scale-105 transition-transform duration-700" 
-                onError={(e) => {
-                  console.log('MovieDetail Mobile - Image load error for URL:', movie.posterUrl);
-                  const target = e.target as HTMLImageElement;
-                  target.src = "/placeholder.svg";
-                }}
-                onLoad={() => {
-                  console.log('MovieDetail Mobile - Image loaded successfully:', movie.posterUrl);
-                }}
-              />
+              {(() => {
+                const imageInfo = getImageInfo(movie.posterUrl, movie.id, 'poster')
+                
+                return imageInfo.shouldShowSkeleton ? (
+                  <Skeleton className="w-full h-full" />
+                ) : (
+                  <Image 
+                    src={imageInfo.url} 
+                    alt={movie.title} 
+                    fill 
+                    priority
+                    className="object-cover transform hover:scale-105 transition-transform duration-700" 
+                    onError={() => {
+                      console.log('MovieDetail Mobile - Image load error for movie:', movie.id);
+                    }}
+                  />
+                )
+              })()}
               <div className="absolute inset-0 ring-1 ring-indigo-500/20 rounded-xl hover:ring-indigo-500/40 transition-all"></div>
             </div>
 
@@ -350,20 +369,23 @@ const MovieDetail = ({ movieId, initialData }: MovieDetailProps) => {
                 <div className="flex flex-col md:flex-row md:items-end gap-4 md:gap-6">
                   {/* Poster with glow effect */}
                   <div className="hidden md:block w-48 h-72 md:w-64 md:h-96 flex-shrink-0 relative rounded-xl overflow-hidden shadow-2xl shadow-indigo-500/10 group">
-                    <Image 
-                      src={movie.posterUrl ? `https://media.alldrama.tech/movies/${movie.id}/poster.png` : "/placeholder.svg"} 
-                      alt={movie.title} 
-                      fill 
-                      className="object-cover transform group-hover:scale-105 transition-transform duration-700" 
-                      onError={(e) => {
-                        console.log('MovieDetail Desktop - Image load error for URL:', movie.posterUrl);
-                        const target = e.target as HTMLImageElement;
-                        target.src = "/placeholder.svg";
-                      }}
-                      onLoad={() => {
-                        console.log('MovieDetail Desktop - Image loaded successfully:', movie.posterUrl);
-                      }}
-                    />
+                    {(() => {
+                      const imageInfo = getImageInfo(movie.posterUrl, movie.id, 'poster')
+                      
+                      return imageInfo.shouldShowSkeleton ? (
+                        <Skeleton className="w-full h-full" />
+                      ) : (
+                        <Image 
+                          src={imageInfo.url} 
+                          alt={movie.title} 
+                          fill 
+                          className="object-cover transform group-hover:scale-105 transition-transform duration-700" 
+                          onError={() => {
+                            console.log('MovieDetail Desktop - Image load error for movie:', movie.id);
+                          }}
+                        />
+                      )
+                    })()}
                     <div className="absolute inset-0 ring-1 ring-indigo-500/20 rounded-xl group-hover:ring-indigo-500/40 transition-all"></div>
                   </div>
 
@@ -680,61 +702,104 @@ const MovieDetail = ({ movieId, initialData }: MovieDetailProps) => {
                         </div>
                       </div>
                     ) : (
-                      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-                        {episodes.map((episode) => (
-                          <Link
-                            key={episode.id}
-                            href={generateEpisodeLink(movie, episode)}
-                            className="group overflow-hidden rounded-xl hover:shadow-lg hover:shadow-indigo-900/10 border border-gray-700 hover:border-indigo-500/30 transition-all flex flex-col"
-                            onMouseEnter={() => setActiveEpisode(String(episode.id))}
-                            onMouseLeave={() => setActiveEpisode(null)}
-                          >
-                            {/* Episode presentation - different for mobile and desktop */}
-                            {isMobile ? (
-                              // Simple mobile view - just episode info without thumbnails
-                              <div className="p-3 bg-gray-800/70 hover:bg-gradient-to-r hover:from-indigo-900/40 hover:to-purple-900/40">
-                                <div className="flex justify-between items-center">
-                                  <div className="flex items-center space-x-2">
-                                    <div className={`w-7 h-7 rounded-full flex items-center justify-center ${activeEpisode === String(episode.id) ? "bg-indigo-600" : "bg-gray-800/80"}`}>
+                      <div>
+                        {/* Episodes pagination indicator */}
+                        {totalEpisodesPages > 1 && (
+                          <div className="flex justify-between items-center mb-4">
+                            <div className="text-sm text-gray-400">
+                              Trang {episodesPage + 1} / {totalEpisodesPages} 
+                              ({episodes.length} tập)
+                            </div>
+                            <div className="flex space-x-1">
+                              {Array.from({ length: totalEpisodesPages }).map((_, index) => (
+                                <button
+                                  key={index}
+                                  onClick={() => setEpisodesPage(index)}
+                                  className={`w-2 h-2 rounded-full transition-colors ${
+                                    index === episodesPage ? 'bg-indigo-500' : 'bg-gray-600'
+                                  }`}
+                                />
+                              ))}
+                            </div>
+                          </div>
+                        )}
+                        
+                        <div 
+                          className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4"
+                          onWheel={handleEpisodesWheel}
+                          style={{ 
+                            cursor: totalEpisodesPages > 1 && !isMobile ? 'grab' : 'default' 
+                          }}
+                        >
+                          {displayEpisodes.map((episode) => (
+                            <Link
+                              key={episode.id}
+                              href={generateEpisodeLink(movie, episode)}
+                              className="group overflow-hidden rounded-xl hover:shadow-lg hover:shadow-indigo-900/10 border border-gray-700 hover:border-indigo-500/30 transition-all flex flex-col"
+                              onMouseEnter={() => setActiveEpisode(String(episode.id))}
+                              onMouseLeave={() => setActiveEpisode(null)}
+                            >
+                              {/* Episode presentation - different for mobile and desktop */}
+                              {isMobile ? (
+                                // Simple mobile view - just episode info without thumbnails
+                                <div className="p-3 bg-gray-800/70 hover:bg-gradient-to-r hover:from-indigo-900/40 hover:to-purple-900/40">
+                                  <div className="flex justify-between items-center">
+                                    <div className="flex items-center space-x-2">
+                                      <div className={`w-7 h-7 rounded-full flex items-center justify-center ${activeEpisode === String(episode.id) ? "bg-indigo-600" : "bg-gray-800/80"}`}>
+                                        <span className="text-xs font-bold text-white">{episode.episodeNumber}</span>
+                                      </div>
+                                      <div className="font-medium text-white line-clamp-1">{episode.title}</div>
+                                    </div>
+                                    <div className="ml-2">
+                                      <Play className="h-4 w-4 text-indigo-400" />
+                                    </div>
+                                  </div>
+                                </div>
+                              ) : (
+                                // Desktop view with thumbnails
+                                <>
+                                  <div className="relative aspect-video overflow-hidden">
+                                    {(() => {
+                                      const imageInfo = getImageInfo(episode.thumbnailUrl, movie.id, 'thumbnail')
+                                      
+                                      return imageInfo.shouldShowSkeleton ? (
+                                        <Skeleton className="w-full h-full" />
+                                      ) : (
+                                        <Image 
+                                          src={imageInfo.url} 
+                                          alt={episode.title}
+                                          fill
+                                          className="object-cover"
+                                          onError={(e) => {
+                                            console.log('MovieDetail - Episode thumbnail load error for URL:', imageInfo.url);
+                                          }}
+                                        />
+                                      )
+                                    })()}
+                                    <div className="absolute inset-0 bg-gradient-to-t from-black/70 to-transparent opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+                                      <div className="w-12 h-12 rounded-full bg-indigo-600/80 flex items-center justify-center">
+                                        <Play className="h-6 w-6 text-white fill-current ml-1" />
+                                      </div>
+                                    </div>
+                                    <div className={`absolute top-2 right-2 w-7 h-7 rounded-full flex items-center justify-center ${activeEpisode === String(episode.id) ? "bg-indigo-600" : "bg-gray-800/80"}`}>
                                       <span className="text-xs font-bold text-white">{episode.episodeNumber}</span>
                                     </div>
-                                    <div className="font-medium text-white line-clamp-1">{episode.title}</div>
-                                  </div>
-                                  <div className="ml-2">
-                                    <Play className="h-4 w-4 text-indigo-400" />
-                                  </div>
-                                </div>
-                              </div>
-                            ) : (
-                              // Desktop view with thumbnails
-                              <>
-                                <div className="relative aspect-video overflow-hidden">
-                                  <Image 
-                                    src={episode.thumbnailUrl ? `https://media.alldrama.tech/episodes/${movie.id}/${episode.episodeNumber}/thumbnail.jpg` : "/placeholder.svg"} 
-                                    alt={episode.title}
-                                    fill
-                                    className="object-cover"
-                                    onError={(e) => {
-                                      const target = e.target as HTMLImageElement;
-                                      target.src = "/placeholder.svg";
-                                    }}
-                                  />
-                                  <div className="absolute inset-0 bg-gradient-to-t from-black/70 to-transparent opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
-                                    <div className="w-12 h-12 rounded-full bg-indigo-600/80 flex items-center justify-center">
-                                      <Play className="h-6 w-6 text-white fill-current ml-1" />
+                                    <div className="absolute bottom-0 left-0 right-0 px-3 py-2 bg-gradient-to-t from-black to-transparent">
+                                      <div className="font-medium text-white line-clamp-1">{episode.title}</div>
                                     </div>
                                   </div>
-                                  <div className={`absolute top-2 right-2 w-7 h-7 rounded-full flex items-center justify-center ${activeEpisode === String(episode.id) ? "bg-indigo-600" : "bg-gray-800/80"}`}>
-                                    <span className="text-xs font-bold text-white">{episode.episodeNumber}</span>
-                                  </div>
-                                  <div className="absolute bottom-0 left-0 right-0 px-3 py-2 bg-gradient-to-t from-black to-transparent">
-                                    <div className="font-medium text-white line-clamp-1">{episode.title}</div>
-                                  </div>
-                                </div>
-                              </>
-                            )}
-                          </Link>
-                        ))}
+                                </>
+                              )}
+                            </Link>
+                          ))}
+                        </div>
+                        
+                        {/* Episode navigation hint for desktop */}
+                        {totalEpisodesPages > 1 && !isMobile && (
+                          <div className="mt-4 text-center text-xs text-gray-500">
+                            💡 Sử dụng chuột cuộn để chuyển trang tập phim
+                          </div>
+                        )}
                       </div>
                     )}
                   </CardContent>
@@ -781,16 +846,23 @@ const MovieDetail = ({ movieId, initialData }: MovieDetailProps) => {
                         </div>
                       </div>
                       <div className="w-16 h-22 flex-shrink-0 rounded-md overflow-hidden relative">
-                        <Image
-                          src={movie.posterUrl ? `https://media.alldrama.tech/movies/${movie.id}/poster.png` : "/placeholder.svg"}
-                          alt={movie.title}
-                          fill
-                          className="object-cover"
-                          onError={(e) => {
-                            const target = e.target as HTMLImageElement;
-                            target.src = "/placeholder.svg";
-                          }}
-                        />
+                        {(() => {
+                          const imageInfo = getImageInfo(movie.posterUrl, movie.id, 'poster')
+                          
+                          return imageInfo.shouldShowSkeleton ? (
+                            <Skeleton className="w-full h-full" />
+                          ) : (
+                            <Image
+                              src={imageInfo.url}
+                              alt={movie.title}
+                              fill
+                              className="object-cover"
+                              onError={() => {
+                                console.log('MovieDetail Sidebar - Image load error for movie:', movie.id);
+                              }}
+                            />
+                          )
+                        })()}
                       </div>
                     </Link>
                   ))}

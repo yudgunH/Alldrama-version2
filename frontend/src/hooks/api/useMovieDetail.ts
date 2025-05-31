@@ -187,7 +187,5 @@ export const useMovieDetail = (movieId: string | number, initialData?: Movie) =>
     episodes, 
     isLoading, 
     error,
-    // Expose cache stats for debugging
-    cacheStats: process.env.NODE_ENV === 'development' ? cacheManager.getCacheStats() : undefined,
   };
 }; 

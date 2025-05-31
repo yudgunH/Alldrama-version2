@@ -11,6 +11,8 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
 import { generateWatchUrl } from '@/utils/url';
 import { useRouter } from 'next/navigation';
+import { getImageInfo } from '@/utils/image';
+import { Skeleton } from '@/components/ui/skeleton';
 
 interface EpisodeSheetProps {
   episodes: any[];
@@ -32,20 +34,6 @@ export default function MobileEpisodeSheet({
     e.stopPropagation();
     const url = generateWatchUrl(movieId, movieTitle, episodeId, episodeNumber);
     router.push(url);
-  };
-  
-  // Helper function to get episode thumbnail
-  const getEpisodeThumbnail = (episode: any) => {
-    if (episode.thumbnailUrl && episode.thumbnailUrl.startsWith('http')) {
-      return episode.thumbnailUrl;
-    }
-    
-    if (episode.episodeNumber) {
-      return `https://media.alldrama.tech/episodes/${movieId}/${episode.episodeNumber}/thumbnail.jpg`;
-    }
-    
-    // Fallback to random image as last resort
-    return `https://picsum.photos/seed/${episode.id}/300/200`;
   };
   
   return (
@@ -99,34 +87,45 @@ export default function MobileEpisodeSheet({
           <div className="overflow-y-auto max-h-[70vh]">
             {episodeView === 'grid' ? (
               <div className="grid grid-cols-2 gap-2 p-3">
-                {episodes.map(ep => (
-                  <a 
-                    key={ep.id}
-                    href={generateWatchUrl(movieId, movieTitle, ep.id, ep.episodeNumber)}
-                    onClick={(e) => navigateToEpisode(e, ep.id, ep.episodeNumber)}
-                    className={`block rounded overflow-hidden ${
-                      ep.id === currentEpisode?.id 
-                        ? 'ring-2 ring-amber-500' 
-                        : 'hover:bg-white/5'
-                    }`}
-                  >
-                    <div className="aspect-video bg-gray-800 relative">
-                      <img 
-                        src={getEpisodeThumbnail(ep)} 
-                        alt={`Tập ${ep.episodeNumber}`}
-                        className="w-full h-full object-cover"
-                      />
-                      <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/90 via-black/70 to-transparent px-2 py-1.5">
-                        <span className="text-white text-xs">Tập {ep.episodeNumber}</span>
+                {episodes.map(ep => {
+                  const imageInfo = getImageInfo(ep.thumbnailUrl, movieId, 'thumbnail')
+                  
+                  return (
+                    <a 
+                      key={ep.id}
+                      href={generateWatchUrl(movieId, movieTitle, ep.id, ep.episodeNumber)}
+                      onClick={(e) => navigateToEpisode(e, ep.id, ep.episodeNumber)}
+                      className={`block rounded overflow-hidden ${
+                        ep.id === currentEpisode?.id 
+                          ? 'ring-2 ring-amber-500' 
+                          : 'hover:bg-white/5'
+                      }`}
+                    >
+                      <div className="aspect-video bg-gray-800 relative">
+                        {imageInfo.shouldShowSkeleton ? (
+                          <Skeleton className="w-full h-full" />
+                        ) : (
+                          <img 
+                            src={imageInfo.url} 
+                            alt={`Tập ${ep.episodeNumber}`}
+                            className="w-full h-full object-cover"
+                            onError={(e) => {
+                              console.log('MobileEpisodeSheet - Episode thumbnail load error for URL:', imageInfo.url);
+                            }}
+                          />
+                        )}
+                        <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/90 via-black/70 to-transparent px-2 py-1.5">
+                          <span className="text-white text-xs">Tập {ep.episodeNumber}</span>
+                        </div>
                       </div>
-                    </div>
-                    <div className="p-2">
-                      <p className="text-xs text-gray-200 truncate">
-                        {ep.title || `Tập ${ep.episodeNumber}`}
-                      </p>
-                    </div>
-                  </a>
-                ))}
+                      <div className="p-2">
+                        <p className="text-xs text-gray-200 truncate">
+                          {ep.title || `Tập ${ep.episodeNumber}`}
+                        </p>
+                      </div>
+                    </a>
+                  )
+                })}
               </div>
             ) : (
               <div className="divide-y divide-gray-800">

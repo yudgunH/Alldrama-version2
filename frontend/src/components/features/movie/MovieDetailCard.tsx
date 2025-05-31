@@ -6,6 +6,7 @@ import { Star, Play, Eye, Calendar, Clock } from "lucide-react"
 import { Movie } from "@/types"
 import { cn } from "@/lib/utils"
 import { Skeleton } from "@/components/ui/skeleton"
+import { getImageInfo } from "@/utils/image"
 
 interface MovieDetailCardProps {
   movie: Movie
@@ -39,19 +40,30 @@ const MovieDetailCard = ({
     )
   }
 
+  // Get image info for backdrop and poster
+  const backdropInfo = getImageInfo(movie.backdropUrl || movie.posterUrl, movie.id, 'backdrop')
+  const posterInfo = getImageInfo(movie.posterUrl, movie.id, 'poster')
+
   return (
     <div className={cn("w-full max-w-3xl mx-auto bg-gray-900 rounded-lg overflow-hidden shadow-xl", className)}>
       <div className="relative">
         {/* Main Landscape Image */}
         <div className="relative aspect-[16/9] w-full">
-          <Image
-            src={movie.backdropUrl || movie.posterUrl}
-            alt={movie.title}
-            fill
-            className="object-cover"
-            sizes="(max-width: 1200px) 50vw, 33vw"
-            priority
-          />
+          {backdropInfo.shouldShowSkeleton ? (
+            <Skeleton className="w-full h-full" />
+          ) : (
+            <Image
+              src={backdropInfo.url}
+              alt={movie.title}
+              fill
+              className="object-cover"
+              sizes="(max-width: 1200px) 50vw, 33vw"
+              priority
+              onError={(e) => {
+                console.log('MovieDetailCard - Backdrop image load error for URL:', backdropInfo.url);
+              }}
+            />
+          )}
           
           {/* Gradient Overlay */}
           <div className="absolute inset-0 bg-gradient-to-t from-gray-900 via-gray-900/50 to-transparent" />
@@ -69,13 +81,20 @@ const MovieDetailCard = ({
           <div className="flex gap-3">
             {/* Portrait Poster */}
             <Link href={`/movie/${movie.id}`} className="relative -mt-12 w-24 aspect-[2/3] rounded-lg overflow-hidden shadow-xl">
-              <Image
-                src={movie.posterUrl}
-                alt={movie.title}
-                fill
-                className="object-cover"
-                sizes="96px"
-              />
+              {posterInfo.shouldShowSkeleton ? (
+                <Skeleton className="w-full h-full" />
+              ) : (
+                <Image
+                  src={posterInfo.url}
+                  alt={movie.title}
+                  fill
+                  className="object-cover"
+                  sizes="96px"
+                  onError={(e) => {
+                    console.log('MovieDetailCard - Poster image load error for URL:', posterInfo.url);
+                  }}
+                />
+              )}
             </Link>
 
             {/* Info Area */}

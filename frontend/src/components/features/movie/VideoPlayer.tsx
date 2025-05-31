@@ -35,6 +35,71 @@ const throttle = <T extends (...args:any)=>void>(fn:T, ms=500) => {
   }
 }
 
+// Helper function để extract quality từ URL m3u8
+const extractQualityFromUrl = (url: string): string => {
+  if (!url) return 'Unknown'
+  
+  // Tìm pattern như 1080m3u8, 720m3u8, etc.
+  const qualityMatch = url.match(/(\d+)(?:p?m3u8|p\.m3u8|p)/i)
+  if (qualityMatch) {
+    return `${qualityMatch[1]}p`
+  }
+  
+  // Tìm pattern khác như HD, FHD, 4K
+  const namedQualityMatch = url.match(/(4K|FHD|HD|SD)/i)
+  if (namedQualityMatch) {
+    const quality = namedQualityMatch[1].toUpperCase()
+    switch (quality) {
+      case '4K': return '2160p'
+      case 'FHD': return '1080p'
+      case 'HD': return '720p'
+      case 'SD': return '480p'
+      default: return quality
+    }
+  }
+  
+  return 'Auto'
+}
+
+// Helper function để format quality label
+const formatQualityLabel = (level: Level, index: number, url?: string): string => {
+  // Nếu có height từ HLS manifest, ưu tiên sử dụng
+  if (level.height && level.height > 0) {
+    return `${level.height}p`
+  }
+  
+  // Nếu không có height, thử extract từ URL
+  if (level.url) {
+    const levelUrl = Array.isArray(level.url) ? level.url[0] : level.url
+    const qualityFromUrl = extractQualityFromUrl(levelUrl)
+    if (qualityFromUrl !== 'Auto') {
+      return qualityFromUrl
+    }
+  }
+  
+  // Thử extract từ video source URL nếu có
+  if (url) {
+    const qualityFromMainUrl = extractQualityFromUrl(url)
+    if (qualityFromMainUrl !== 'Auto') {
+      return qualityFromMainUrl
+    }
+  }
+  
+  // Fallback dựa trên bitrate
+  if (level.bitrate) {
+    const bitrate = level.bitrate
+    if (bitrate >= 5000000) return '1080p+'
+    if (bitrate >= 3000000) return '1080p'
+    if (bitrate >= 1500000) return '720p'
+    if (bitrate >= 800000) return '480p'
+    if (bitrate >= 400000) return '360p'
+    return '240p'
+  }
+  
+  // Fallback cuối cùng
+  return `Quality ${index + 1}`
+}
+
 /* ------------------------------------------------------------------
  * Video Player component
  * ----------------------------------------------------------------*/
@@ -83,6 +148,8 @@ export default function VideoPlayer({
   const [muted,   setMuted]     = useState(false)
   const [levels,  setLevels]    = useState<Level[]>([])
   const [level,   setLevel]     = useState(-1)            // -1 = auto
+  const [currentQuality, setCurrentQuality] = useState<string>('Auto')
+  const [availableQualities, setAvailableQualities] = useState<{label: string, value: number | string}[]>([])
   const [full,    setFull]      = useState(false)
   const [fatalErr,setFatalErr]  = useState(false)
   const [playbackRate, setPlaybackRate] = useState(1)
@@ -327,41 +394,58 @@ export default function VideoPlayer({
           )}
 
           {/* bottom bar */}
-          <div className="absolute bottom-0 left-0 right-0 px-4 py-3 bg-gradient-to-t from-black/85 to-black/0 opacity-0 group-hover:opacity-100 transition-opacity">
+          <div className="absolute bottom-0 left-0 right-0 px-4 py-3 bg-gradient-to-t from-black/90 via-black/60 to-transparent opacity-0 group-hover:opacity-100 transition-all duration-300 backdrop-blur-sm border-t border-white/10">
             {/* progress bar container */}
             <div 
-              className="relative mb-1 h-4 flex items-center group/progress"
-              onClick={(e) => e.stopPropagation()}
+              className="relative mb-1 h-4 flex items-center group/progress cursor-pointer"
+              onClick={(e) => {
+                e.stopPropagation()
+                const rect = e.currentTarget.getBoundingClientRect()
+                const percent = (e.clientX - rect.left) / rect.width
+                const newTime = percent * (dur || 0)
+                const v = vRef.current
+                if (v) v.currentTime = newTime
+              }}
             >
               {/* Progress background */}
-              <div className="absolute w-full h-1.5 bg-gray-700/70 rounded-full overflow-hidden">
+              <div className="absolute w-full h-2 bg-black/40 rounded-full overflow-hidden backdrop-blur-sm">
                 {/* Buffer progress */}
-                <div className="absolute h-full bg-gray-400/30 rounded-full" 
-                     style={{width: `${getBuferredWidth()}%`}}>
-                </div>
+                <div 
+                  className="absolute h-full bg-white/20 rounded-full transition-all duration-300" 
+                  style={{width: `${getBuferredWidth()}%`}}
+                />
                 {/* Played progress */}
-                <div className="absolute h-full bg-amber-500 rounded-full" 
-                     style={{width: `${(time/(dur||1))*100}%`}}></div>
+                <div 
+                  className="absolute h-full bg-gradient-to-r from-amber-400 via-amber-500 to-yellow-500 rounded-full shadow-lg transition-all duration-150" 
+                  style={{width: `${(time/(dur||1))*100}%`}}
+                />
               </div>
               
-              {/* Interactive slider - invisible but covers the progress bar */}
-              <input
-                type="range"
-                className="w-full h-4 absolute opacity-0 cursor-pointer z-10"
-                min={0} max={dur||0} step={0.1}
-                value={time}
-                onClick={(e) => e.stopPropagation()}
-                onChange={e=>{
-                  e.stopPropagation();
-                  const v=vRef.current; 
-                  if(v) v.currentTime=parseFloat(e.target.value) 
-                }}
-              />
-              
-              {/* Tooltip showing the current time position on hover */}
-              <div className="absolute h-3 w-3 rounded-full bg-amber-500 top-1/2 transform -translate-y-1/2 opacity-0 group-hover/progress:opacity-100 transition-opacity pointer-events-none"
-                   style={{left: `${(time/(dur||1))*100}%`}}>
+              {/* Progress handle (logo con chạy theo) */}
+              <div 
+                className="absolute h-4 w-4 -translate-y-1/2 top-1/2 transition-all duration-150 group-hover/progress:scale-125"
+                style={{left: `calc(${(time/(dur||1))*100}% - 8px)`}}
+              >
+                <div className="relative h-full w-full">
+                  {/* Outer glow */}
+                  <div className="absolute inset-0 bg-amber-400/60 rounded-full blur-sm animate-pulse" />
+                  {/* Main handle */}
+                  <div className="absolute inset-0 bg-gradient-to-r from-amber-400 to-yellow-500 rounded-full shadow-lg border-2 border-white/30" />
+                  {/* Inner shine */}
+                  <div className="absolute inset-1 bg-gradient-to-tr from-white/40 to-transparent rounded-full" />
+                </div>
               </div>
+              
+              {/* Hover tooltip */}
+              <div 
+                className="absolute -top-10 px-2 py-1 bg-black/80 text-white text-xs rounded pointer-events-none opacity-0 group-hover/progress:opacity-100 transition-opacity duration-200 backdrop-blur-sm"
+                style={{left: `calc(${(time/(dur||1))*100}% - 20px)`}}
+              >
+                {fmt(time)}
+              </div>
+              
+              {/* Interactive area - invisible but covers the progress bar */}
+              <div className="absolute inset-0 cursor-pointer" />
             </div>
 
             {/* control row */}
@@ -371,7 +455,7 @@ export default function VideoPlayer({
                 <Button 
                   size="icon" 
                   variant="ghost" 
-                  className="text-white hover:text-amber-400" 
+                  className="text-white hover:text-amber-400 hover:bg-amber-400/10 transition-all duration-200 hover:scale-110" 
                   aria-label="play" 
                   onClick={(e) => {
                     e.stopPropagation();
@@ -383,7 +467,7 @@ export default function VideoPlayer({
                 <Button 
                   size="icon" 
                   variant="ghost" 
-                  className="text-white hover:text-amber-400" 
+                  className="text-white hover:text-amber-400 hover:bg-amber-400/10 transition-all duration-200 hover:scale-110" 
                   onClick={(e) => {
                     e.stopPropagation();
                     jump(-10);
@@ -395,7 +479,7 @@ export default function VideoPlayer({
                 <Button 
                   size="icon" 
                   variant="ghost" 
-                  className="text-white hover:text-amber-400" 
+                  className="text-white hover:text-amber-400 hover:bg-amber-400/10 transition-all duration-200 hover:scale-110" 
                   onClick={(e) => {
                     e.stopPropagation();
                     jump(10);
@@ -412,7 +496,7 @@ export default function VideoPlayer({
                   <Button 
                     size="icon" 
                     variant="ghost" 
-                    className="text-white hover:text-amber-400" 
+                    className="text-white hover:text-blue-400 hover:bg-blue-400/10 transition-all duration-200 hover:scale-110" 
                     onClick={(e) => {
                       e.stopPropagation();
                       toggleMute();
@@ -421,12 +505,31 @@ export default function VideoPlayer({
                     {muted||vol===0? <VolumeX className="h-5 w-5"/> : <Volume2 className="h-5 w-5"/>}
                   </Button>
                   
-                  <div className="relative w-20 h-1.5 hidden group-hover/volume:block">
+                  <div className="relative w-24 h-6 hidden group-hover/volume:flex items-center">
                     {/* Volume background */}
-                    <div className="absolute w-full h-full bg-gray-700/70 rounded-full"></div>
-                    {/* Volume level */}
-                    <div className="absolute h-full bg-amber-500 rounded-full" 
-                         style={{width: `${(muted ? 0 : vol) * 100}%`}}></div>
+                    <div className="absolute w-full h-2 bg-black/40 rounded-full overflow-hidden backdrop-blur-sm">
+                      {/* Volume level */}
+                      <div 
+                        className="absolute h-full bg-gradient-to-r from-blue-400 via-blue-500 to-cyan-500 rounded-full shadow-lg transition-all duration-150" 
+                        style={{width: `${(muted ? 0 : vol) * 100}%`}}
+                      />
+                    </div>
+                    
+                    {/* Volume handle (logo con chạy theo) */}
+                    <div 
+                      className="absolute h-3 w-3 -translate-y-1/2 top-1/2 transition-all duration-150 hover:scale-125"
+                      style={{left: `calc(${(muted ? 0 : vol) * 100}% - 6px)`}}
+                    >
+                      <div className="relative h-full w-full">
+                        {/* Outer glow */}
+                        <div className="absolute inset-0 bg-blue-400/60 rounded-full blur-sm" />
+                        {/* Main handle */}
+                        <div className="absolute inset-0 bg-gradient-to-r from-blue-400 to-cyan-500 rounded-full shadow-lg border border-white/30" />
+                        {/* Inner shine */}
+                        <div className="absolute inset-0.5 bg-gradient-to-tr from-white/40 to-transparent rounded-full" />
+                      </div>
+                    </div>
+                    
                     {/* Volume slider */}
                     <input
                       type="range" min={0} max={1} step={0.01}
@@ -439,11 +542,16 @@ export default function VideoPlayer({
                         v.muted=Number(e.target.value)===0 
                       }}
                       onClick={(e) => e.stopPropagation()}
-                      className="absolute w-full h-5 top-1/2 -translate-y-1/2 opacity-0 cursor-pointer"
+                      className="absolute w-full h-6 opacity-0 cursor-pointer"
                     />
-                    {/* Volume handle */}
-                    <div className="absolute h-3 w-3 top-1/2 transform -translate-y-1/2 rounded-full bg-amber-500"
-                         style={{left: `${(muted ? 0 : vol) * 100}%`}}></div>
+                    
+                    {/* Volume tooltip */}
+                    <div 
+                      className="absolute -top-8 px-2 py-1 bg-black/80 text-white text-xs rounded pointer-events-none opacity-0 group-hover/volume:opacity-100 transition-opacity duration-200 backdrop-blur-sm"
+                      style={{left: `calc(${(muted ? 0 : vol) * 100}% - 15px)`}}
+                    >
+                      {Math.round((muted ? 0 : vol) * 100)}%
+                    </div>
                   </div>
                   
                   <span className="text-xs tabular-nums ml-2">{fmt(time)} / {fmt(dur)}</span>
@@ -494,7 +602,7 @@ export default function VideoPlayer({
                         className="text-xs flex items-center gap-1 hover:text-amber-400"
                         onClick={(e) => e.stopPropagation()}
                       >
-                        {level === -1 ? 'Auto' : `${levels[level]?.height}p`} <Settings className="h-4 w-4"/>
+                        {level === -1 ? 'Auto' : formatQualityLabel(levels[level], level, videoSrc)} <Settings className="h-4 w-4"/>
                       </Button>
                     </DropdownMenuTrigger>
                     <DropdownMenuContent 
@@ -520,7 +628,7 @@ export default function VideoPlayer({
                           }} 
                           className={cn('cursor-pointer', level === i && 'bg-amber-500/20 text-amber-400')}
                         >
-                          {l.height}p ({Math.round(l.bitrate / 1000)}kbps)
+                          {formatQualityLabel(l, i, videoSrc)}
                         </DropdownMenuItem>
                       ))}
                     </DropdownMenuContent>
@@ -531,7 +639,7 @@ export default function VideoPlayer({
                 <Button 
                   size="icon" 
                   variant="ghost" 
-                  className="text-white hover:text-amber-400" 
+                  className="text-white hover:text-purple-400 hover:bg-purple-400/10 transition-all duration-200 hover:scale-110" 
                   onClick={(e) => {
                     e.stopPropagation()
                     togglePiP()
@@ -545,7 +653,7 @@ export default function VideoPlayer({
                 <Button 
                   size="icon" 
                   variant="ghost" 
-                  className="text-white hover:text-amber-400" 
+                  className="text-white hover:text-green-400 hover:bg-green-400/10 transition-all duration-200 hover:scale-110" 
                   onClick={(e) => {
                     e.stopPropagation()
                     fullScreen()

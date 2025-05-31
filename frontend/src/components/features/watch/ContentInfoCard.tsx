@@ -11,6 +11,7 @@ import { useAuth } from '@/hooks/api/useAuth';
 import { useFavorites } from '@/hooks/api/useFavorites';
 import { useRouter } from 'next/navigation';
 import Image from 'next/image';
+import { getSafePosterUrl } from '@/utils/image';
 
 // IconButton component merged into this file
 interface IconButtonProps {
@@ -96,29 +97,6 @@ export default function ContentInfoCard({
   // Define the common glass background style
   const GLASS_BG = "bg-gradient-to-br from-gray-800/70 to-gray-900/80 border-gray-700/60 backdrop-blur-sm shadow-lg";
   
-  // Helper function to get proper image URL
-  const getImageUrl = (url?: string, movieId?: number | string) => {
-    if (!url) return '/placeholder.svg';
-    
-    // If it's already a complete URL, use it directly
-    if (url.startsWith('http')) {
-      return url;
-    }
-    
-    // If it's a relative path or just a filename, construct the full URL
-    if (url.startsWith('/')) {
-      return `https://media.alldrama.tech${url}`;
-    }
-    
-    // If we have a movie ID and it seems like just a filename
-    if (movieId) {
-      return `https://media.alldrama.tech/movies/${movieId}/poster.png`;
-    }
-    
-    // Fallback to original URL
-    return url;
-  };
-  
   return (
     <Card className={`${GLASS_BG} overflow-hidden`}>
       <CardContent className="p-0">
@@ -128,7 +106,7 @@ export default function ContentInfoCard({
             <div className="flex-shrink-0 w-full sm:w-[150px]">
               <div className="aspect-[2/3] rounded-md overflow-hidden bg-gray-900 relative">
                 <Image 
-                  src={getImageUrl(movie.posterUrl, movie.id)} 
+                  src={getSafePosterUrl(movie.posterUrl, movie.id)} 
                   alt={movie.title} 
                   fill
                   sizes="(max-width: 768px) 100vw, 150px"

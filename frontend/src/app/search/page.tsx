@@ -13,7 +13,6 @@ import { movieService, genreService } from '@/lib/api';
 import { cacheManager } from '@/lib/cache/cacheManager';
 import useSWR from 'swr';
 import { useAuth } from '@/hooks/api/useAuth';
-import { useFavorites } from '@/hooks/api/useFavorites';
 
 // Hàm tiện ích debounce để tránh gọi API liên tục
 const debounce = (func: Function, delay: number) => {
@@ -55,7 +54,6 @@ const SearchContent = () => {
   const searchParams = useSearchParams();
   const router = useRouter();
   const { isAuthenticated } = useAuth();
-  const { refreshFavorites } = useFavorites();
   
   // Lấy các tham số tìm kiếm từ URL
   const initialQuery = searchParams.get('q') || '';
@@ -70,7 +68,13 @@ const SearchContent = () => {
   const [sortBy, setSortBy] = useState<string>(initialSort);
   const [filtersVisible, setFiltersVisible] = useState(true);
   
-  // Fetch genres with SWR and cache
+  // Search results state
+  const [searchResults, setSearchResults] = useState<any>(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<any>(null);
+  const [hasSearched, setHasSearched] = useState(false);
+  
+  // Fetch genres with SWR and cache - chỉ fetch một lần
   const { data: genres } = useSWR(
     'genres-list',
     async () => {
@@ -93,55 +97,7 @@ const SearchContent = () => {
     {
       revalidateOnFocus: false,
       revalidateOnReconnect: false,
-      dedupingInterval: 300000, // 5 minutes
-    }
-  );
-
-  // Generate search key for SWR
-  const searchKey = useMemo(() => {
-    const params = new URLSearchParams();
-    if (initialQuery) params.set('q', initialQuery);
-    if (initialGenre) params.set('genre', initialGenre);
-    if (initialYear) params.set('year', initialYear);
-    if (initialSort) params.set('sort', initialSort);
-    return `search-${params.toString()}`;
-  }, [initialQuery, initialGenre, initialYear, initialSort]);
-
-  // Fetch search results with SWR and cache
-  const { data: searchResults, error: searchError, isLoading: searchLoading } = useSWR(
-    searchKey,
-    async () => {
-      // Check cache first
-      const cached = cacheManager.getStats(searchKey);
-      if (cached) {
-        console.log(`Using cached search results for: ${searchKey}`);
-        return cached;
-      }
-      
-      // Build search params
-      const searchParams: any = {};
-      if (initialQuery) searchParams.query = initialQuery;
-      if (initialGenre) searchParams.genre = initialGenre;
-      if (initialYear) searchParams.year = parseInt(initialYear);
-      if (initialSort) {
-        const [field, order] = initialSort.split('-');
-        searchParams.sortBy = field;
-        searchParams.sortOrder = order?.toUpperCase() || 'DESC';
-      }
-      
-      // Fetch from API
-      console.log(`Fetching search results from API for: ${searchKey}`);
-      const results = await movieService.searchMovies(searchParams);
-      
-      // Cache the result for 5 minutes
-      cacheManager.setStats(searchKey, results, 5 * 60 * 1000);
-      
-      return results;
-    },
-    {
-      revalidateOnFocus: false,
-      revalidateOnReconnect: false,
-      dedupingInterval: 60000, // 1 minute
+      dedupingInterval: 1800000, // 30 minutes
     }
   );
 
@@ -155,24 +111,19 @@ const SearchContent = () => {
     }
     return yearsList;
   }, []);
-
-  // Auto-refresh favorites when authenticated
-  useEffect(() => {
-    if (isAuthenticated) {
-      const lastRefresh = cacheManager.getStats('favorites-last-refresh');
-      const now = Date.now();
-      
-      if (!lastRefresh || now - lastRefresh > 60000) { // Refresh max once per minute
-        refreshFavorites();
-        cacheManager.setStats('favorites-last-refresh', now, 60000);
-      }
-    }
-  }, [isAuthenticated, refreshFavorites]);
   
-  // Debug log
+  // Đồng bộ state với URL params khi trang load
   useEffect(() => {
-    console.log("Current genres in Search page:", genres);
-  }, [genres]);
+    setSearchQuery(initialQuery);
+    setSelectedGenre(initialGenre);
+    setSelectedYear(initialYear);
+    setSortBy(initialSort);
+    
+    // Chỉ auto-search nếu có params từ URL (user navigate trực tiếp với params)
+    if (initialQuery || initialGenre || initialYear || initialSort) {
+      performSearch(initialQuery, initialGenre, initialYear, initialSort);
+    }
+  }, []);
   
   // Hiển thị bộ lọc trên mobile nếu đã có filter
   useEffect(() => {
@@ -181,33 +132,74 @@ const SearchContent = () => {
     }
   }, [initialGenre, initialYear, initialSort]);
   
-  // Clear search cache helper function
-  const clearSearchCache = () => {
-    // Since clearStats doesn't exist, we'll clear all cache for now
-    // This is a temporary solution until clearStats is implemented
-    cacheManager.clearAllCache();
-  };
-  
-  // Cập nhật URL khi các bộ lọc thay đổi (dùng debounce để tránh gọi quá nhiều)
-  const debouncedUpdateSearchParams = useCallback(
-    debounce(() => {
+  // Perform search function
+  const performSearch = useCallback(async (query = searchQuery, genre = selectedGenre, year = selectedYear, sort = sortBy) => {
+    // Generate search key for caching
       const params = new URLSearchParams();
+    if (query) params.set('q', query);
+    if (genre) params.set('genre', genre);
+    if (year) params.set('year', year);
+    if (sort) params.set('sort', sort);
+    const searchKey = `search-${params.toString()}`;
+    
+    setLoading(true);
+    setError(null);
+    setHasSearched(true);
+    
+    try {
+      // Check cache first
+      const cached = cacheManager.getStats(searchKey);
+      if (cached) {
+        console.log(`Using cached search results for: ${searchKey}`);
+        setSearchResults(cached);
+        setLoading(false);
+        return;
+      }
       
-      if (searchQuery) params.set('q', searchQuery);
-      if (selectedGenre) params.set('genre', selectedGenre);
-      if (selectedYear) params.set('year', selectedYear);
-      if (sortBy) params.set('sort', sortBy);
+      // Build search params cho API - sử dụng đúng tên parameter
+      const apiParams: any = {};
       
-      // Clear search cache when params change
-      clearSearchCache();
+      // Sử dụng 'q' thay vì 'query' để match với movieService.searchMovies
+      if (query) apiParams.q = query;
       
-      router.push(`/search?${params.toString()}`);
-    }, 300),
-    [searchQuery, selectedGenre, selectedYear, sortBy, router]
-  );
+      // Chuyển đổi genre name thành genre ID nếu có
+      if (genre && genres && genres.length > 0) {
+        const selectedGenreObj = genres.find((g: Genre) => g.name === genre);
+        if (selectedGenreObj) {
+          apiParams.genre = selectedGenreObj.id;
+        } else {
+          // Nếu không tìm thấy genre ID, vẫn truyền tên để API xử lý
+          apiParams.genre = genre;
+        }
+      }
+      
+      if (year) apiParams.year = parseInt(year);
+      
+      // Sửa lại logic sorting để match với API
+      if (sort) {
+        const [field, order] = sort.split('-');
+        apiParams.sort = field; // 'rating' hoặc 'views'
+        apiParams.order = order?.toUpperCase() || 'DESC'; // 'ASC' hoặc 'DESC'
+      }
+      
+      // Fetch from API
+      console.log(`Fetching search results from API for: ${searchKey}`, apiParams);
+      const results = await movieService.searchMovies(apiParams);
+      
+      // Cache the result for 5 minutes
+      cacheManager.setStats(searchKey, results, 5 * 60 * 1000);
+      
+      setSearchResults(results);
+    } catch (err) {
+      console.error('Search error:', err);
+      setError(err);
+    } finally {
+      setLoading(false);
+    }
+  }, [searchQuery, selectedGenre, selectedYear, sortBy, genres]);
   
-  // Cập nhật URL khi các bộ lọc thay đổi
-  const updateSearchParams = () => {
+  // Cập nhật URL và thực hiện tìm kiếm
+  const updateSearchParamsAndSearch = useCallback(() => {
     const params = new URLSearchParams();
     
     if (searchQuery) params.set('q', searchQuery);
@@ -215,15 +207,13 @@ const SearchContent = () => {
     if (selectedYear) params.set('year', selectedYear);
     if (sortBy) params.set('sort', sortBy);
     
-    // Clear search cache when params change
-    clearSearchCache();
-    
     router.push(`/search?${params.toString()}`);
-  };
+    performSearch();
+  }, [searchQuery, selectedGenre, selectedYear, sortBy, router, performSearch]);
   
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    updateSearchParams();
+    updateSearchParamsAndSearch();
   };
   
   const handleReset = () => {
@@ -231,7 +221,8 @@ const SearchContent = () => {
     setSelectedGenre('');
     setSelectedYear('');
     setSortBy('');
-    clearSearchCache();
+    setSearchResults(null);
+    setHasSearched(false);
     router.push('/search');
   };
   
@@ -253,36 +244,41 @@ const SearchContent = () => {
       setSortBy('');
     }
     
-    clearSearchCache();
     router.push(`/search?${params.toString()}`);
-  };
-  
-  // Hàm trợ giúp để lấy tên gọi rõ ràng của các tùy chọn sắp xếp
-  const getSortLabel = (sortValue: string) => {
-    switch (sortValue) {
-      case 'rating-desc': return 'Đánh giá cao nhất';
-      case 'views-desc': return 'Lượt xem nhiều nhất';
-      default: return '';
+    // Perform search with updated filters
+    setTimeout(() => {
+      if (type === 'query') {
+        performSearch('', selectedGenre, selectedYear, sortBy);
+      } else if (type === 'genre') {
+        performSearch(searchQuery, '', selectedYear, sortBy);
+      } else if (type === 'year') {
+        performSearch(searchQuery, selectedGenre, '', sortBy);
+      } else if (type === 'sort') {
+        performSearch(searchQuery, selectedGenre, selectedYear, '');
     }
+    }, 0);
   };
   
   // Chọn thể loại
   const handleGenreChange = (genreName: string) => {
-    // Ngăn chặn việc gọi lại endpoint nếu genre không thay đổi
     if (genreName === selectedGenre) return;
     
     setSelectedGenre(genreName);
-    // Nếu đang tìm kiếm, cập nhật ngay
-    if (searchQuery || selectedYear || sortBy) {
-      debouncedUpdateSearchParams();
-    }
+    
+    // Cập nhật URL và search ngay lập tức
+    const params = new URLSearchParams();
+    if (searchQuery) params.set('q', searchQuery);
+    if (genreName) params.set('genre', genreName);
+    if (selectedYear) params.set('year', selectedYear);
+    if (sortBy) params.set('sort', sortBy);
+    
+    router.push(`/search?${params.toString()}`);
+    performSearch(searchQuery, genreName, selectedYear, sortBy);
   };
 
   // Extract data from search results
   const movies = searchResults?.movies || [];
   const total = searchResults?.total || 0;
-  const loading = searchLoading;
-  const error = searchError;
   
   return (
     <div className="min-h-screen bg-gray-900 pt-20 pb-16">
@@ -362,7 +358,7 @@ const SearchContent = () => {
                   onClick={() => removeFilter('sort')}
                 >
                   <ArrowUpDown className="h-3 w-3 mr-1" />
-                  {getSortLabel(initialSort)}
+                  {sortBy === 'rating-desc' ? 'Đánh giá cao nhất' : 'Lượt xem nhiều nhất'}
                   <X className="h-3 w-3" />
                 </Badge>
               )}
@@ -438,7 +434,7 @@ const SearchContent = () => {
                       
                       setSelectedYear(newYear);
                       // Debounce the update to avoid multiple API calls
-                      debouncedUpdateSearchParams();
+                      updateSearchParamsAndSearch();
                     }}
                     className="w-full bg-gray-700 border border-gray-600 rounded-lg px-4 py-2 text-white focus:outline-none focus:ring-2 focus:ring-red-500"
                   >
@@ -467,7 +463,7 @@ const SearchContent = () => {
                         setSortBy(newSortBy);
                         // Sử dụng debounce để tránh gọi API liên tục
                         setTimeout(() => {
-                          debouncedUpdateSearchParams();
+                          updateSearchParamsAndSearch();
                         }, 0);
                       }}
                     >
@@ -483,7 +479,7 @@ const SearchContent = () => {
                         setSortBy(newSortBy);
                         // Sử dụng debounce để tránh gọi API liên tục
                         setTimeout(() => {
-                          debouncedUpdateSearchParams();
+                          updateSearchParamsAndSearch();
                         }, 0);
                       }}
                     >
@@ -500,7 +496,7 @@ const SearchContent = () => {
                           setSortBy('');
                           // Sử dụng debounce để tránh gọi API liên tục
                           setTimeout(() => {
-                            debouncedUpdateSearchParams();
+                            updateSearchParamsAndSearch();
                           }, 0);
                         }}
                       >
@@ -530,20 +526,20 @@ const SearchContent = () => {
             </form>
           </div>
           
-          {/* Thể loại dạng grid */}
+          {/* Thể loại dạng grid - chỉ hiển thị khi không có filter nào */}
           {genres && genres.length > 0 && !initialGenre && !initialQuery && !initialYear && !initialSort && (
             <div className="mb-8">
               <h2 className="text-lg font-medium text-white mb-4">Tìm kiếm theo thể loại</h2>
-              <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-2">
+              <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-3">
                 {genres.map((genre: Genre) => (
                   <Button
                     key={genre.id}
                     variant="outline"
                     size="sm"
-                    className="justify-start text-gray-300 hover:text-white hover:bg-gray-700/50"
+                    className="justify-center text-gray-300 hover:text-white hover:bg-amber-600/20 hover:border-amber-500/50 border-gray-600 bg-gray-800/50 py-3 h-auto transition-all duration-200"
                     onClick={() => handleGenreChange(genre.name)}
                   >
-                    {genre.name}
+                    <span className="text-center">{genre.name}</span>
                   </Button>
                 ))}
               </div>
@@ -554,14 +550,16 @@ const SearchContent = () => {
           <div>
             <div className="flex justify-between items-center mb-4">
               <h2 className="text-xl font-semibold text-white">
-                {!loading ? (
-                  `Kết quả tìm kiếm (${total})`
-                ) : (
+                {!hasSearched ? (
+                  'Nhập từ khóa hoặc chọn bộ lọc để tìm kiếm'
+                ) : loading ? (
                   'Đang tìm kiếm...'
+                ) : (
+                  `Kết quả tìm kiếm (${total})`
                 )}
               </h2>
               
-              {sortBy && (
+              {sortBy && hasSearched && (
                 <div className="hidden md:flex items-center gap-2 text-sm text-gray-400">
                   <span>Sắp xếp theo:</span>
                   <span className="text-amber-400 font-medium">
@@ -573,7 +571,27 @@ const SearchContent = () => {
             
             <Separator className="mb-6 bg-gray-800" />
             
-            {loading ? (
+            {!hasSearched ? (
+              // Welcome message khi chưa search
+              <div className="bg-gray-800 rounded-lg p-8 text-center">
+                <svg 
+                  xmlns="http://www.w3.org/2000/svg" 
+                  className="h-16 w-16 mx-auto text-gray-600 mb-4" 
+                  fill="none" 
+                  viewBox="0 0 24 24" 
+                  stroke="currentColor"
+                >
+                  <path 
+                    strokeLinecap="round" 
+                    strokeLinejoin="round" 
+                    strokeWidth={2} 
+                    d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" 
+                  />
+                </svg>
+                <p className="text-gray-400 text-lg">Chào mừng bạn đến với trang tìm kiếm phim!</p>
+                <p className="text-gray-500 mt-2">Nhập từ khóa, chọn thể loại, năm phát hành hoặc cách sắp xếp để bắt đầu tìm kiếm.</p>
+              </div>
+            ) : loading ? (
               // Skeleton loading
               <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4 md:gap-6">
                 {Array.from({ length: 10 }).map((_, index) => (
@@ -583,6 +601,18 @@ const SearchContent = () => {
                     <Skeleton className="h-3 w-1/2 rounded bg-gray-800" />
                   </div>
                 ))}
+              </div>
+            ) : error ? (
+              // Error message
+              <div className="bg-red-900/20 border border-red-800 rounded-lg p-6 text-center">
+                <p className="text-red-400 text-lg">Có lỗi xảy ra khi tìm kiếm</p>
+                <p className="text-red-300 mt-2">Vui lòng thử lại sau hoặc kiểm tra kết nối mạng.</p>
+                <Button 
+                  onClick={() => performSearch()}
+                  className="mt-4 bg-red-600 hover:bg-red-700"
+                >
+                  Thử lại
+                </Button>
               </div>
             ) : movies.length > 0 ? (
               <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4 md:gap-6">

@@ -9,9 +9,8 @@ import { cn } from "@/lib/utils"
 import { motion } from "framer-motion"
 import { ChevronLeft, ChevronRight } from "lucide-react"
 import MoviePopover from "./MoviePopover"
-import { useState, useEffect, useCallback } from "react"
+import { useState, useCallback, useRef, useMemo } from "react"
 import { useMobile } from "@/hooks/use-mobile"
-import { useMovies } from "@/hooks/api/useMovies"
 import { Skeleton } from "@/components/ui/skeleton"
 
 interface MovieSliderProps {
@@ -25,11 +24,12 @@ interface MovieSliderProps {
   size?: 'sm' | 'md' | 'lg'
   showPopover?: boolean
   limit?: number
+  isLoading?: boolean
 }
 
 const MovieSlider = ({ 
   title, 
-  movies, 
+  movies = [],
   endpoint,
   genreId,
   variant = "default",
@@ -37,7 +37,8 @@ const MovieSlider = ({
   maxItems = 7,
   size = 'md',
   showPopover = true,
-  limit = 10
+  limit = 10,
+  isLoading = false
 }: MovieSliderProps) => {
   const [currentPage, setCurrentPage] = useState(0);
   const isMobileSmall = useMobile(768);
@@ -47,53 +48,101 @@ const MovieSlider = ({
   const isMobile = isMobileSmall;
   const isTablet = isMobileLarge && !isMobileSmall;
   
-  // State cho dữ liệu phim
-  const [movieData, setMovieData] = useState<Movie[]>([]);
-  const [loading, setLoading] = useState(!movies);
-  const [error, setError] = useState<string | null>(null);
-  
-  // Sử dụng dữ liệu từ props
-  useEffect(() => {
-    if (movies && movies.length > 0) {
-      setMovieData(movies);
-      setLoading(false);
-    } else {
-      setMovieData([]);
-      setLoading(false);
-    }
-  }, [movies]);
-  
-  // Tính toán các thông số pagination và hiển thị
-  const moviesForDisplay = movieData && movieData.length > 0 ? movieData : [];
-  const responsiveMaxItems = isMobile ? 3 : (isTablet ? 5 : maxItems);
-  const totalPages = Math.ceil(moviesForDisplay.length / responsiveMaxItems);
-  const startIndex = currentPage * responsiveMaxItems;
-  const displayMovies = moviesForDisplay.slice(startIndex, startIndex + responsiveMaxItems);
-  
-  const handlePrevPage = () => {
-    setCurrentPage(prev => Math.max(0, prev - 1));
-  };
-  
-  const handleNextPage = () => {
-    setCurrentPage(prev => Math.min(totalPages - 1, prev + 1));
-  };
-  
-  // Handle touch events for mobile scrolling
+  // Touch handling for mobile scrolling
   const [touchStart, setTouchStart] = useState(0);
   const [touchEnd, setTouchEnd] = useState(0);
+  const containerRef = useRef<HTMLDivElement>(null);
   
-  const handleTouchStart = (e: React.TouchEvent) => {
+  // Minimum swipe distance (in px)
+  const minSwipeDistance = 50;
+  
+  // Memoize processed movies to prevent unnecessary recalculations
+  const moviesForDisplay = useMemo(() => {
+    return movies && movies.length > 0 ? movies : [];
+  }, [movies]);
+  
+  // Memoize responsive calculations
+  const responsiveMaxItems = useMemo(() => {
+    return isMobile ? 3 : (isTablet ? 5 : maxItems);
+  }, [isMobile, isTablet, maxItems]);
+  
+  const totalPages = useMemo(() => {
+    return Math.ceil(moviesForDisplay.length / responsiveMaxItems);
+  }, [moviesForDisplay.length, responsiveMaxItems]);
+  
+  const displayMovies = useMemo(() => {
+    const startIndex = currentPage * responsiveMaxItems;
+    return moviesForDisplay.slice(startIndex, startIndex + responsiveMaxItems);
+  }, [moviesForDisplay, currentPage, responsiveMaxItems]);
+  
+  const handlePrevPage = useCallback(() => {
+    setCurrentPage(prev => Math.max(0, prev - 1));
+  }, []);
+  
+  const handleNextPage = useCallback(() => {
+    setCurrentPage(prev => Math.min(totalPages - 1, prev + 1));
+  }, [totalPages]);
+  
+  // Handle touch events for mobile scrolling
+  const handleTouchStart = useCallback((e: React.TouchEvent) => {
     setTouchStart(e.targetTouches[0].clientX);
-  };
+  }, []);
   
-  const handleTouchMove = (e: React.TouchEvent) => {
+  const handleTouchMove = useCallback((e: React.TouchEvent) => {
     setTouchEnd(e.targetTouches[0].clientX);
-  };
+  }, []);
   
-  const handleTouchEnd = () => {
+  const handleTouchEnd = useCallback(() => {
+    if (!touchStart || !touchEnd) return;
+    
+    const distance = touchStart - touchEnd;
+    const isLeftSwipe = distance > minSwipeDistance;
+    const isRightSwipe = distance < -minSwipeDistance;
+    
+    if (isLeftSwipe && currentPage < totalPages - 1) {
+      handleNextPage();
+    }
+    
+    if (isRightSwipe && currentPage > 0) {
+      handlePrevPage();
+    }
+    
+    // Reset values
     setTouchStart(0);
     setTouchEnd(0);
-  };
+  }, [touchStart, touchEnd, currentPage, totalPages, handleNextPage, handlePrevPage]);
+  
+  // Handle mouse wheel scroll functionality
+  const handleWheel = useCallback((e: React.WheelEvent) => {
+    // Only handle horizontal scroll on desktop when not on mobile
+    if (isMobile || totalPages <= 1) return;
+    
+    e.preventDefault();
+    
+    // Determine scroll direction
+    const deltaY = e.deltaY;
+    const deltaX = e.deltaX;
+    
+    // Check if it's horizontal scroll or vertical scroll being converted to horizontal
+    const isHorizontalScroll = Math.abs(deltaX) > Math.abs(deltaY) || deltaY !== 0;
+    
+    if (isHorizontalScroll) {
+      // Use deltaX if available, otherwise use deltaY for horizontal scrolling
+      const scrollDirection = deltaX !== 0 ? deltaX : deltaY;
+      
+      if (scrollDirection > 0) {
+        // Scroll right (next page)
+        if (currentPage < totalPages - 1) {
+          handleNextPage();
+        }
+      } else {
+        // Scroll left (previous page)
+        if (currentPage > 0) {
+          handlePrevPage();
+        }
+      }
+    }
+  }, [isMobile, totalPages, currentPage, handleNextPage, handlePrevPage]);
   
   return (
     <div className={cn("w-full mb-8 md:mb-12", className)}>
@@ -106,7 +155,7 @@ const MovieSlider = ({
         </div>
         
         <div className="flex items-center gap-2">
-          {totalPages > 1 && !isMobile && movieData && movieData.length > 0 && !loading && !error && (
+          {totalPages > 1 && !isMobile && moviesForDisplay.length > 0 && !isLoading && (
             <div className="flex items-center space-x-2">
               <Button 
                 size="icon"
@@ -141,7 +190,7 @@ const MovieSlider = ({
       </div>
 
       {/* Case 1: Loading */}
-      {loading && (
+      {isLoading && (
         <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-7 gap-3 md:gap-4">
           {Array.from({ length: responsiveMaxItems }).map((_, index) => (
             <div key={index} className="flex flex-col gap-2">
@@ -152,25 +201,22 @@ const MovieSlider = ({
         </div>
       )}
       
-      {/* Case 2: Error */}
-      {!loading && error && (
-        <div className="bg-red-900/30 border border-red-700 rounded-md p-4">
-          <p className="text-red-300">{error}</p>
-        </div>
-      )}
-      
-      {/* Case 3: Có dữ liệu */}
-      {!loading && !error && movieData && movieData.length > 0 && (
+      {/* Case 2: Có dữ liệu */}
+      {!isLoading && moviesForDisplay.length > 0 && (
         <>
           {isMobile ? (
-            // Mobile view with horizontal scrolling
+            // Mobile view with horizontal scrolling and touch support
             <div 
+              ref={containerRef}
               className="overflow-x-auto flex gap-3 snap-x snap-mandatory scrollbar-hide pb-4"
               style={{ 
                 scrollbarWidth: 'none', 
                 WebkitOverflowScrolling: 'touch',
                 scrollSnapType: 'x mandatory'
               }}
+              onTouchStart={handleTouchStart}
+              onTouchMove={handleTouchMove}
+              onTouchEnd={handleTouchEnd}
             >
               {displayMovies.map((movie, index) => (
                 <div 
@@ -215,8 +261,13 @@ const MovieSlider = ({
               ))}
             </div>
           ) : (
-            // Desktop view with grid layout
-            <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-7 gap-3 md:gap-4">
+            // Desktop view with grid layout and mouse wheel scroll
+            <div 
+              ref={containerRef}
+              className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-7 gap-3 md:gap-4"
+              onWheel={handleWheel}
+              style={{ cursor: totalPages > 1 ? 'grab' : 'default' }}
+            >
               {displayMovies.map((movie, index) => (
                 <motion.div
                   key={String(movie.id)}
@@ -255,8 +306,8 @@ const MovieSlider = ({
         </>
       )}
 
-      {/* Case 4: Không có dữ liệu */}
-      {!loading && !error && (!movieData || movieData.length === 0) && (
+      {/* Case 3: Không có dữ liệu */}
+      {!isLoading && moviesForDisplay.length === 0 && (
         <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-7 gap-3 md:gap-4">
           {Array.from({ length: responsiveMaxItems }).map((_, index) => (
             <div key={index} className="flex flex-col gap-2">

@@ -1,12 +1,14 @@
 'use client'
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import Link from 'next/link';
 import Image from 'next/image';
 import { Movie } from '@/types';
 import { generateMovieUrl } from '@/utils/url';
-import { motion } from 'framer-motion';
-import { Play, Film } from 'lucide-react';
+import { getImageInfo } from '@/utils/image';
+import { motion, AnimatePresence } from 'framer-motion';
+import { Play, Film, X } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { Skeleton } from '@/components/ui/skeleton';
 
 // CSS cho hiệu ứng và style
 const heroStyles = `
@@ -55,21 +57,55 @@ const heroStyles = `
   }
 `;
 
-const Hero = () => {
-  const [featuredMovie, setFeaturedMovie] = useState<Movie | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
+interface HeroProps {
+  movies?: Movie[];
+  isLoading?: boolean;
+}
 
+const Hero = ({ movies = [], isLoading = false }: HeroProps) => {
+  const [currentIndex, setCurrentIndex] = useState(0);
+  const [failedImages, setFailedImages] = useState<Set<string>>(new Set());
+  const [showTrailer, setShowTrailer] = useState(false);
+
+  // Get featured movies (top 5)
+  const featuredMovies = movies.slice(0, 5);
+  const currentMovie = featuredMovies[currentIndex];
+
+  // Auto-rotate through featured movies every 10 seconds
   useEffect(() => {
-    // Tạo hiệu ứng loading
-    const timer = setTimeout(() => {
-      // setFeaturedMovie(mockMovies[0]);
-      setIsLoading(false);
-    }, 800);
+    if (featuredMovies.length <= 1 || showTrailer) return;
 
-    return () => clearTimeout(timer);
+    const interval = setInterval(() => {
+      setCurrentIndex((prev) => (prev + 1) % featuredMovies.length);
+    }, 10000); // 10 seconds per slide
+
+    return () => clearInterval(interval);
+  }, [featuredMovies.length, showTrailer]);
+
+  const handleImageError = useCallback((url: string) => {
+    setFailedImages(prev => new Set(prev).add(url));
   }, []);
 
-  if (isLoading || !featuredMovie) {
+  const handleSlideChange = useCallback((newIndex: number) => {
+    setCurrentIndex(newIndex);
+  }, []);
+
+  const handleTrailerClick = useCallback(() => {
+    setShowTrailer(true);
+  }, []);
+
+  const handleCloseTrailer = useCallback(() => {
+    setShowTrailer(false);
+  }, []);
+
+  // Extract YouTube video ID from URL
+  const getYouTubeVideoId = (url: string) => {
+    const regExp = /^.*(youtu.be\/|v\/|u\/\w\/|embed\/|watch\?v=|&v=)([^#&?]*).*/;
+    const match = url.match(regExp);
+    return (match && match[2].length === 11) ? match[2] : null;
+  };
+
+  if (isLoading || !currentMovie) {
     return (
       <div className="h-[70vh] sm:h-[80vh] bg-gradient-to-b from-gray-900 to-black">
         <div className="max-w-7xl h-full mx-auto px-4 sm:px-6 lg:px-8 flex flex-col justify-center">
@@ -90,21 +126,51 @@ const Hero = () => {
     );
   }
 
+  // Get backdrop image info
+  const backdropInfo = getImageInfo(
+    currentMovie.backdropUrl || currentMovie.posterUrl, 
+    currentMovie.id, 
+    'backdrop'
+  );
+  const shouldShowSkeleton = backdropInfo.shouldShowSkeleton || failedImages.has(backdropInfo.url);
+
   return (
     <>
       <style jsx global>{heroStyles}</style>
       <section className="relative w-full h-[70vh] sm:h-[80vh] lg:h-[85vh] overflow-hidden">
-        {/* Background Image */}
+        {/* Background Images with Smooth Transitions */}
         <div className="absolute inset-0 w-full h-full">
-          <Image
-            src={featuredMovie.posterUrl}
-            alt=""
-            fill
-            priority
-            sizes="100vw"
-            className="object-cover object-top sm:object-center"
-            quality={90}
-          />
+          <AnimatePresence mode="wait">
+            <motion.div
+              key={`bg-${currentMovie.id}`}
+              initial={{ opacity: 0, scale: 1.1 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.95 }}
+              transition={{ 
+                duration: 0.8, 
+                ease: [0.25, 0.46, 0.45, 0.94] // Custom easing
+              }}
+              className="absolute inset-0 w-full h-full"
+            >
+              {shouldShowSkeleton ? (
+                <Skeleton className="w-full h-full" />
+              ) : (
+                <Image
+                  src={backdropInfo.url}
+                  alt={currentMovie.title}
+                  fill
+                  priority
+                  sizes="100vw"
+                  className="object-cover object-center"
+                  quality={90}
+                  onError={() => {
+                    console.log('Hero - Background image load error for movie:', currentMovie.id);
+                    handleImageError(backdropInfo.url);
+                  }}
+                />
+              )}
+            </motion.div>
+          </AnimatePresence>
           
           {/* Gradient overlay chính */}
           <div className="absolute inset-0 hero-gradient-overlay" />
@@ -116,78 +182,206 @@ const Hero = () => {
           <div className="absolute inset-0 bg-noise opacity-[0.03]" />
         </div>
 
-        {/* Content */}
+        {/* Content with Smooth Animations */}
         <div className="relative h-full max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex items-center">
-          <motion.div 
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.7, ease: "easeOut" }}
-            className="max-w-xl md:max-w-2xl space-y-5 sm:space-y-6 pt-16 sm:pt-0"
-          >
-            <h1 className="text-3xl sm:text-4xl md:text-5xl xl:text-6xl font-bold text-white leading-tight tracking-tight hero-text-shadow">
-              {featuredMovie.title}
-            </h1>
-            
-            <p className="text-white hero-description sm:text-lg line-clamp-3 md:line-clamp-4 leading-relaxed">
-              {featuredMovie.summary}
-            </p>
-            
-            <div className="flex flex-wrap gap-2 sm:gap-3 items-center text-sm sm:text-base text-white hero-tag">
-              <span className="font-medium">{featuredMovie.releaseYear}</span>
-              <span className="w-1.5 h-1.5 rounded-full bg-amber-500" />
-              <div className="flex items-center">
-                <span className="text-amber-400 mr-1.5">★</span>
-                <span className="font-medium">{featuredMovie.rating || 0}</span>
-                <span className="text-white/90 ml-1">/10</span>
-              </div>
-              <span className="w-1.5 h-1.5 rounded-full bg-amber-500" />
-              <span>{new Intl.NumberFormat('vi-VN').format(featuredMovie.views || 0)} lượt xem</span>
-            </div>
-            
-            <div className="flex flex-wrap items-center gap-2 pt-1">
-              {featuredMovie.genres.slice(0, 3).map((genre, index) => {
-                const genreId = typeof genre === 'string' ? genre : genre.id;
-                const genreName = typeof genre === 'string' ? genre : genre.name;
-                
-                return (
-                  <Link 
-                    key={`${genreId}-${index}`} 
-                    href={`/movie?genre=${encodeURIComponent(genreName)}`} 
-                    className="px-3 py-1 bg-amber-600/20 hover:bg-amber-600 backdrop-blur-sm rounded-full text-white text-sm transition-all hover-scale border border-amber-500/30"
-                  >
-                    {genreName}
-                  </Link>
-                );
-              })}
-            </div>
-            
-            <div className="flex flex-wrap gap-3 sm:gap-4 pt-4 sm:pt-6">
-              <Link
-                href={generateMovieUrl(featuredMovie.id, featuredMovie.title)}
-                className="group px-6 py-3 bg-amber-600 hover:bg-amber-700 text-white font-medium rounded-full transition-all duration-300 inline-flex items-center shadow-lg shadow-amber-900/30 hover:shadow-xl hover:shadow-amber-900/40 hover:translate-y-[-2px]"
+          <AnimatePresence mode="wait">
+            <motion.div 
+              key={`content-${currentMovie.id}`}
+              initial={{ opacity: 0, x: -50, y: 20 }}
+              animate={{ opacity: 1, x: 0, y: 0 }}
+              exit={{ opacity: 0, x: 50, y: -20 }}
+              transition={{ 
+                duration: 0.6, 
+                ease: [0.25, 0.46, 0.45, 0.94],
+                delay: 0.1
+              }}
+              className="max-w-xl md:max-w-2xl space-y-5 sm:space-y-6 pt-16 sm:pt-0"
+            >
+              <motion.h1 
+                initial={{ opacity: 0, y: 30 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ duration: 0.6, delay: 0.2 }}
+                className="text-3xl sm:text-4xl md:text-5xl xl:text-6xl font-bold text-white leading-tight tracking-tight hero-text-shadow"
               >
-                <div className="relative mr-2 w-5 h-5">
-                  <div className="absolute inset-0 bg-white rounded-full opacity-20 group-hover:animate-ping"></div>
-                  <Play className="relative z-10 h-5 w-5" fill="white" />
+                {currentMovie.title}
+              </motion.h1>
+              
+              <motion.p 
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ duration: 0.6, delay: 0.3 }}
+                className="text-white hero-description sm:text-lg line-clamp-3 md:line-clamp-4 leading-relaxed"
+              >
+                {currentMovie.summary || 'Một bộ phim đáng xem với nội dung hấp dẫn và diễn xuất tuyệt vời.'}
+              </motion.p>
+              
+              <motion.div 
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ duration: 0.6, delay: 0.4 }}
+                className="flex flex-wrap gap-2 sm:gap-3 items-center text-sm sm:text-base text-white hero-tag"
+              >
+                <span className="font-medium">{currentMovie.releaseYear || 'N/A'}</span>
+                <span className="w-1.5 h-1.5 rounded-full bg-amber-500" />
+                <div className="flex items-center">
+                  <span className="text-amber-400 mr-1.5">★</span>
+                  <span className="font-medium">
+                    {currentMovie.rating 
+                      ? (typeof currentMovie.rating === 'number' 
+                          ? currentMovie.rating.toFixed(1) 
+                          : currentMovie.rating)
+                      : '8.5'}
+                  </span>
+                  <span className="text-white/90 ml-1">/10</span>
                 </div>
-                <span>Xem ngay</span>
-              </Link>
-              <Link
-                href={featuredMovie.trailerUrl}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="group px-6 py-3 bg-black/50 hover:bg-black/70 text-white font-medium rounded-full transition-all duration-300 inline-flex items-center shadow-lg shadow-black/40 backdrop-blur-sm hover:shadow-xl hover:translate-y-[-2px] border border-white/10"
+                <span className="w-1.5 h-1.5 rounded-full bg-amber-500" />
+                <span>{new Intl.NumberFormat('vi-VN').format(currentMovie.views || 0)} lượt xem</span>
+              </motion.div>
+              
+              <motion.div 
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ duration: 0.6, delay: 0.5 }}
+                className="flex flex-wrap items-center gap-2 pt-1"
               >
-                <Film className="h-5 w-5 mr-2 transition-transform group-hover:scale-110" />
-                <span>Xem trailer</span>
-              </Link>
-            </div>
-          </motion.div>
+                {currentMovie.genres?.slice(0, 3).map((genre, index) => {
+                  const genreId = typeof genre === 'string' ? genre : genre.id;
+                  const genreName = typeof genre === 'string' ? genre : genre.name;
+                  
+                  return (
+                    <Link 
+                      key={`${genreId}-${index}`} 
+                      href={`/movie?genre=${encodeURIComponent(genreName)}`} 
+                      className="px-3 py-1 bg-amber-600/20 hover:bg-amber-600 backdrop-blur-sm rounded-full text-white text-sm transition-all hover-scale border border-amber-500/30"
+                    >
+                      {genreName}
+                    </Link>
+                  );
+                })}
+              </motion.div>
+              
+              <motion.div 
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ duration: 0.6, delay: 0.6 }}
+                className="flex flex-wrap gap-3 sm:gap-4 pt-4 sm:pt-6"
+              >
+                <Link
+                  href={generateMovieUrl(currentMovie.id, currentMovie.title)}
+                  className="group px-6 py-3 bg-amber-600 hover:bg-amber-700 text-white font-medium rounded-full transition-all duration-300 inline-flex items-center shadow-lg shadow-amber-900/30 hover:shadow-xl hover:shadow-amber-900/40 hover:translate-y-[-2px]"
+                >
+                  <div className="relative mr-2 w-5 h-5">
+                    <div className="absolute inset-0 bg-white rounded-full opacity-20 group-hover:animate-ping"></div>
+                    <Play className="relative z-10 h-5 w-5" fill="white" />
+                  </div>
+                  <span>Xem ngay</span>
+                </Link>
+                {currentMovie.trailerUrl && (
+                  <button
+                    onClick={handleTrailerClick}
+                    className="group px-6 py-3 bg-black/50 hover:bg-black/70 text-white font-medium rounded-full transition-all duration-300 inline-flex items-center shadow-lg shadow-black/40 backdrop-blur-sm hover:shadow-xl hover:translate-y-[-2px] border border-white/10"
+                  >
+                    <Film className="h-5 w-5 mr-2 transition-transform group-hover:scale-110" />
+                    <span>Xem trailer</span>
+                  </button>
+                )}
+              </motion.div>
+            </motion.div>
+          </AnimatePresence>
         </div>
+
+        {/* Movie Indicators with Progress */}
+        {featuredMovies.length > 1 && (
+          <div className="absolute bottom-8 left-1/2 -translate-x-1/2 z-30">
+            <div className="flex gap-3 items-center">
+              {featuredMovies.map((_, index) => (
+                <button
+                  key={index}
+                  onClick={() => handleSlideChange(index)}
+                  className={cn(
+                    "relative h-2 rounded-full transition-all duration-300",
+                    index === currentIndex 
+                      ? "bg-amber-500 w-12" 
+                      : "bg-white/30 hover:bg-white/50 w-2"
+                  )}
+                >
+                  {/* Progress bar for current slide */}
+                  {index === currentIndex && (
+                    <motion.div
+                      initial={{ width: 0 }}
+                      animate={{ width: "100%" }}
+                      transition={{ duration: 10, ease: "linear" }}
+                      className="absolute top-0 left-0 h-full bg-amber-300 rounded-full"
+                    />
+                  )}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
         
         {/* Hiệu ứng overlay gradient phía dưới */}
         <div className="absolute bottom-0 left-0 right-0 h-20 bg-gradient-to-t from-black to-transparent"></div>
       </section>
+
+      {/* Trailer Modal */}
+      <AnimatePresence>
+        {showTrailer && currentMovie.trailerUrl && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.3 }}
+            className="fixed inset-0 z-50 bg-black/90 backdrop-blur-sm flex items-center justify-center p-4"
+            onClick={handleCloseTrailer}
+          >
+            <motion.div
+              initial={{ scale: 0.8, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.8, opacity: 0 }}
+              transition={{ duration: 0.3 }}
+              className="relative w-full max-w-4xl aspect-video bg-black rounded-lg overflow-hidden shadow-2xl"
+              onClick={(e) => e.stopPropagation()}
+            >
+              {/* Close Button */}
+              <button
+                onClick={handleCloseTrailer}
+                className="absolute top-4 right-4 z-10 p-2 bg-black/50 hover:bg-black/70 text-white rounded-full transition-all duration-200 hover:scale-110"
+              >
+                <X className="h-6 w-6" />
+              </button>
+
+              {/* YouTube Embed */}
+              {(() => {
+                const videoId = getYouTubeVideoId(currentMovie.trailerUrl);
+                if (videoId) {
+                  return (
+                    <iframe
+                      src={`https://www.youtube.com/embed/${videoId}?autoplay=1&rel=0&modestbranding=1`}
+                      title={`${currentMovie.title} - Trailer`}
+                      className="w-full h-full"
+                      allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                      allowFullScreen
+                    />
+                  );
+                } else {
+                  // Fallback for non-YouTube URLs
+                  return (
+                    <video
+                      src={currentMovie.trailerUrl}
+                      controls
+                      autoPlay
+                      className="w-full h-full object-cover"
+                    >
+                      Trình duyệt của bạn không hỗ trợ video.
+                    </video>
+                  );
+                }
+              })()}
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </>
   );
 };

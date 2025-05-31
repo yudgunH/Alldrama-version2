@@ -6,50 +6,37 @@ import { CheckIcon, ChevronRightIcon, CircleIcon } from "lucide-react"
 
 import { cn } from "@/lib/utils"
 
-// Add a function to calculate scrollbar width
-const getScrollbarWidth = () => {
-  // Create a div with scrollbars
-  const outer = document.createElement('div');
-  outer.style.visibility = 'hidden';
-  outer.style.overflow = 'scroll';
-  document.body.appendChild(outer);
-
-  // Create an inner div
-  const inner = document.createElement('div');
-  outer.appendChild(inner);
-
-  // Calculate the scrollbar width
-  const scrollbarWidth = outer.offsetWidth - inner.offsetWidth;
-
-  // Remove the divs
-  outer.parentNode?.removeChild(outer);
-
-  return scrollbarWidth;
-};
-
 function DropdownMenu({
   onOpenChange,
   open,
   ...props
 }: React.ComponentProps<typeof DropdownMenuPrimitive.Root>) {
-  // Handle adding/removing class when dropdown opens/closes
+  // Handle hiding page scroll when dropdown opens
   React.useEffect(() => {
-    // Only run in browser
     if (typeof window !== 'undefined') {
-      // Calculate and set scrollbar width as CSS variable
-      const scrollbarWidth = getScrollbarWidth();
-      document.documentElement.style.setProperty('--scrollbar-width', `${scrollbarWidth}px`);
-      
-      // Update class based on current open state
       if (open) {
-        document.body.classList.add('has-dropdown-open');
+        // Get current scrollbar width
+        const scrollbarWidth = window.innerWidth - document.documentElement.clientWidth;
+        
+        // Add class and compensate for scrollbar
+        document.body.classList.add('dropdown-open');
+        document.body.style.paddingRight = `${scrollbarWidth}px`;
+        document.body.style.overflow = 'hidden';
       } else {
-        document.body.classList.remove('has-dropdown-open');
+        // Remove class and reset styles
+        document.body.classList.remove('dropdown-open');
+        document.body.style.paddingRight = '';
+        document.body.style.overflow = '';
       }
     }
     
     return () => {
-      document.body.classList.remove('has-dropdown-open');
+      // Cleanup on unmount
+      if (typeof window !== 'undefined') {
+        document.body.classList.remove('dropdown-open');
+        document.body.style.paddingRight = '';
+        document.body.style.overflow = '';
+      }
     };
   }, [open]);
   
@@ -93,8 +80,7 @@ function DropdownMenuContent({
         data-slot="dropdown-menu-content"
         sideOffset={sideOffset}
         className={cn(
-          "bg-popover text-popover-foreground data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 data-[side=bottom]:slide-in-from-top-2 data-[side=left]:slide-in-from-right-2 data-[side=right]:slide-in-from-left-2 data-[side=top]:slide-in-from-bottom-2 z-50 max-h-(--radix-dropdown-menu-content-available-height) min-w-[8rem] overflow-hidden rounded-md border p-1 shadow-md",
-          "scrollbar-gutter-stable",
+          "bg-popover text-popover-foreground data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 data-[side=bottom]:slide-in-from-top-2 data-[side=left]:slide-in-from-right-2 data-[side=right]:slide-in-from-left-2 data-[side=top]:slide-in-from-bottom-2 z-50 max-h-[var(--radix-dropdown-menu-content-available-height)] min-w-[8rem] overflow-hidden rounded-md border p-1 shadow-md",
           "w-[var(--radix-dropdown-menu-trigger-width)] md:w-auto",
           className
         )}
@@ -284,7 +270,7 @@ function DropdownMenuSubContent({
     <DropdownMenuPrimitive.SubContent
       data-slot="dropdown-menu-sub-content"
       className={cn(
-        "bg-popover text-popover-foreground data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 data-[side=bottom]:slide-in-from-top-2 data-[side=left]:slide-in-from-right-2 data-[side=right]:slide-in-from-left-2 data-[side=top]:slide-in-from-bottom-2 z-50 min-w-[8rem] origin-(--radix-dropdown-menu-content-transform-origin) overflow-hidden rounded-md border p-1 shadow-lg",
+        "bg-popover text-popover-foreground data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 data-[side=bottom]:slide-in-from-top-2 data-[side=left]:slide-in-from-right-2 data-[side=right]:slide-in-from-left-2 data-[side=top]:slide-in-from-bottom-2 z-50 min-w-[8rem] origin-[var(--radix-dropdown-menu-content-transform-origin)] overflow-hidden rounded-md border p-1 shadow-lg",
         className
       )}
       {...props}

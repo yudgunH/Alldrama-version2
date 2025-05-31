@@ -1,11 +1,12 @@
 "use client"
 
 import type React from "react"
+import { Suspense } from "react"
 
 import { useState, useEffect } from "react"
 import Link from "next/link"
 import Image from "next/image"
-import { usePathname, useRouter } from "next/navigation"
+import { usePathname, useRouter, useSearchParams } from "next/navigation"
 import {
   Search,
   ChevronDown,
@@ -42,8 +43,12 @@ import { toast } from "react-hot-toast"
 import { useApiCache, CacheMatcher } from "@/hooks/api/useApiCache"
 import { API_ENDPOINTS } from "@/lib/api/endpoints"
 import { clearHomepageCache } from "@/hooks/api/useHomepageData"
+import { genreService } from "@/lib/api"
+import { cacheManager } from "@/lib/cache/cacheManager"
+import { Genre } from "@/types"
+import useSWR from "swr"
 
-const Navbar = () => {
+const NavbarContent = () => {
   const [isScrolled, setIsScrolled] = useState(false)
   const [isNavbarVisible, setIsNavbarVisible] = useState(true)
   const [lastScrollY, setLastScrollY] = useState(0)
@@ -52,10 +57,49 @@ const Navbar = () => {
   const isMobile = useMobile()
   const pathname = usePathname() || '/'
   const router = useRouter()
+  const searchParams = useSearchParams()
 
   // Sử dụng useAuth hook thay vì auth store trực tiếp
   const { isAuthenticated, user, logout, loading } = useAuth()
   const { clearCache } = useApiCache()
+
+  // Sync search query with URL params when on search page
+  useEffect(() => {
+    if (pathname === '/search') {
+      const urlQuery = searchParams.get('q') || ''
+      setSearchQuery(urlQuery)
+    } else {
+      // Clear search query when not on search page
+      setSearchQuery('')
+    }
+  }, [pathname, searchParams])
+
+  // Fetch genres with SWR and cache
+  const { data: genres } = useSWR(
+    'navbar-genres',
+    async () => {
+      // Check cache first
+      const cached = cacheManager.getGenres();
+      if (cached) {
+        console.log('Navbar: Using cached genres data');
+        return cached;
+      }
+      
+      // Fetch from API if not cached
+      console.log('Navbar: Fetching genres data from API');
+      const genresData = await genreService.getAllGenres();
+      
+      // Cache the result for 30 minutes
+      cacheManager.setGenres(genresData, 30 * 60 * 1000);
+      
+      return genresData;
+    },
+    {
+      revalidateOnFocus: false,
+      revalidateOnReconnect: false,
+      dedupingInterval: 300000, // 5 minutes
+    }
+  );
 
   // Desktop Navigation Button Component
   const NavButton = ({
@@ -136,22 +180,29 @@ const Navbar = () => {
 
   const handleSearchSubmit = (e: React.FormEvent) => {
     e.preventDefault()
-    if (searchQuery.trim()) {
+    
+    const trimmedQuery = searchQuery.trim()
+    
+    if (trimmedQuery) {
       // Xóa cache của kết quả tìm kiếm trước đó
       const matcher: CacheMatcher = (key: string) => key.includes(API_ENDPOINTS.MOVIES.SEARCH);
       clearCache(matcher);
       
       // Chuyển hướng đến trang search với query parameter
-      router.push(`/search?q=${encodeURIComponent(searchQuery.trim())}`)
+      router.push(`/search?q=${encodeURIComponent(trimmedQuery)}`)
       
       // Đóng khung tìm kiếm trên mobile sau khi submit
       setMobileSearchVisible(false)
-      
-      // Giữ lại giá trị tìm kiếm nếu ở trang search để dễ chỉnh sửa
-      if (!pathname?.startsWith('/search')) {
-        setSearchQuery("")
-      }
+    } else {
+      // Nếu search query rỗng, chuyển đến trang search không có params
+      router.push('/search')
+      setMobileSearchVisible(false)
     }
+  }
+
+  // Handle search input change
+  const handleSearchInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    setSearchQuery(e.target.value)
   }
 
   // Xử lý đăng xuất sử dụng useAuth hook
@@ -184,15 +235,6 @@ const Navbar = () => {
     }
     return "U"
   }
-
-  const genres = [
-    { name: "Hành động", slug: "hanh-dong" },
-    { name: "Tình cảm", slug: "tinh-cam" },
-    { name: "Hài hước", slug: "hai-huoc" },
-    { name: "Viễn tưởng", slug: "vien-tuong" },
-    { name: "Kinh dị", slug: "kinh-di" },
-    { name: "Hoạt hình", slug: "hoat-hinh" },
-  ]
 
   // Ẩn navbar trên mobile ở các trang khác khi cuộn xuống
   // Hoặc ẩn navbar khi đang ở trang watch và đang cuộn xuống
@@ -274,15 +316,21 @@ const Navbar = () => {
                   align="start"
                   className="w-56 grid grid-cols-2 gap-1 p-2 bg-gray-900/95 backdrop-blur-sm border-gray-800 rounded-xl shadow-xl"
                 >
-                  {genres.map((genre) => (
-                    <DropdownMenuItem
-                      key={genre.slug}
-                      asChild
-                      className="text-gray-300 focus:text-white focus:bg-gray-800 rounded-lg transition-colors"
-                    >
-                      <Link href={`/search?genre=${encodeURIComponent(genre.name)}`}>{genre.name}</Link>
-                    </DropdownMenuItem>
-                  ))}
+                  {genres && genres.length > 0 ? (
+                    genres.map((genre: Genre) => (
+                      <DropdownMenuItem
+                        key={genre.id}
+                        asChild
+                        className="text-gray-300 focus:text-white focus:bg-gray-800 rounded-lg transition-colors"
+                      >
+                        <Link href={`/search?genre=${encodeURIComponent(genre.name)}`}>{genre.name}</Link>
+                      </DropdownMenuItem>
+                    ))
+                  ) : (
+                    <div className="col-span-2 p-2 text-center text-gray-400 text-sm">
+                      Đang tải thể loại...
+                    </div>
+                  )}
                 </DropdownMenuContent>
               </DropdownMenu>
             </div>
@@ -296,7 +344,7 @@ const Navbar = () => {
                 placeholder="Tìm kiếm phim..."
                 className="w-64 h-10 bg-gray-800/60 border-gray-700/50 focus-visible:ring-amber-500 text-white placeholder:text-gray-400 rounded-full pl-4 pr-10 transition-all focus-within:bg-gray-800/80"
                 value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
+                onChange={handleSearchInputChange}
               />
               <Button
                 type="submit"
@@ -346,7 +394,7 @@ const Navbar = () => {
                       <Button variant="ghost" size="icon" className="rounded-full h-9 w-9 p-0 ml-1">
                         <Avatar className="h-9 w-9 border-2 border-amber-600/20 ring-2 ring-amber-500/10 transition-all hover:ring-amber-500/30">
                           {user?.avatar_url ? (
-                            <AvatarImage src={user.avatar_url} alt={user.full_name || "Avatar"} />
+                            <AvatarImage src={user.avatar_url} alt={user?.full_name || "Avatar"} />
                           ) : (
                             <AvatarFallback className="bg-amber-600/10 text-amber-500 font-medium">
                               {getUserInitial()}
@@ -432,7 +480,7 @@ const Navbar = () => {
                       placeholder="Tìm kiếm phim..."
                       className="w-full h-12 bg-gray-800/80 border-gray-700/50 focus-visible:ring-amber-500 text-white placeholder:text-gray-400 rounded-full pl-4 pr-12 shadow-lg"
                       value={searchQuery}
-                      onChange={(e) => setSearchQuery(e.target.value)}
+                      onChange={handleSearchInputChange}
                       autoFocus
                     />
                     <Button
@@ -487,7 +535,7 @@ const Navbar = () => {
                 <Link href="/profile" className="ml-1">
                   <Avatar className="h-8 w-8 border-2 border-amber-600/20 ring-2 ring-amber-500/10">
                     {user?.avatar_url ? (
-                      <AvatarImage src={user.avatar_url} alt={user.full_name || "Avatar"} />
+                      <AvatarImage src={user.avatar_url} alt={user?.full_name || "Avatar"} />
                     ) : (
                       <AvatarFallback className="bg-amber-600/10 text-amber-500 text-xs font-medium">
                         {getUserInitial()}
@@ -593,18 +641,24 @@ const Navbar = () => {
                       </div>
                     </h3>
                     <div className="grid grid-cols-2 gap-1">
-                      {genres.map((genre) => (
-                        <SheetClose key={genre.slug} asChild>
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            className="justify-start h-9 text-gray-300 hover:text-white hover:bg-gray-800/50 rounded-lg"
-                            asChild
-                          >
-                            <Link href={`/search?genre=${encodeURIComponent(genre.name)}`}>{genre.name}</Link>
-                          </Button>
-                        </SheetClose>
-                      ))}
+                      {genres && genres.length > 0 ? (
+                        genres.map((genre: Genre) => (
+                          <SheetClose key={genre.id} asChild>
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              className="justify-start h-9 text-gray-300 hover:text-white hover:bg-gray-800/50 rounded-lg"
+                              asChild
+                            >
+                              <Link href={`/search?genre=${encodeURIComponent(genre.name)}`}>{genre.name}</Link>
+                            </Button>
+                          </SheetClose>
+                        ))
+                      ) : (
+                        <div className="col-span-2 p-2 text-center text-gray-400 text-sm">
+                          Đang tải thể loại...
+                        </div>
+                      )}
                     </div>
                   </div>
 
@@ -613,7 +667,7 @@ const Navbar = () => {
                       <div className="flex items-center gap-3 mb-4 px-2">
                         <Avatar className="h-11 w-11 border-2 border-amber-600/20 ring-2 ring-amber-500/10">
                           {user?.avatar_url ? (
-                            <AvatarImage src={user.avatar_url} alt={user.full_name || "Avatar"} />
+                            <AvatarImage src={user.avatar_url} alt={user?.full_name || "Avatar"} />
                           ) : (
                             <AvatarFallback className="bg-amber-600/10 text-amber-500 font-medium">
                               {getUserInitial()}
@@ -734,6 +788,33 @@ const Navbar = () => {
         </div>
       </div>
     </nav>
+  )
+}
+
+const Navbar = () => {
+  return (
+    <Suspense fallback={
+      <nav className="fixed top-0 left-0 right-0 z-50 bg-black/95 backdrop-blur-md border-b border-gray-800">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+          <div className="flex items-center justify-between h-16">
+            <div className="flex items-center gap-8">
+              <div className="h-8 w-32 bg-gray-800 rounded animate-pulse" />
+              <div className="hidden md:flex items-center gap-4">
+                <div className="h-8 w-16 bg-gray-800 rounded animate-pulse" />
+                <div className="h-8 w-16 bg-gray-800 rounded animate-pulse" />
+                <div className="h-8 w-20 bg-gray-800 rounded animate-pulse" />
+              </div>
+            </div>
+            <div className="flex items-center gap-4">
+              <div className="h-8 w-64 bg-gray-800 rounded animate-pulse hidden sm:block" />
+              <div className="h-8 w-8 bg-gray-800 rounded-full animate-pulse" />
+            </div>
+          </div>
+        </div>
+      </nav>
+    }>
+      <NavbarContent />
+    </Suspense>
   )
 }
 

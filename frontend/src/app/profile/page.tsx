@@ -10,6 +10,8 @@ import { useAuth } from '@/hooks/api/useAuth';
 import { Favorite, WatchHistory } from '@/types';
 import { favoriteService } from '@/lib/api/services/favoriteService';
 import { authService } from '@/lib/api/services/authService';
+import { generateMovieUrl } from '@/utils/url';
+import { getSafePosterUrl } from '@/utils/image';
 
 // Tabs
 type TabType = 'account' | 'history' | 'favorites' | 'settings';
@@ -321,17 +323,21 @@ const ProfileContent = () => {
             <div key={item.id} className="bg-gray-700 rounded-lg p-3 sm:p-4 flex flex-col sm:flex-row">
               <div className="w-full sm:w-32 h-40 sm:h-44 mb-3 sm:mb-0 sm:mr-4 relative">
                 <Image 
-                  src={item.movie?.posterUrl ? `https://media.alldrama.tech/movies/${item.movie.id}/poster.png` : '/placeholders/movie.png'} 
+                  src={item.movie ? getSafePosterUrl(item.movie.posterUrl, item.movie.id) : '/placeholders/movie.png'} 
                   alt={item.movie?.title || 'Movie'}
                   fill
                   className="rounded-md object-cover"
                   sizes="(max-width: 640px) 100vw, 128px"
+                  onError={(e) => {
+                    const target = e.target as HTMLImageElement;
+                    target.src = '/placeholder.svg';
+                  }}
                 />
               </div>
               <div className="flex-1">
                 {item.movie && (
                   <Link 
-                    href={`/movie/${item.movie.id}-${item.movie.title.toLowerCase().replace(/\s+/g, '-')}`}
+                    href={generateMovieUrl(item.movie.id, item.movie.title)}
                     className="text-lg sm:text-xl font-semibold text-white hover:text-red-500 transition-colors line-clamp-1"
                   >
                     {item.movie.title}
@@ -371,7 +377,7 @@ const ProfileContent = () => {
                 {item.movie && item.episode && (
                   <div className="mt-3 sm:mt-4">
                     <Link 
-                      href={`/watch/${item.movie.id}-${item.movie.title.toLowerCase().replace(/\s+/g, '-')}?episode=${item.episode.id}&ep=${item.episode.episodeNumber}&progress=${item.progress}`}
+                      href={`/watch/${generateMovieUrl(item.movie.id, item.movie.title).replace('/movie/', '')}?episode=${item.episode.id}&ep=${item.episode.episodeNumber}&progress=${item.progress}`}
                       className="inline-block bg-red-600 hover:bg-red-700 text-white px-3 sm:px-4 py-1.5 sm:py-2 rounded-md text-xs sm:text-sm transition-colors"
                     >
                       {item.isCompleted ? 'Xem lại' : 'Tiếp tục xem'}
@@ -408,55 +414,72 @@ const ProfileContent = () => {
         </div>
       ) : (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
-          {favorites.map((favorite) => (
-            <div key={favorite.id} className="bg-gray-700 rounded-lg overflow-hidden">
-              <div className="relative w-full h-40 sm:h-60">
-                <Image 
-                  src={favorite.movie?.posterUrl ? `https://media.alldrama.tech/movies/${favorite.movieId}/poster.png` : '/placeholders/movie.png'} 
-                  alt={favorite.movie?.title || 'Movie'}
-                  fill
-                  className="object-cover"
-                  sizes="(max-width: 640px) 50vw, (max-width: 1024px) 50vw, 33vw"
-                />
-                <div className="absolute top-2 right-2">
-                  <button 
-                    className="bg-gray-800/80 hover:bg-red-600/80 p-1.5 sm:p-2 rounded-full transition-colors"
-                    aria-label="Remove from favorites"
-                    onClick={() => removeFromFavorites(favorite.movieId)}
+          {favorites.map((favorite) => {
+            // Generate movie title and URL slug
+            const movieTitle = favorite.movie?.title || `Phim ${favorite.movieId}`;
+            const movieSlug = favorite.movie?.title?.toLowerCase().replace(/\s+/g, '-') || `movie-${favorite.movieId}`;
+            const posterUrl = getSafePosterUrl(favorite.movie?.posterUrl, favorite.movieId);
+            
+            return (
+              <div key={favorite.id} className="bg-gray-700 rounded-lg overflow-hidden">
+                <div className="relative w-full h-40 sm:h-60">
+                  <Image 
+                    src={posterUrl}
+                    alt={movieTitle}
+                    fill
+                    className="object-cover"
+                    sizes="(max-width: 640px) 50vw, (max-width: 1024px) 50vw, 33vw"
+                    onError={(e) => {
+                      // Fallback to placeholder if image fails to load
+                      const target = e.target as HTMLImageElement;
+                      target.src = '/placeholder.svg';
+                    }}
+                  />
+                  <div className="absolute top-2 right-2">
+                    <button 
+                      className="bg-gray-800/80 hover:bg-red-600/80 p-1.5 sm:p-2 rounded-full transition-colors"
+                      aria-label="Remove from favorites"
+                      onClick={() => handleRemoveFavorite(favorite.movieId)}
+                    >
+                      <svg className="w-4 h-4 sm:w-5 sm:h-5 text-white" fill="currentColor" viewBox="0 0 20 20">
+                        <path fillRule="evenodd" d="M3.172 5.172a4 4 0 015.656 0L10 6.343l1.172-1.171a4 4 0 115.656 5.656L10 17.657l-6.828-6.829a4 4 0 010-5.656z" clipRule="evenodd" />
+                      </svg>
+                    </button>
+                  </div>
+                </div>
+                <div className="p-2 sm:p-4">
+                  <Link 
+                    href={generateMovieUrl(favorite.movieId, movieSlug)}
+                    className="text-sm sm:text-lg font-semibold text-white hover:text-red-500 transition-colors line-clamp-1"
                   >
-                    <svg className="w-4 h-4 sm:w-5 sm:h-5 text-white" fill="currentColor" viewBox="0 0 20 20">
-                      <path fillRule="evenodd" d="M3.172 5.172a4 4 0 015.656 0L10 6.343l1.172-1.171a4 4 0 115.656 5.656L10 17.657l-6.828-6.829a4 4 0 010-5.656z" clipRule="evenodd" />
-                    </svg>
-                  </button>
+                    {movieTitle}
+                  </Link>
+                  <p className="text-xs sm:text-sm text-gray-400 mt-1 line-clamp-1">
+                    Đã thêm: {formatDate(favorite.favoritedAt)}
+                  </p>
+                  {favorite.movie?.releaseYear && (
+                    <p className="text-xs sm:text-sm text-gray-500 mt-1">
+                      Năm: {favorite.movie.releaseYear}
+                    </p>
+                  )}
+                  <div className="mt-2 sm:mt-4 flex space-x-2">
+                    <Link 
+                      href={generateMovieUrl(favorite.movieId, movieSlug)}
+                      className="flex-1 bg-gray-600 hover:bg-gray-500 text-white py-1.5 sm:py-2 text-center rounded-md text-xs sm:text-sm transition-colors"
+                    >
+                      Chi tiết
+                    </Link>
+                    <Link 
+                      href={`/watch/${generateMovieUrl(favorite.movieId, movieSlug).replace('/movie/', '')}`}
+                      className="flex-1 bg-red-600 hover:bg-red-700 text-white py-1.5 sm:py-2 text-center rounded-md text-xs sm:text-sm transition-colors"
+                    >
+                      Xem ngay
+                    </Link>
+                  </div>
                 </div>
               </div>
-              <div className="p-2 sm:p-4">
-                <Link 
-                  href={`/movie/${favorite.movieId}-${favorite.movie?.title?.toLowerCase().replace(/\s+/g, '-')}`}
-                  className="text-sm sm:text-lg font-semibold text-white hover:text-red-500 transition-colors line-clamp-1"
-                >
-                  {favorite.movie?.title || 'Unknown Movie'}
-                </Link>
-                <p className="text-xs sm:text-sm text-gray-400 mt-1 line-clamp-1">
-                  Đã thêm: {formatDate(favorite.favoritedAt)}
-                </p>
-                <div className="mt-2 sm:mt-4 flex space-x-2">
-                  <Link 
-                    href={`/movie/${favorite.movieId}-${favorite.movie?.title?.toLowerCase().replace(/\s+/g, '-')}`}
-                    className="flex-1 bg-gray-600 hover:bg-gray-500 text-white py-1.5 sm:py-2 text-center rounded-md text-xs sm:text-sm transition-colors"
-                  >
-                    Chi tiết
-                  </Link>
-                  <Link 
-                    href={`/watch/${favorite.movieId}-${favorite.movie?.title?.toLowerCase().replace(/\s+/g, '-')}`}
-                    className="flex-1 bg-red-600 hover:bg-red-700 text-white py-1.5 sm:py-2 text-center rounded-md text-xs sm:text-sm transition-colors"
-                  >
-                    Xem ngay
-                  </Link>
-                </div>
-              </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
       )}
     </div>

@@ -55,11 +55,6 @@
   .scrollbar-hide::-webkit-scrollbar {
     display: none;  /* Chrome, Safari and Opera */
   }
-  
-  /* Add new utility class for scrollbar-gutter */
-  .scrollbar-gutter-stable {
-    scrollbar-gutter: stable;
-  }
 }
 
 :root {
@@ -133,17 +128,14 @@
 
 @layer base {
   html {
-    /* This property ensures consistent layout with or without scrollbar */
-    scrollbar-gutter: stable both-edges !important;
-    /* Additional properties for mobile devices */
     -webkit-overflow-scrolling: touch;
     touch-action: manipulation;
   }
   
   body {
     @apply bg-background text-foreground;
-    overflow-y: auto;
-    overflow-x: hidden;
+    margin: 0;
+    padding: 0;
     min-height: 100vh;
     position: relative;
   }
@@ -153,53 +145,15 @@
   }
 }
 
-/* Fix for dropdown menus on mobile */
-@media (max-width: 768px) {
-  /* Force body to maintain padding for scrollbar to prevent layout shift */
-  body.has-dropdown-open {
-    padding-right: 0 !important;
-    overflow: hidden !important;
-  }
-
-  /* Fix for dropdown menus to prevent layout shift */
-  [data-radix-popper-content-wrapper] {
-    position: fixed !important;
-    top: auto !important;
-    bottom: 0 !important;
-    left: 0 !important;
-    right: 0 !important;
-    transform: none !important;
-    max-height: 80vh !important;
-    border-radius: 1rem 1rem 0 0 !important;
-    box-shadow: 0 -5px 15px rgba(0, 0, 0, 0.1) !important;
-    z-index: 100 !important;
-    width: 100% !important;
-    margin: 0 !important;
-  }
-  
-  [data-radix-dropdown-menu-content] {
-    width: 100% !important;
-    border-radius: 1rem 1rem 0 0 !important;
-    max-height: 80vh !important;
-    overflow-y: auto !important;
-    margin: 0 !important;
-    left: 0 !important;
-    right: 0 !important;
-  }
+/* Dropdown scroll prevention */
+body.dropdown-open {
+  /* overflow and padding are set via JavaScript for precise scrollbar compensation */
 }
 
-/* Fix layout shift when dropdown opens */
-body.has-dropdown-open {
-  overflow: hidden !important;
-}
-
-/* Prevent layout shift when dropdown is open */
-.has-dropdown-open .fixed-navbar {
-  padding-right: var(--scrollbar-width, 0);
-}
-
-body:has([data-state="open"]) {
-  overflow: hidden;
+/* Ensure fixed elements also get padding compensation when dropdown is open */
+body.dropdown-open .fixed,
+body.dropdown-open [class*="fixed"] {
+  padding-right: inherit;
 }
 
 /* Movie Card Animations */

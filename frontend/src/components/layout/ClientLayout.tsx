@@ -9,7 +9,6 @@ import { authService } from '@/lib/api';
 import { refreshAccessToken, onTokenRefreshed, onTokenRefreshFailed } from '@/lib/api/authHelper';
 import MainLayout from '@/components/layout/MainLayout';
 import { useAuth } from '@/hooks/api/useAuth';
-import CacheDebug from "@/components/debug/CacheDebug";
 import { cacheManager } from '@/lib/cache/cacheManager';
 
 export default function ClientLayout({
@@ -98,7 +97,7 @@ export default function ClientLayout({
                 (window as any).isRefreshingAfterLogout = false;
               }
             }
-          }, 800); // Giảm delay xuống vì không cần đợi isLoggingOut flag nữa
+          }, 800);
           
           console.log('Cache cleared and data refresh initiated after logout');
         } catch (error) {
@@ -259,7 +258,6 @@ export default function ClientLayout({
             },
           }}
         />
-        <CacheDebug />
       </SWRConfig>
     </ThemeProvider>
   );

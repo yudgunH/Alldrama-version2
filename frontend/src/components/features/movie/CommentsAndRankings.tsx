@@ -2,7 +2,7 @@
 
 import { useState, useRef, useEffect } from 'react'
 import Link from 'next/link'
-import { ChevronLeft, ChevronRight, ArrowRight, MessageSquare, Star, Eye, ThumbsUp, TrendingUp, ArrowUp, ArrowDown } from 'lucide-react'
+import { ChevronLeft, ChevronRight, ArrowRight, MessageSquare, Star, Eye, ThumbsUp, TrendingUp, ArrowUp, ArrowDown, TrendingDown, Minus } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card'
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
@@ -15,6 +15,8 @@ import { Comment } from '@/types/comment'
 import { Movie } from '@/types/movie'
 import { GenreStat } from '@/types/stats'
 import { genreService } from '@/lib/api/services/genreService'
+import { getImageInfo } from '@/utils/image'
+import { Skeleton } from '@/components/ui/skeleton'
 
 // --------------------------------
 // TOP COMMENTS CAROUSEL COMPONENTS
@@ -84,10 +86,12 @@ interface TrendingMovieProps {
 
 const TrendingMovie = ({ movie, rank, trend = 'up' }: TrendingMovieProps) => {
   const trendIcon = {
-    up: <ArrowUp className="h-3.5 w-3.5 text-emerald-500" />,
-    down: <ArrowDown className="h-3.5 w-3.5 text-rose-500" />,
-    stable: <span className="h-3.5 w-3.5 inline-block border-t-2 border-gray-400" />
+    up: <TrendingUp className="h-3 w-3 text-green-500" />,
+    down: <TrendingDown className="h-3 w-3 text-red-500" />,
+    stable: <Minus className="h-3 w-3 text-gray-400" />
   }
+
+  const imageInfo = getImageInfo(movie.posterUrl, movie.id, 'poster')
   
   return (
     <div className="flex items-center gap-3 mb-3">
@@ -95,11 +99,18 @@ const TrendingMovie = ({ movie, rank, trend = 'up' }: TrendingMovieProps) => {
         {rank}
       </div>
       <div className="h-12 w-[22px] aspect-[2/3] rounded-sm overflow-hidden flex-shrink-0">
-        <img 
-          src={movie.posterUrl || "/placeholder.svg"} 
-          alt={movie.title} 
-          className="h-full w-full object-cover"
-        />
+        {imageInfo.shouldShowSkeleton ? (
+          <Skeleton className="h-full w-full" />
+        ) : (
+          <img 
+            src={imageInfo.url} 
+            alt={movie.title} 
+            className="h-full w-full object-cover"
+            onError={(e) => {
+              console.log('TrendingMovie - Image load error for URL:', imageInfo.url);
+            }}
+          />
+        )}
       </div>
       <div className="flex-1 min-w-0">
         <h4 className="font-medium text-sm truncate text-gray-200">{movie.title}</h4>
@@ -166,27 +177,38 @@ const MostLiked = ({ movies = [] }: MostLikedProps) => {
         </div>
       </CardHeader>
       <CardContent className="pb-3">
-        {movies.map((movie, idx) => (
-          <div key={movie.id} className="flex items-center gap-3 mb-3">
-            <div className="flex items-center justify-center font-bold text-lg min-w-[30px] text-gray-300">
-              {idx + 1}
-            </div>
-            <div className="h-12 w-[22px] aspect-[2/3] rounded-sm overflow-hidden flex-shrink-0">
-              <img 
-                src={movie.posterUrl || "/images/placeholder.svg"} 
-                alt={movie.title} 
-                className="h-full w-full object-cover"
-              />
-            </div>
-            <div className="flex-1 min-w-0">
-              <h4 className="font-medium text-sm truncate text-gray-200">{movie.title}</h4>
-              <div className="flex items-center gap-1 text-xs text-gray-400">
-                <Star className="h-3 w-3 fill-amber-400 text-amber-400" />
-                <span>{movie.rating || 4.5}/5</span>
+        {movies.map((movie, idx) => {
+          const imageInfo = getImageInfo(movie.posterUrl, movie.id, 'poster')
+          
+          return (
+            <div key={movie.id} className="flex items-center gap-3 mb-3">
+              <div className="flex items-center justify-center font-bold text-lg min-w-[30px] text-gray-300">
+                {idx + 1}
+              </div>
+              <div className="h-12 w-[22px] aspect-[2/3] rounded-sm overflow-hidden flex-shrink-0">
+                {imageInfo.shouldShowSkeleton ? (
+                  <Skeleton className="h-full w-full" />
+                ) : (
+                  <img 
+                    src={imageInfo.url} 
+                    alt={movie.title} 
+                    className="h-full w-full object-cover"
+                    onError={(e) => {
+                      console.log('MostLiked - Image load error for URL:', imageInfo.url);
+                    }}
+                  />
+                )}
+              </div>
+              <div className="flex-1 min-w-0">
+                <h4 className="font-medium text-sm truncate text-gray-200">{movie.title}</h4>
+                <div className="flex items-center gap-1 text-xs text-gray-400">
+                  <Star className="h-3 w-3 fill-amber-400 text-amber-400" />
+                  <span>{movie.rating || 4.5}/5</span>
+                </div>
               </div>
             </div>
-          </div>
-        ))}
+          )
+        })}
       </CardContent>
       <CardFooter className="pt-0">
         <Button variant="ghost" size="sm" className="w-full flex items-center gap-1 text-xs text-gray-400 hover:text-gray-200 hover:bg-gray-800">

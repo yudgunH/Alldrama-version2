@@ -229,19 +229,13 @@ class CacheManager {
   }
 
   clearAllCache(): void {
-    Object.values(this.cache).forEach(store => store.clear());
-  }
-
-  // Get cache stats
-  getCacheStats() {
-    return {
-      movies: this.cache.movies.size,
-      movieDetails: this.cache.movieDetails.size,
-      episodes: this.cache.episodes.size,
-      comments: this.cache.comments.size,
-      genres: this.cache.genres.size,
-      stats: this.cache.stats.size,
-    };
+    this.cache.movies.clear();
+    this.cache.movieDetails.clear();
+    this.cache.episodes.clear();
+    this.cache.comments.clear();
+    this.cache.genres.clear();
+    this.cache.stats.clear();
+    console.log('All cache cleared');
   }
 }
 

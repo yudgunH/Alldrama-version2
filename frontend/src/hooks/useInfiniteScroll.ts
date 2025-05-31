@@ -1,54 +1,47 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useEffect, useRef, useCallback, useState } from 'react';
 
 interface UseInfiniteScrollOptions {
-  threshold?: number; // Distance from bottom to trigger load (in pixels)
+  threshold?: number;
   rootMargin?: string;
   enabled?: boolean;
 }
 
 interface UseInfiniteScrollReturn {
   isFetching: boolean;
-  setIsFetching: (fetching: boolean) => void;
   lastElementRef: (node: HTMLElement | null) => void;
 }
 
-export const useInfiniteScroll = (
-  fetchMore: () => Promise<void> | void,
+export function useInfiniteScroll(
+  loadMore: () => Promise<void> | void,
   hasMore: boolean,
   options: UseInfiniteScrollOptions = {}
-): UseInfiniteScrollReturn => {
+): UseInfiniteScrollReturn {
   const {
-    threshold = 100,
+    threshold = 200,
     rootMargin = '0px',
     enabled = true,
   } = options;
 
   const [isFetching, setIsFetching] = useState(false);
   const observer = useRef<IntersectionObserver | null>(null);
-  const fetchingRef = useRef(false);
 
   const lastElementRef = useCallback(
     (node: HTMLElement | null) => {
-      if (!enabled || !hasMore || fetchingRef.current) return;
+      if (isFetching || !enabled || !hasMore) return;
       
       if (observer.current) observer.current.disconnect();
       
       observer.current = new IntersectionObserver(
-        (entries) => {
-          if (entries[0].isIntersecting && hasMore && !fetchingRef.current) {
-            fetchingRef.current = true;
+        async (entries) => {
+          if (entries[0].isIntersecting && hasMore && enabled) {
             setIsFetching(true);
-            
-            Promise.resolve(fetchMore())
-              .then(() => {
-                setIsFetching(false);
-                fetchingRef.current = false;
-              })
-              .catch((error) => {
-                console.error('Error fetching more data:', error);
-                setIsFetching(false);
-                fetchingRef.current = false;
-              });
+            try {
+              await loadMore();
+            } catch (error) {
+              console.error('Error loading more items:', error);
+            } finally {
+              setIsFetching(false);
+            }
           }
         },
         {
@@ -59,7 +52,7 @@ export const useInfiniteScroll = (
       
       if (node) observer.current.observe(node);
     },
-    [fetchMore, hasMore, enabled, rootMargin]
+    [isFetching, hasMore, enabled, loadMore, rootMargin]
   );
 
   useEffect(() => {
@@ -72,51 +65,50 @@ export const useInfiniteScroll = (
 
   return {
     isFetching,
-    setIsFetching,
     lastElementRef,
   };
-};
+}
 
-// Alternative scroll-based infinite scroll
-export const useScrollInfiniteScroll = (
-  fetchMore: () => Promise<void> | void,
+// Alternative scroll-based implementation
+export function useScrollInfiniteScroll(
+  loadMore: () => Promise<void> | void,
   hasMore: boolean,
-  threshold: number = 100
-) => {
+  options: UseInfiniteScrollOptions = {}
+): UseInfiniteScrollReturn {
+  const {
+    threshold = 200,
+    enabled = true,
+  } = options;
+
   const [isFetching, setIsFetching] = useState(false);
-  const fetchingRef = useRef(false);
 
   useEffect(() => {
-    const handleScroll = () => {
-      if (!hasMore || fetchingRef.current) return;
+    if (!enabled || !hasMore) return;
 
-      const scrollTop = document.documentElement.scrollTop;
-      const scrollHeight = document.documentElement.scrollHeight;
-      const clientHeight = document.documentElement.clientHeight;
-
-      if (scrollTop + clientHeight >= scrollHeight - threshold) {
-        fetchingRef.current = true;
-        setIsFetching(true);
-        
-        Promise.resolve(fetchMore())
-          .then(() => {
+    const handleScroll = async () => {
+      if (
+        window.innerHeight + document.documentElement.scrollTop + threshold >=
+        document.documentElement.offsetHeight
+      ) {
+        if (!isFetching) {
+          setIsFetching(true);
+          try {
+            await loadMore();
+          } catch (error) {
+            console.error('Error loading more items:', error);
+          } finally {
             setIsFetching(false);
-            fetchingRef.current = false;
-          })
-          .catch((error) => {
-            console.error('Error fetching more data:', error);
-            setIsFetching(false);
-            fetchingRef.current = false;
-          });
+          }
+        }
       }
     };
 
     window.addEventListener('scroll', handleScroll);
     return () => window.removeEventListener('scroll', handleScroll);
-  }, [fetchMore, hasMore, threshold]);
+  }, [loadMore, hasMore, enabled, threshold, isFetching]);
 
   return {
     isFetching,
-    setIsFetching,
+    lastElementRef: () => {}, // Not used in scroll-based implementation
   };
-}; 
+} 

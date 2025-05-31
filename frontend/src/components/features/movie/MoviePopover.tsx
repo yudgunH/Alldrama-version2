@@ -4,10 +4,12 @@ import Link from "next/link"
 import Image from "next/image"
 import type { Movie } from "@/types"
 import { generateMovieUrl, generateWatchUrl } from "@/utils/url"
+import { getSafePosterUrl, getImageInfo } from "@/utils/image"
 import { Star, Play, Heart, Info, Calendar, Clock, Film, User } from "lucide-react"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Separator } from "@/components/ui/separator"
+import { Skeleton } from "@/components/ui/skeleton"
 import { useState, useRef, useEffect } from "react"
 import { useMobile } from '@/hooks/use-mobile'
 import { useAuth } from '@/hooks/api/useAuth'
@@ -32,7 +34,7 @@ const MoviePopover = ({
   size = 'md',
   variant = 'default',
   showPopover = true,
-  hoverDelay = 500 // Default 250ms delay
+  hoverDelay = 500 // Default 500ms delay
 }: MoviePopoverProps) => {
   const [open, setOpen] = useState(false)
   const [isLiked, setIsLiked] = useState(false)
@@ -55,7 +57,8 @@ const MoviePopover = ({
   const movieDetailUrl = generateMovieUrl(movie.id, movie.title)
   const watchUrl = generateWatchUrl(movie.id, movie.title)
   
-  const imageUrl = "/images/test.jpg"
+  // Use the safe poster URL utility and check if skeleton should be shown
+  const imageInfo = getImageInfo(movie.posterUrl, movie.id, 'poster')
 
   // Clean up timer on unmount
   useEffect(() => {
@@ -68,7 +71,7 @@ const MoviePopover = ({
   
   // Check if the movie is in favorites when component mounts
   useEffect(() => {
-      if (isAuthenticated && movie) {
+    if (isAuthenticated && movie) {
       // Use store-based check instead of API call
       const favorited = isFavorite(movie.id);
       setIsLiked(favorited);
@@ -94,31 +97,14 @@ const MoviePopover = ({
       if (isFavorite(movie.id)) {
         await removeFromFavorites(movie.id)
         toast.success('Đã xóa khỏi danh sách yêu thích')
-          } else {
+      } else {
         await toggleFavorite(movie.id)
         toast.success('Đã thêm vào danh sách yêu thích')
-        }
-      } catch (error) {
+      }
+    } catch (error) {
       console.error('Error toggling favorite:', error)
       toast.error('Có lỗi xảy ra, vui lòng thử lại')
     }
-  }
-
-  // Auth guard for watch history
-  const handleWatchClick = (e: React.MouseEvent) => {
-    e.preventDefault()
-    e.stopPropagation()
-    
-    // Allow watching without authentication, but show different message
-    if (!isAuthenticated) {
-      toast('Đăng nhập để lưu lịch sử xem phim', {
-        icon: 'ℹ️',
-        duration: 2000
-      })
-    }
-    
-    // Continue with watch action regardless of auth status
-    window.location.href = `/watch/${movie.title.toLowerCase().replace(/\s+/g, '-')}-${movie.id}`
   }
 
   // Handle mouse enter with delay
@@ -200,13 +186,20 @@ const MoviePopover = ({
               left: '55%',
               transform: 'translateX(-50%)',
               boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.9)',
-              backgroundImage: `url(${imageUrl})`,
-              backgroundSize: 'cover',
-              backgroundPosition: 'center'
+              ...(imageInfo.shouldShowSkeleton ? {} : {
+                backgroundImage: `url(${imageInfo.url})`,
+                backgroundSize: 'cover',
+                backgroundPosition: 'center'
+              })
             }}
           >
+            {/* Background skeleton or overlay */}
+            {imageInfo.shouldShowSkeleton ? (
+              <Skeleton className="w-full h-full absolute inset-0" />
+            ) : null}
+            
             {/* Overlay */}
-            <div className="w-full h-full bg-black/80">
+            <div className="w-full h-full bg-black/80 relative">
               <div className="p-4">
                 {/* Rating badge */}
                 <Badge className="bg-amber-600/90 text-white mb-3 inline-flex items-center">

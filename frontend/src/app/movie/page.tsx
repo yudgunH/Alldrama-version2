@@ -5,10 +5,10 @@ import { Movie } from '@/types/movie';
 import { Genre } from '@/types/genre';
 import MovieGrid from '@/components/features/movie/MovieGrid';
 import { Badge } from '@/components/ui/badge';
-import { useMoviesInfinite } from '@/hooks/api/useMoviesInfinite';
 import { useGenres } from '@/hooks/api/useGenres';
 import { useRouter } from 'next/navigation';
 import { useInfiniteScroll } from '@/hooks/useInfiniteScroll';
+import { useMoviesInfinite } from '@/hooks/useMoviesInfinite';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Button } from '@/components/ui/button';
 import { RefreshCw } from 'lucide-react';
@@ -27,20 +27,19 @@ export default function MovieListPage() {
   });
   
   // Use infinite scroll hook for movies
-  const { 
-    movies, 
-    loading: isLoading, 
+  const {
+    movies,
+    loading: isLoading,
     pagination,
     hasMore,
     loadMore,
     isValidating,
-    searchMovies,
-    cacheStats,
+    searchMovies
   } = useMoviesInfinite(searchParams, {
-    initialPageSize: 15, // Load 15 movies initially
-    pageSize: 20, // Load 20 more when scrolling
-    preloadCount: 5, // Preload 5 movie details
-    enableCache: true,
+    initialPageSize: 15,
+    pageSize: 20,
+    preloadCount: 5,
+    enableCache: true
   });
 
   // Infinite scroll hook
@@ -101,7 +100,7 @@ export default function MovieListPage() {
   const allMovies = useMemo(() => {
     if (!movies) return [];
     
-    return movies.map(movie => ({
+    return movies.map((movie: Movie) => ({
         ...movie,
         type: movie.totalEpisodes > 0 ? 'series' : 'movie'
       })) as ProcessedMovie[];
@@ -144,12 +143,6 @@ export default function MovieListPage() {
               <p className="text-gray-400 text-lg max-w-2xl">
                 Thư viện phim đa dạng với nhiều thể loại hấp dẫn, cập nhật liên tục những bộ phim mới nhất.
               </p>
-              {/* Cache stats for debugging */}
-              {process.env.NODE_ENV === 'development' && cacheStats && (
-                <div className="mt-2 text-xs text-gray-500">
-                  Cache: {cacheStats.movies} movies, {cacheStats.movieDetails} details
-                </div>
-              )}
             </div>
           </div>
         </div>
@@ -221,8 +214,8 @@ export default function MovieListPage() {
                 isLoading={false}
             movies={allMovies}
                 showPagination={false} // Disable pagination for infinite scroll
-            totalPages={pagination?.totalPages || 1}
-                currentPage={1}
+                totalPages={pagination?.totalPages || 1}
+                currentPage={pagination?.currentPage || 1}
                 onPageChange={() => {}} // Not used with infinite scroll
               />
               

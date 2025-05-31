@@ -18,6 +18,7 @@ import { Movie, Episode } from '@/types'
 import { movieService, episodeService } from '@/lib/api'
 import { cacheManager } from '@/lib/cache/cacheManager'
 import useSWR from 'swr'
+import { getSafePosterUrl, getEpisodeThumbnailUrl } from '@/utils/image'
 
 // Extend base types to include subtitles
 interface MovieWithSubtitles extends Movie {
@@ -238,9 +239,9 @@ export default function WatchPage() {
       if (activeEpisode.thumbnailUrl && activeEpisode.thumbnailUrl.startsWith('http')) {
         return activeEpisode.thumbnailUrl;
       }
-      // If not, try to construct it intelligently
+      // If not, try to construct it intelligently using utility function
       if (movie?.id && activeEpisode.episodeNumber) {
-        return `https://media.alldrama.tech/episodes/${movie.id}/${activeEpisode.episodeNumber}/thumbnail.jpg`;
+        return getEpisodeThumbnailUrl(movie.id, activeEpisode.episodeNumber);
       }
     }
     
@@ -249,11 +250,11 @@ export default function WatchPage() {
       if (movie.posterUrl.startsWith('http')) {
         return movie.posterUrl;
       }
-      return `https://media.alldrama.tech/movies/${movie.id}/poster.png`;
+      return getSafePosterUrl(movie.posterUrl, movie.id);
     }
     
-    // Fallback to placeholder
-    return '/placeholder.svg';
+    // Fallback to auto-detected poster or placeholder
+    return movie?.id ? getSafePosterUrl(null, movie.id) : '/placeholder.svg';
   };
   
   const posterSrc = getPosterUrl();

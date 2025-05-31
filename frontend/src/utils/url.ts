@@ -101,11 +101,11 @@ export function generateWatchUrl(
   // Nếu có episodeId, đây là trang xem tập phim
   if (episodeId !== undefined && episodeNumber) {
     // Đường dẫn đơn giản /watch/ten-phim?episode=123&ep=1
-    return `/watch/${createSlug(movieTitle)}?episode=${String(episodeId)}&ep=${episodeNumber}`;
+    return `/watch/${createSlug(movieTitle)}-${movieId}?episode=${String(episodeId)}&ep=${episodeNumber}`;
   }
   
   // Nếu không có episodeId, đây là trang xem phim
-  return `/watch/${createSlug(movieTitle)}`;
+  return `/watch/${createSlug(movieTitle)}-${movieId}`;
 }
 
 // Add a utility function to debug URL generation
