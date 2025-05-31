@@ -17,6 +17,7 @@ import {
   X,
   Upload,
   FileVideo,
+  Save,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -67,6 +68,15 @@ export function EpisodeManager({ movieId, movieTitle }: EpisodeManagerProps) {
   const [isDialogOpen, setIsDialogOpen] = useState(false)
   const [isProcessingDialogOpen, setIsProcessingDialogOpen] = useState(false)
   const [selectedEpisode, setSelectedEpisode] = useState<Episode | null>(null)
+  
+  // Edit episode state
+  const [editingEpisodeId, setEditingEpisodeId] = useState<number | null>(null)
+  const [editFormData, setEditFormData] = useState({
+    title: "",
+    description: "",
+    episodeNumber: 1,
+  })
+  const [isUpdating, setIsUpdating] = useState(false)
   
   const [formData, setFormData] = useState({
     episodeNumber: 1,
@@ -788,6 +798,69 @@ export function EpisodeManager({ movieId, movieTitle }: EpisodeManagerProps) {
       })
   }
 
+  // Edit episode handlers
+  const startEditingEpisode = (episode: Episode) => {
+    setEditingEpisodeId(episode.id)
+    setEditFormData({
+      title: episode.title,
+      description: episode.description || "",
+      episodeNumber: episode.episodeNumber,
+    })
+  }
+
+  const cancelEditingEpisode = () => {
+    setEditingEpisodeId(null)
+    setEditFormData({
+      title: "",
+      description: "",
+      episodeNumber: 1,
+    })
+  }
+
+  const handleEditFormChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
+    const { name, value } = e.target
+    setEditFormData((prev) => ({ ...prev, [name]: value }))
+  }
+
+  const handleEditFormNumberChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const { name, value } = e.target
+    setEditFormData((prev) => ({ ...prev, [name]: Number(value) }))
+  }
+
+  const handleUpdateEpisode = async (episodeId: number) => {
+    if (!editFormData.title) {
+      toast.error("Vui lòng nhập tiêu đề tập phim")
+      return
+    }
+
+    if (editFormData.episodeNumber < 1) {
+      toast.error("Số tập phải lớn hơn 0")
+      return
+    }
+
+    setIsUpdating(true)
+
+    try {
+      await episodeApi.update(episodeId, editFormData)
+      toast.success("Cập nhật tập phim thành công!")
+      
+      // Update episode in local state
+      setEpisodes(prev => prev.map(ep => 
+        ep.id === episodeId 
+          ? { ...ep, ...editFormData }
+          : ep
+      ))
+      
+      cancelEditingEpisode()
+    } catch (error: any) {
+      console.error("Error updating episode:", error)
+      const errorMessage = error.response?.data?.message || error.message || "Không thể cập nhật tập phim"
+      toast.error(`Lỗi: ${errorMessage}`)
+    } finally {
+      setIsUpdating(false)
+    }
+  }
+
   // Render status badge
   const renderStatusBadge = (episode: Episode) => {
     if (episode.isProcessed === false) {
@@ -1007,10 +1080,46 @@ export function EpisodeManager({ movieId, movieTitle }: EpisodeManagerProps) {
                       )}
                     </TableCell>
                     <TableCell className="font-medium text-center">
-                      {episode.episodeNumber}
+                      {editingEpisodeId === episode.id ? (
+                        <Input
+                          type="number"
+                          value={editFormData.episodeNumber}
+                          onChange={handleEditFormNumberChange}
+                          name="episodeNumber"
+                          min={1}
+                          className="w-16"
+                        />
+                      ) : (
+                        episode.episodeNumber
+                      )}
                     </TableCell>
                     <TableCell className="font-medium">
-                      {episode.title}
+                      {editingEpisodeId === episode.id ? (
+                        <div className="space-y-2">
+                          <Input
+                            value={editFormData.title}
+                            onChange={handleEditFormChange}
+                            name="title"
+                            placeholder="Tên tập phim"
+                          />
+                          <Textarea
+                            value={editFormData.description}
+                            onChange={handleEditFormChange}
+                            name="description"
+                            placeholder="Mô tả tập phim"
+                            rows={2}
+                          />
+                        </div>
+                      ) : (
+                        <div>
+                          <div className="font-medium">{episode.title}</div>
+                          {episode.description && (
+                            <div className="text-sm text-gray-500 mt-1 line-clamp-2">
+                              {episode.description}
+                            </div>
+                          )}
+                        </div>
+                      )}
                     </TableCell>
                     <TableCell className="hidden md:table-cell">
                       {episode.duration ? `${Math.floor(episode.duration / 60)}:${(episode.duration % 60).toString().padStart(2, '0')}` : "--:--"}
@@ -1039,7 +1148,28 @@ export function EpisodeManager({ movieId, movieTitle }: EpisodeManagerProps) {
                     </TableCell>
                     <TableCell className="text-right">
                       <div className="flex justify-end space-x-2">
-                        {episode.isProcessed === false ? (
+                        {editingEpisodeId === episode.id ? (
+                          <>
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() => handleUpdateEpisode(episode.id)}
+                              disabled={isUpdating}
+                            >
+                              <Save className="mr-2 h-4 w-4" />
+                              {isUpdating ? "Đang lưu..." : "Lưu"}
+                            </Button>
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={cancelEditingEpisode}
+                              disabled={isUpdating}
+                            >
+                              <X className="mr-2 h-4 w-4" />
+                              Hủy
+                            </Button>
+                          </>
+                        ) : episode.isProcessed === false ? (
                           <>
                             <Button
                               variant="outline"
@@ -1063,11 +1193,19 @@ export function EpisodeManager({ movieId, movieTitle }: EpisodeManagerProps) {
                             <Button
                               variant="outline"
                               size="sm"
+                              onClick={() => startEditingEpisode(episode)}
+                            >
+                              <Edit className="mr-2 h-4 w-4" />
+                              Sửa nhanh
+                            </Button>
+                            <Button
+                              variant="outline"
+                              size="sm"
                               asChild
                             >
                               <Link href={`/movies/${movieId}/episodes/${episode.id}/edit`}>
                                 <Edit className="mr-2 h-4 w-4" />
-                                Sửa
+                                Sửa chi tiết
                               </Link>
                             </Button>
                             <Button

@@ -1,6 +1,6 @@
 import express, { Request, Response } from 'express';
 import * as commentController from '../controllers/commentController';
-import { authenticate, optionalAuth } from '../middleware/auth';
+import { authenticate, optionalAuth, requireAdmin } from '../middleware/auth';
 
 const router = express.Router();
 
@@ -214,6 +214,230 @@ router.put('/:id', authenticate, async (req: Request, res: Response) => {
  */
 router.delete('/:id', authenticate, async (req: Request, res: Response) => {
   await commentController.deleteComment(req, res);
+});
+
+/**
+ * @swagger
+ * /api/comments/all:
+ *   get:
+ *     summary: Lấy tất cả bình luận trong hệ thống (admin only)
+ *     tags: [Comments]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: query
+ *         name: page
+ *         schema:
+ *           type: integer
+ *         description: Số trang
+ *       - in: query
+ *         name: limit
+ *         schema:
+ *           type: integer
+ *         description: Số lượng bình luận trên mỗi trang
+ *       - in: query
+ *         name: sort
+ *         schema:
+ *           type: string
+ *         description: Trường sắp xếp
+ *       - in: query
+ *         name: order
+ *         schema:
+ *           type: string
+ *           enum: [ASC, DESC]
+ *         description: Thứ tự sắp xếp
+ *       - in: query
+ *         name: movieId
+ *         schema:
+ *           type: integer
+ *         description: Lọc theo ID phim
+ *       - in: query
+ *         name: userId
+ *         schema:
+ *           type: integer
+ *         description: Lọc theo ID người dùng
+ *       - in: query
+ *         name: search
+ *         schema:
+ *           type: string
+ *         description: Tìm kiếm trong nội dung bình luận và tên người dùng
+ *       - in: query
+ *         name: dateFrom
+ *         schema:
+ *           type: string
+ *           format: date
+ *         description: Lọc từ ngày
+ *       - in: query
+ *         name: dateTo
+ *         schema:
+ *           type: string
+ *           format: date
+ *         description: Lọc đến ngày
+ *     responses:
+ *       200:
+ *         description: Thành công
+ *       401:
+ *         description: Chưa đăng nhập
+ *       403:
+ *         description: Không có quyền admin
+ */
+router.get('/all', authenticate, requireAdmin, async (req: Request, res: Response) => {
+  await commentController.getAllComments(req, res);
+});
+
+/**
+ * @swagger
+ * /api/comments/latest:
+ *   get:
+ *     summary: Lấy bình luận mới nhất
+ *     tags: [Comments]
+ *     parameters:
+ *       - in: query
+ *         name: limit
+ *         schema:
+ *           type: integer
+ *           default: 20
+ *         description: Số lượng bình luận muốn lấy
+ *     responses:
+ *       200:
+ *         description: Thành công
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: array
+ *               items:
+ *                 $ref: '#/components/schemas/Comment'
+ */
+router.get('/latest', async (req: Request, res: Response) => {
+  await commentController.getLatestComments(req, res);
+});
+
+/**
+ * @swagger
+ * /api/comments/my:
+ *   get:
+ *     summary: Lấy bình luận của chính mình
+ *     tags: [Comments]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: query
+ *         name: page
+ *         schema:
+ *           type: integer
+ *         description: Số trang
+ *       - in: query
+ *         name: limit
+ *         schema:
+ *           type: integer
+ *         description: Số lượng bình luận trên mỗi trang
+ *       - in: query
+ *         name: sort
+ *         schema:
+ *           type: string
+ *         description: Trường sắp xếp
+ *       - in: query
+ *         name: order
+ *         schema:
+ *           type: string
+ *           enum: [ASC, DESC]
+ *         description: Thứ tự sắp xếp
+ *     responses:
+ *       200:
+ *         description: Thành công
+ *       401:
+ *         description: Chưa đăng nhập
+ */
+router.get('/my', authenticate, async (req: Request, res: Response) => {
+  await commentController.getMyComments(req, res);
+});
+
+/**
+ * @swagger
+ * /api/comments/stats:
+ *   get:
+ *     summary: Lấy thống kê bình luận (admin only)
+ *     tags: [Comments]
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: Thành công
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 totalComments:
+ *                   type: integer
+ *                 commentsToday:
+ *                   type: integer
+ *                 commentsThisWeek:
+ *                   type: integer
+ *                 commentsThisMonth:
+ *                   type: integer
+ *                 topCommentedMovies:
+ *                   type: array
+ *                   items:
+ *                     type: object
+ *                     properties:
+ *                       movieId:
+ *                         type: integer
+ *                       movieTitle:
+ *                         type: string
+ *                       commentCount:
+ *                         type: integer
+ *       401:
+ *         description: Chưa đăng nhập
+ *       403:
+ *         description: Không có quyền admin
+ */
+router.get('/stats', authenticate, requireAdmin, async (req: Request, res: Response) => {
+  await commentController.getCommentsStats(req, res);
+});
+
+/**
+ * @swagger
+ * /api/comments/user/{userId}:
+ *   get:
+ *     summary: Lấy bình luận theo người dùng
+ *     tags: [Comments]
+ *     parameters:
+ *       - in: path
+ *         name: userId
+ *         required: true
+ *         schema:
+ *           type: integer
+ *         description: ID của người dùng
+ *       - in: query
+ *         name: page
+ *         schema:
+ *           type: integer
+ *         description: Số trang
+ *       - in: query
+ *         name: limit
+ *         schema:
+ *           type: integer
+ *         description: Số lượng bình luận trên mỗi trang
+ *       - in: query
+ *         name: sort
+ *         schema:
+ *           type: string
+ *         description: Trường sắp xếp
+ *       - in: query
+ *         name: order
+ *         schema:
+ *           type: string
+ *           enum: [ASC, DESC]
+ *         description: Thứ tự sắp xếp
+ *     responses:
+ *       200:
+ *         description: Thành công
+ *       404:
+ *         description: Không tìm thấy người dùng
+ */
+router.get('/user/:userId', async (req: Request, res: Response) => {
+  await commentController.getCommentsByUser(req, res);
 });
 
 export default router; 

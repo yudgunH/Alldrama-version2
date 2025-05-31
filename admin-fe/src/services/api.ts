@@ -1377,6 +1377,59 @@ export const userApi = {
 
 // Comment API
 export const commentApi = {
+  // === ADMIN ONLY APIs ===
+  
+  // Lấy tất cả bình luận (Admin only)
+  getAll: (params: {
+    page?: number;
+    limit?: number;
+    sort?: string;
+    order?: 'ASC' | 'DESC';
+    movieId?: number;
+    userId?: number;
+    search?: string;
+    dateFrom?: string;
+    dateTo?: string;
+  } = {}) => {
+    return api.get("/api/comments/all", { params });
+  },
+
+  // Thống kê bình luận (Admin only)
+  getStats: () => {
+    return api.get("/api/comments/stats");
+  },
+
+  // === PUBLIC APIs ===
+
+  // Lấy bình luận mới nhất
+  getLatest: (limit = 20) => {
+    return api.get("/api/comments/latest", {
+      params: { limit }
+    });
+  },
+
+  // Lấy bình luận của chính mình
+  getMy: (params: {
+    page?: number;
+    limit?: number;
+    sort?: string;
+    order?: 'ASC' | 'DESC';
+  } = {}) => {
+    return api.get("/api/comments/my", { params });
+  },
+
+  // Lấy bình luận theo người dùng
+  getByUserId: (userId: number, params: {
+    page?: number;
+    limit?: number;
+    sort?: string;
+    order?: 'ASC' | 'DESC';
+  } = {}) => {
+    return api.get(`/api/comments/user/${userId}`, { params });
+  },
+
+  // === EXISTING APIs ===
+
   // Lấy danh sách bình luận của phim
   getByMovieId: (movieId: number, page = 1, limit = 10, sort = 'createdAt', order = 'DESC') => {
     return api.get(`/api/comments/movies/${movieId}`, {

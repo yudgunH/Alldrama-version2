@@ -58,10 +58,35 @@ export interface Comment {
   comment: string;
   createdAt: string;
   updatedAt: string;
-  user?: {
+  user: {
     id: number;
     full_name: string;
+    email?: string;
   };
+  movie: {
+    id: number;
+    title: string;
+    posterUrl?: string;
+  };
+}
+
+export interface CommentStats {
+  totalComments: number;
+  commentsToday: number;
+  commentsThisWeek: number;
+  commentsThisMonth: number;
+  topCommentedMovies: Array<{
+    movieId: number;
+    movieTitle: string;
+    commentCount: number;
+  }>;
+}
+
+export interface CommentPagination {
+  total: number;
+  totalPages: number;
+  currentPage: number;
+  limit: number;
 }
 
 export interface UploadProgress {
