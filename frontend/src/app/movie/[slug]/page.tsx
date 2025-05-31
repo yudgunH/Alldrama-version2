@@ -3,7 +3,7 @@
 import { Suspense } from 'react';
 import MovieDetail from '@/components/features/movie/MovieDetail';
 import { useMovies } from '@/hooks/api/useMovies';
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useMemo } from 'react';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { useParams } from 'next/navigation';
@@ -11,78 +11,104 @@ import { Movie } from '@/types';
 import { getIdFromSlug } from '@/utils/url';
 import { useAuth } from '@/hooks/api/useAuth';
 import { useFavorites } from '@/hooks/api/useFavorites';
+import { cacheManager } from '@/lib/cache/cacheManager';
+import useSWR from 'swr';
+import { movieService } from '@/lib/api/services/movieService';
 
 export default function MovieDetailPage() {
   // Get slug from route params
   const params = useParams();
   const slug = params?.slug as string || '';
   
-  // State for the component
-  const [isLoading, setIsLoading] = useState(true);
+  // Extract movie ID from slug
+  const movieId = useMemo(() => {
+    if (!slug) return null;
+    const id = getIdFromSlug(slug);
+    return id && !isNaN(Number(id)) ? Number(id) : null;
+  }, [slug]);
+
+  // State for error handling
   const [error, setError] = useState<string | null>(null);
-  const [movieId, setMovieId] = useState<string | number | null>(null);
-  const [movie, setMovie] = useState<Movie | null>(null);
-  
-  // Get the getMovie function from the useMovies hook
-  const { getMovie } = useMovies();
   
   // Get auth and favorites functionality
   const { isAuthenticated } = useAuth();
   const { refreshFavorites } = useFavorites();
   
-  // Refresh favorites list when page loads (if authenticated)
+  // Use SWR for movie data with cache-first strategy
+  const { data: movie, error: movieError, isLoading } = useSWR(
+    movieId ? `movie-detail-${movieId}` : null,
+    async () => {
+      if (!movieId) return null;
+      
+      // Check cache first
+      const cached = cacheManager.getMovieDetails(movieId);
+      if (cached) {
+        console.log(`Using cached movie data for ID: ${movieId}`);
+        return cached;
+      }
+      
+      // Fetch from API if not cached
+      console.log(`Fetching movie data from API for ID: ${movieId}`);
+      const movieData = await movieService.getMovieById(movieId);
+      
+      // Cache the result for 30 minutes
+      cacheManager.setMovieDetails(movieId, movieData, 30 * 60 * 1000);
+      
+      return movieData;
+    },
+    {
+      revalidateOnFocus: false,
+      revalidateOnReconnect: false,
+      revalidateIfStale: false,
+      dedupingInterval: 60000, // 1 minute
+      errorRetryCount: 2,
+      shouldRetryOnError: (error) => {
+        // Only retry on network errors, not 404s
+        return !error?.response || error.response.status >= 500;
+      }
+    }
+  );
+
+  // Refresh favorites list when page loads (if authenticated) - only once
   useEffect(() => {
     if (isAuthenticated) {
-      refreshFavorites();
+      // Check if we've already refreshed favorites recently
+      const lastRefresh = cacheManager.getStats('favorites-last-refresh');
+      const now = Date.now();
+      
+      if (!lastRefresh || now - lastRefresh > 60000) { // Refresh max once per minute
+        refreshFavorites();
+        cacheManager.setStats('favorites-last-refresh', now, 60000);
+      }
     }
   }, [isAuthenticated, refreshFavorites]);
-  
-  // Extract the movie ID from the slug and fetch movie data
+
+  // Handle errors
   useEffect(() => {
-    const fetchMovieData = async () => {
-      try {
-        setIsLoading(true);
-        setError(null);
-    
-        // Extract ID from the slug using the utility function
-        const id = getIdFromSlug(slug);
-    
-    if (!id || isNaN(Number(id))) {
-      console.error("Could not extract numeric ID from slug:", slug);
-      setError("Không tìm thấy phim");
-          return;
-        }
-        
-        // Convert extracted ID to number for API calls
-        const numericId = Number(id);
-        console.log(`Extracted movie ID ${numericId} from slug: ${slug}`);
-        
-        // Set the movie ID
-        setMovieId(numericId);
-        
-        // Fetch the movie data
-        const movieData = await getMovie(numericId);
-        
-        if (!movieData) {
-          setError("Không tìm thấy thông tin phim");
-          return;
-        }
-        
-        // Set the movie data
-        setMovie(movieData);
-      } catch (err) {
-        console.error("Error fetching movie:", err);
-        setError("Đã xảy ra lỗi khi tải thông tin phim");
-      } finally {
-    setIsLoading(false);
-      }
-    };
-    
-    if (slug) {
-      fetchMovieData();
+    if (!slug) {
+      setError("URL không hợp lệ");
+      return;
     }
-  }, [slug, getMovie]);
-  
+
+    if (!movieId) {
+      setError("Không tìm thấy phim");
+      return;
+    }
+
+    if (movieError) {
+      console.error("Error fetching movie:", movieError);
+      if (movieError?.response?.status === 404) {
+        setError("Phim không tồn tại");
+      } else {
+        setError("Đã xảy ra lỗi khi tải thông tin phim");
+      }
+      return;
+    }
+
+    // Clear error if everything is ok
+    setError(null);
+  }, [slug, movieId, movieError]);
+
   // Show loading state
   if (isLoading) {
     return (
@@ -107,7 +133,7 @@ export default function MovieDetailPage() {
       </div>
     );
   }
-  
+
   return (
     <div>
       <Suspense fallback={

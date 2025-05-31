@@ -4,9 +4,9 @@ import {
   CreateEpisodeDto, 
   UpdateEpisodeDto,
   EpisodeViewRequest,
-  ProcessingStatusResponse,
-  ViewResponse
+  ProcessingStatusResponse
 } from '@/types';
+import { ViewResponse } from './viewService';
 import { apiClient } from '../apiClient';
 import { API_ENDPOINTS } from '../endpoints';
 
@@ -62,7 +62,8 @@ export const episodeService = {
   },
   
   /**
-   * Tăng lượt xem cho tập phim
+   * Tăng lượt xem cho tập phim (deprecated - use viewService instead)
+   * @deprecated Use viewService.incrementEpisodeView() instead
    * @param episodeId ID của tập phim
    * @param data Dữ liệu xem phim
    */
@@ -70,6 +71,7 @@ export const episodeService = {
     episodeId: string | number, 
     data: EpisodeViewRequest
   ): Promise<ViewResponse> {
+    console.warn('episodeService.incrementView is deprecated. Use viewService.incrementEpisodeView instead.');
     return apiClient.post<ViewResponse>(
       API_ENDPOINTS.VIEWS.INCREMENT_EPISODE(episodeId),
       data

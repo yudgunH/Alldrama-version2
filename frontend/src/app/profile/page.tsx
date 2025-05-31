@@ -4,7 +4,6 @@ import { useState, useEffect, Suspense } from 'react';
 import Image from 'next/image';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { useAuthStore } from '@/store/auth';
 import { useFavorites } from '@/hooks/api/useFavorites';
 import { useWatchHistory } from '@/hooks/api/useWatchHistory';
 import { useAuth } from '@/hooks/api/useAuth';
@@ -38,11 +37,13 @@ const ProfileContent = () => {
   const [passwordSuccess, setPasswordSuccess] = useState('');
   const [apiStatus, setApiStatus] = useState<{ status: string; message: string } | null>(null);
   const [testingApi, setTestingApi] = useState(false);
+  const [authChecked, setAuthChecked] = useState(false);
+  const [redirecting, setRedirecting] = useState(false);
   const searchParams = useSearchParams();
   const router = useRouter();
   
   // Sử dụng auth hook
-  const { user, isAuthenticated, changePassword, fetchCurrentUser } = useAuth();
+  const { user, isAuthenticated, changePassword, fetchCurrentUser, loading: authLoading } = useAuth();
 
   // Sử dụng API hooks
   const { 
@@ -56,33 +57,48 @@ const ProfileContent = () => {
     loading: loadingWatchHistory 
   } = useWatchHistory();
 
-  // Kiểm tra nếu chưa đăng nhập, chuyển hướng đến trang đăng nhập
+  // Kiểm tra auth một cách an toàn
   useEffect(() => {
     const checkAuth = async () => {
-      // Đang xử lý trường hợp khi token có trong cookie nhưng isAuthenticated chưa được cập nhật
+      // Nếu đang loading auth, chờ
+      if (authLoading) {
+        return;
+      }
+
+      // Nếu đã check auth rồi, không check lại
+      if (authChecked) {
+        return;
+      }
+
+      // Nếu đang redirect, không check nữa
+      if (redirecting) {
+        return;
+      }
+
+      try {
+        // Nếu chưa authenticated và chưa có user
       if (!isAuthenticated && !user) {
-        try {
-          console.log("Đang kiểm tra xác thực...");
-          // Tăng thời gian chờ trước khi chuyển hướng
+          console.log("Checking authentication...");
         const currentUser = await fetchCurrentUser();
-          console.log("Kết quả kiểm tra:", currentUser ? "Đã xác thực" : "Chưa xác thực");
+          
         if (!currentUser) {
-            // Đợi một chút trước khi chuyển hướng để tránh race condition
-            setTimeout(() => {
+            console.log("No authenticated user found, redirecting to login");
+            setRedirecting(true);
               router.push('/login');
-            }, 500);
+            return;
           }
-        } catch (error) {
-          console.error("Lỗi khi kiểm tra xác thực:", error);
-          setTimeout(() => {
-          router.push('/login');
-          }, 500);
         }
+        
+        setAuthChecked(true);
+        } catch (error) {
+        console.error("Auth check error:", error);
+        setRedirecting(true);
+          router.push('/login');
       }
     };
     
     checkAuth();
-  }, [isAuthenticated, user, router, fetchCurrentUser]);
+  }, [isAuthenticated, user, authLoading, authChecked, redirecting, fetchCurrentUser, router]);
 
   // Lấy tab từ URL nếu có
   useEffect(() => {
@@ -100,8 +116,31 @@ const ProfileContent = () => {
     }
   }, [searchParams]);
 
-  // Nếu chưa đăng nhập hoặc đang chuyển hướng, hiển thị màn hình loading
-  if (!isAuthenticated || !user) {
+  // Hiển thị loading khi đang check auth hoặc chưa có user
+  if (authLoading || !authChecked || redirecting || (!isAuthenticated && !user)) {
+    return (
+      <div className="min-h-screen bg-gray-900 flex items-center justify-center">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-red-500 mx-auto"></div>
+          <p className="mt-4 text-white">
+            {redirecting ? 'Đang chuyển hướng...' : 'Đang kiểm tra thông tin đăng nhập...'}
+          </p>
+        </div>
+      </div>
+    );
+  }
+
+  // Nếu đã check auth nhưng vẫn không có user, redirect
+  if (authChecked && !isAuthenticated && !user) {
+    if (!redirecting) {
+      setRedirecting(true);
+      router.push('/login');
+    }
+    return null;
+  }
+
+  // Đảm bảo user không null trước khi render
+  if (!user) {
     return (
       <div className="min-h-screen bg-gray-900 flex items-center justify-center">
         <div className="text-center">
@@ -125,6 +164,12 @@ const ProfileContent = () => {
     setPasswordError('');
     setPasswordSuccess('');
     
+    // Kiểm tra user trước khi thực hiện (đã đảm bảo user không null ở trên)
+    if (!user) {
+      setPasswordError('Không thể xác định thông tin người dùng.');
+      return;
+    }
+    
     // Kiểm tra mật khẩu
     if (!newPassword || !confirmPassword) {
       setPasswordError('Vui lòng điền đầy đủ thông tin.');
@@ -145,7 +190,6 @@ const ProfileContent = () => {
     
     try {
       // Gọi API đổi mật khẩu
-      if (user?.id) {
         const response = await changePassword(
           user.id,
           user.full_name || '',
@@ -157,7 +201,6 @@ const ProfileContent = () => {
           setPasswordSuccess('Mật khẩu đã được cập nhật thành công!');
           setNewPassword('');
           setConfirmPassword('');
-        }
       }
     } catch (error: any) {
       setPasswordError(error.message || 'Có lỗi xảy ra khi đổi mật khẩu. Vui lòng thử lại sau.');
@@ -201,16 +244,16 @@ const ProfileContent = () => {
     <div className="bg-gray-800 rounded-lg shadow-lg p-6">
       <div className="flex flex-col sm:flex-row items-start sm:items-center mb-8">
         <div className="w-24 h-24 bg-gray-700 rounded-full flex items-center justify-center text-white text-3xl font-bold mb-4 sm:mb-0 sm:mr-6">
-          {user.full_name?.charAt(0) || user.email?.charAt(0) || 'U'}
+          {user?.full_name?.charAt(0) || user?.email?.charAt(0) || 'U'}
         </div>
         <div>
-          <h2 className="text-2xl font-bold text-white">{user.full_name || 'Người dùng'}</h2>
-          <p className="text-gray-400">{user.email}</p>
+          <h2 className="text-2xl font-bold text-white">{user?.full_name || 'Người dùng'}</h2>
+          <p className="text-gray-400">{user?.email}</p>
           <p className="text-gray-400 mt-1">
-            Loại tài khoản: <span className="capitalize">{user.role}</span>
+            Loại tài khoản: <span className="capitalize">{user?.role}</span>
           </p>
           <p className="text-gray-400 mt-1">
-            Ngày tham gia: {formatDate(user.createdAt)}
+            Ngày tham gia: {formatDate(user?.createdAt)}
           </p>
         </div>
       </div>

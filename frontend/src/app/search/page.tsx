@@ -1,17 +1,19 @@
 'use client'
 
-import { useState, useEffect, useCallback, Suspense } from 'react';
+import { useState, useEffect, useCallback, Suspense, useMemo } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
 import MovieCard from '@/components/features/movie/MovieCard';
 import { Movie, Genre } from '@/types';
-import { useSearch } from '@/hooks/api/useSearch';
 import { Separator } from '@/components/ui/separator';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Button } from '@/components/ui/button';
 import { Search, Filter, ArrowUpDown, X, Star, Eye } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
-import { useApiCache } from '@/hooks/api/useApiCache';
-import { API_ENDPOINTS } from '@/lib/api/endpoints';
+import { movieService, genreService } from '@/lib/api';
+import { cacheManager } from '@/lib/cache/cacheManager';
+import useSWR from 'swr';
+import { useAuth } from '@/hooks/api/useAuth';
+import { useFavorites } from '@/hooks/api/useFavorites';
 
 // Hàm tiện ích debounce để tránh gọi API liên tục
 const debounce = (func: Function, delay: number) => {
@@ -52,7 +54,8 @@ const SearchPageLoader = () => {
 const SearchContent = () => {
   const searchParams = useSearchParams();
   const router = useRouter();
-  const { clearCache } = useApiCache();
+  const { isAuthenticated } = useAuth();
+  const { refreshFavorites } = useFavorites();
   
   // Lấy các tham số tìm kiếm từ URL
   const initialQuery = searchParams.get('q') || '';
@@ -67,13 +70,104 @@ const SearchContent = () => {
   const [sortBy, setSortBy] = useState<string>(initialSort);
   const [filtersVisible, setFiltersVisible] = useState(true);
   
-  // Sử dụng hook useSearch để lấy dữ liệu
-  const { movies, genres, years, total, loading, error } = useSearch({ 
-    query: initialQuery,
-    genre: initialGenre,
-    year: initialYear,
-    sortBy: initialSort
-  });
+  // Fetch genres with SWR and cache
+  const { data: genres } = useSWR(
+    'genres-list',
+    async () => {
+      // Check cache first
+      const cached = cacheManager.getGenres();
+      if (cached) {
+        console.log('Using cached genres data');
+        return cached;
+      }
+      
+      // Fetch from API if not cached
+      console.log('Fetching genres data from API');
+      const genresData = await genreService.getAllGenres();
+      
+      // Cache the result for 30 minutes
+      cacheManager.setGenres(genresData, 30 * 60 * 1000);
+      
+      return genresData;
+    },
+    {
+      revalidateOnFocus: false,
+      revalidateOnReconnect: false,
+      dedupingInterval: 300000, // 5 minutes
+    }
+  );
+
+  // Generate search key for SWR
+  const searchKey = useMemo(() => {
+    const params = new URLSearchParams();
+    if (initialQuery) params.set('q', initialQuery);
+    if (initialGenre) params.set('genre', initialGenre);
+    if (initialYear) params.set('year', initialYear);
+    if (initialSort) params.set('sort', initialSort);
+    return `search-${params.toString()}`;
+  }, [initialQuery, initialGenre, initialYear, initialSort]);
+
+  // Fetch search results with SWR and cache
+  const { data: searchResults, error: searchError, isLoading: searchLoading } = useSWR(
+    searchKey,
+    async () => {
+      // Check cache first
+      const cached = cacheManager.getStats(searchKey);
+      if (cached) {
+        console.log(`Using cached search results for: ${searchKey}`);
+        return cached;
+      }
+      
+      // Build search params
+      const searchParams: any = {};
+      if (initialQuery) searchParams.query = initialQuery;
+      if (initialGenre) searchParams.genre = initialGenre;
+      if (initialYear) searchParams.year = parseInt(initialYear);
+      if (initialSort) {
+        const [field, order] = initialSort.split('-');
+        searchParams.sortBy = field;
+        searchParams.sortOrder = order?.toUpperCase() || 'DESC';
+      }
+      
+      // Fetch from API
+      console.log(`Fetching search results from API for: ${searchKey}`);
+      const results = await movieService.searchMovies(searchParams);
+      
+      // Cache the result for 5 minutes
+      cacheManager.setStats(searchKey, results, 5 * 60 * 1000);
+      
+      return results;
+    },
+    {
+      revalidateOnFocus: false,
+      revalidateOnReconnect: false,
+      dedupingInterval: 60000, // 1 minute
+    }
+  );
+
+  // Generate years list
+  const years = useMemo(() => {
+    const currentYear = new Date().getFullYear();
+    const startYear = 1990;
+    const yearsList = [];
+    for (let year = currentYear; year >= startYear; year--) {
+      yearsList.push(year);
+    }
+    return yearsList;
+  }, []);
+
+  // Auto-refresh favorites when authenticated
+  useEffect(() => {
+    if (isAuthenticated) {
+      const lastRefresh = cacheManager.getStats('favorites-last-refresh');
+      const now = Date.now();
+      
+      if (!lastRefresh || now - lastRefresh > 60000) { // Refresh max once per minute
+        refreshFavorites();
+        cacheManager.setStats('favorites-last-refresh', now, 60000);
+      }
+    }
+  }, [isAuthenticated, refreshFavorites]);
   
   // Debug log
   useEffect(() => {
@@ -87,6 +181,13 @@ const SearchContent = () => {
     }
   }, [initialGenre, initialYear, initialSort]);
   
+  // Clear search cache helper function
+  const clearSearchCache = () => {
+    // Since clearStats doesn't exist, we'll clear all cache for now
+    // This is a temporary solution until clearStats is implemented
+    cacheManager.clearAllCache();
+  };
+  
   // Cập nhật URL khi các bộ lọc thay đổi (dùng debounce để tránh gọi quá nhiều)
   const debouncedUpdateSearchParams = useCallback(
     debounce(() => {
@@ -97,12 +198,12 @@ const SearchContent = () => {
       if (selectedYear) params.set('year', selectedYear);
       if (sortBy) params.set('sort', sortBy);
       
-      // Xóa cache tìm kiếm cũ
-      clearCache((key: string) => key.includes(API_ENDPOINTS.MOVIES.SEARCH));
+      // Clear search cache when params change
+      clearSearchCache();
       
       router.push(`/search?${params.toString()}`);
     }, 300),
-    [searchQuery, selectedGenre, selectedYear, sortBy, router, clearCache]
+    [searchQuery, selectedGenre, selectedYear, sortBy, router]
   );
   
   // Cập nhật URL khi các bộ lọc thay đổi
@@ -114,8 +215,8 @@ const SearchContent = () => {
     if (selectedYear) params.set('year', selectedYear);
     if (sortBy) params.set('sort', sortBy);
     
-    // Xóa cache tìm kiếm cũ
-    clearCache((key: string) => key.includes(API_ENDPOINTS.MOVIES.SEARCH));
+    // Clear search cache when params change
+    clearSearchCache();
     
     router.push(`/search?${params.toString()}`);
   };
@@ -130,7 +231,7 @@ const SearchContent = () => {
     setSelectedGenre('');
     setSelectedYear('');
     setSortBy('');
-    clearCache((key: string) => key.includes(API_ENDPOINTS.MOVIES.SEARCH));
+    clearSearchCache();
     router.push('/search');
   };
   
@@ -152,7 +253,7 @@ const SearchContent = () => {
       setSortBy('');
     }
     
-    clearCache((key: string) => key.includes(API_ENDPOINTS.MOVIES.SEARCH));
+    clearSearchCache();
     router.push(`/search?${params.toString()}`);
   };
   
@@ -176,6 +277,12 @@ const SearchContent = () => {
       debouncedUpdateSearchParams();
     }
   };
+
+  // Extract data from search results
+  const movies = searchResults?.movies || [];
+  const total = searchResults?.total || 0;
+  const loading = searchLoading;
+  const error = searchError;
   
   return (
     <div className="min-h-screen bg-gray-900 pt-20 pb-16">

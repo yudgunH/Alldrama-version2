@@ -44,7 +44,12 @@ const MoviePopover = ({
   
   // Auth and favorites hooks
   const { isAuthenticated } = useAuth()
-  const { toggleFavorite, isFavorite } = useFavorites()
+  const { 
+    isFavorite, 
+    removeFromFavorites, 
+    isLoading: favoritesLoading,
+    toggleFavorite
+  } = useFavorites()
   
   // Generate URLs using the utility functions
   const movieDetailUrl = generateMovieUrl(movie.id, movie.title)
@@ -63,7 +68,7 @@ const MoviePopover = ({
   
   // Check if the movie is in favorites when component mounts
   useEffect(() => {
-    if (isAuthenticated && movie) {
+      if (isAuthenticated && movie) {
       // Use store-based check instead of API call
       const favorited = isFavorite(movie.id);
       setIsLiked(favorited);
@@ -72,33 +77,48 @@ const MoviePopover = ({
     }
   }, [isAuthenticated, movie, isFavorite])
 
-  // Handle toggle favorite
-  const handleToggleFavorite = async (e: React.MouseEvent) => {
-    // Prevent the click from propagating to parent elements
+  // Auth guard for favorite actions
+  const handleFavoriteClick = async (e: React.MouseEvent) => {
     e.preventDefault()
     e.stopPropagation()
     
+    // Check authentication before allowing favorite action
     if (!isAuthenticated) {
-      toast.error("Vui lòng đăng nhập để thêm vào danh sách yêu thích")
+      toast.error('Vui lòng đăng nhập để thêm phim yêu thích')
       return
     }
     
-    if (movie) {
-      try {
-        const favorited = await toggleFavorite(movie.id)
-        if (favorited !== null) {
-          setIsLiked(favorited)
-          if (favorited) {
-            toast.success("Đã thêm vào danh sách yêu thích")
+    if (favoritesLoading) return
+
+    try {
+      if (isFavorite(movie.id)) {
+        await removeFromFavorites(movie.id)
+        toast.success('Đã xóa khỏi danh sách yêu thích')
           } else {
-            toast.error("Đã xóa khỏi danh sách yêu thích")
-          }
+        await toggleFavorite(movie.id)
+        toast.success('Đã thêm vào danh sách yêu thích')
         }
       } catch (error) {
-        console.error("Error toggling favorite:", error)
-        toast.error("Không thể thay đổi trạng thái yêu thích")
-      }
+      console.error('Error toggling favorite:', error)
+      toast.error('Có lỗi xảy ra, vui lòng thử lại')
     }
+  }
+
+  // Auth guard for watch history
+  const handleWatchClick = (e: React.MouseEvent) => {
+    e.preventDefault()
+    e.stopPropagation()
+    
+    // Allow watching without authentication, but show different message
+    if (!isAuthenticated) {
+      toast('Đăng nhập để lưu lịch sử xem phim', {
+        icon: 'ℹ️',
+        duration: 2000
+      })
+    }
+    
+    // Continue with watch action regardless of auth status
+    window.location.href = `/watch/${movie.title.toLowerCase().replace(/\s+/g, '-')}-${movie.id}`
   }
 
   // Handle mouse enter with delay
@@ -272,7 +292,7 @@ const MoviePopover = ({
                         size="icon" 
                         variant="secondary" 
                         className={`h-9 w-9 ${isLiked ? 'bg-pink-600 hover:bg-pink-700 text-white' : 'bg-gray-800 hover:bg-gray-700 text-gray-300 hover:text-pink-500'}`}
-                        onClick={handleToggleFavorite}
+                        onClick={handleFavoriteClick}
                       >
                         <Heart size={16} className={isLiked ? 'fill-white' : ''} />
                       </Button>

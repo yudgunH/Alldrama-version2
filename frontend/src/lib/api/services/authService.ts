@@ -2,7 +2,7 @@ import { AuthResponse, LoginCredentials, RegisterCredentials, User, UpdateUserDt
 import { apiClient } from '../apiClient';
 import { API_ENDPOINTS } from '../endpoints';
 import { refreshTokenEndpoint, refreshAccessToken } from '../authHelper';
-import { useAuthStore } from '@/store/authStore';
+import { useAuthStore } from '@/store/auth';
 import { jwtDecode } from 'jwt-decode';
 import { Favorite } from '@/types';
 import { WatchHistory } from '@/types';

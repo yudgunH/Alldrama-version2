@@ -98,13 +98,14 @@ export const useAuthStore = create<AuthState>()(
           if (typeof window !== 'undefined') {
             const customWindow = window as CustomWindow;
             customWindow._isHandlingLogout = true;
+            customWindow.isLoggingOut = true;
           }
           
-        try {
-          // Gọi API đăng xuất
-          await authService.logout();
-        } catch (error) {
-          console.error('Lỗi khi đăng xuất:', error);
+          try {
+            // Gọi API đăng xuất
+            await authService.logout();
+          } catch (error) {
+            console.error('Lỗi khi đăng xuất:', error);
           }
           
           // Xóa token 
@@ -118,24 +119,69 @@ export const useAuthStore = create<AuthState>()(
             sessionId: null
           });
 
-          // Chỉ broadcast sự kiện nếu cần thiết cho các tab khác
+          // Clear all caches after logout
           if (typeof window !== 'undefined') {
-            const customWindow = window as CustomWindow;
-            if (!customWindow.isLoggingOut) {
-              // Đánh dấu đang trong quá trình logout
-              customWindow.isLoggingOut = true;
+            try {
+              // Import dynamically to avoid SSR issues
+              const { mutate } = await import('swr');
+              const { cacheManager } = await import('@/lib/cache/cacheManager');
               
-              // Sử dụng flag để ngăn vòng lặp vô hạn
-              if (window && !window.opener) {
-          window.dispatchEvent(new CustomEvent('auth:logout'));
+              console.log('Clearing all caches after logout...');
+              
+              // 1. Clear SWR cache
+              await mutate(() => true, undefined, { revalidate: false });
+              
+              // 2. Clear manual cache
+              cacheManager.clearAllCache();
+              
+              // 3. Clear specific storage items
+              try {
+                sessionStorage.removeItem('auth-storage');
+                localStorage.removeItem('favorites-cache');
+                localStorage.removeItem('auth_last_toast_time');
+                
+                // Clear SWR cache keys from localStorage
+                Object.keys(localStorage).forEach(key => {
+                  if (key.startsWith('swr-cache-') || key.startsWith('cache-')) {
+                    localStorage.removeItem(key);
+                  }
+                });
+                
+                // Clear sessionStorage cache keys
+                Object.keys(sessionStorage).forEach(key => {
+                  if (key.startsWith('swr-cache-') || key.startsWith('cache-')) {
+                    sessionStorage.removeItem(key);
+                  }
+                });
+              } catch (storageError) {
+                console.error('Error clearing storage:', storageError);
               }
               
-              // Reset flag sau một khoảng thời gian
-              setTimeout(() => {
-                customWindow._isHandlingLogout = false;
-                customWindow.isLoggingOut = false;
-              }, 1000);
+              console.log('All caches cleared successfully after logout');
+            } catch (cacheError) {
+              console.error('Error clearing caches after logout:', cacheError);
             }
+          }
+
+          // Broadcast logout event for other tabs and components
+          if (typeof window !== 'undefined') {
+            const customWindow = window as CustomWindow;
+            
+            // Broadcast to other tabs
+            if (window && !window.opener) {
+              window.dispatchEvent(new CustomEvent('auth:logout', {
+                detail: { 
+                  clearCache: true,
+                  timestamp: Date.now()
+                }
+              }));
+            }
+            
+            // Reset flags after operation
+            setTimeout(() => {
+              customWindow._isHandlingLogout = false;
+              customWindow.isLoggingOut = false;
+            }, 2000);
           }
         } catch (error) {
           console.error('Lỗi trong quá trình đăng xuất:', error);
@@ -146,7 +192,7 @@ export const useAuthStore = create<AuthState>()(
             setTimeout(() => {
               customWindow._isHandlingLogout = false;
               customWindow.isLoggingOut = false;
-            }, 1000);
+            }, 2000);
           }
         }
       }
@@ -200,25 +246,52 @@ if (typeof window !== 'undefined') {
   }) as EventListener);
 
   // Sửa phần lắng nghe sự kiện đăng xuất để tránh vòng lặp vô hạn
-  window.addEventListener('auth:logout', () => {
+  window.addEventListener('auth:logout', async (event: any) => {
     const customWindow = window as CustomWindow;
     // Kiểm tra xem đã đang xử lý logout chưa - tránh vòng lặp vô hạn
     if (!customWindow._isHandlingLogout) {
       // Đặt cờ để đánh dấu đang xử lý logout
       customWindow._isHandlingLogout = true;
       
-      // Thực hiện đăng xuất mà không phát ra sự kiện khác
-      const store = useAuthStore.getState();
-      authService.clearToken();
-      
-      // Cập nhật state trực tiếp
-      useAuthStore.setState({
-        ...store,
-        user: null,
-        isAuthenticated: false,
-        token: null,
-        sessionId: null
-      });
+      try {
+        console.log('Processing logout event from another tab...');
+        
+        // Clear all caches if requested
+        if (event.detail?.clearCache) {
+          try {
+            const { mutate } = await import('swr');
+            const { cacheManager } = await import('@/lib/cache/cacheManager');
+            
+            // Clear SWR cache
+            await mutate(() => true, undefined, { revalidate: false });
+            
+            // Clear manual cache
+            cacheManager.clearAllCache();
+            
+            console.log('Cache cleared from logout event');
+          } catch (cacheError) {
+            console.error('Error clearing cache from logout event:', cacheError);
+          }
+        }
+        
+        // Clear auth service token
+        const { authService } = await import('@/lib/api/services/authService');
+        authService.clearToken();
+        
+        // Update store state directly
+        const store = useAuthStore.getState();
+        useAuthStore.setState({
+          ...store,
+          user: null,
+          isAuthenticated: false,
+          token: null,
+          sessionId: null
+        });
+        
+        console.log('Logout event processed successfully');
+      } catch (error) {
+        console.error('Error processing logout event:', error);
+      }
       
       // Đặt lại cờ sau khi hoàn thành
       setTimeout(() => {

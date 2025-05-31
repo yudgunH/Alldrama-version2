@@ -15,29 +15,30 @@ let lastRefreshTime = 0;
 
 // Timeout setting
 const REFRESH_TIMEOUT = 15000; // 15 seconds
-const MIN_REFRESH_INTERVAL = 5000; // 5 seconds
+const MIN_REFRESH_INTERVAL = 2000; // Reduced from 5s to 2s - less strict
 
-// Rate limiting settings
-const MAX_REFRESH_ATTEMPTS = 3;
-const RATE_LIMIT_WINDOW = 60000; // 1 minute
+// Rate limiting settings - more lenient since backend handles login rate limiting
+const MAX_REFRESH_ATTEMPTS = process.env.NODE_ENV === 'development' ? 10 : 5; // Increased limits
+const RATE_LIMIT_WINDOW = process.env.NODE_ENV === 'development' ? 30000 : 60000; // 30s dev, 60s prod
 let refreshAttempts: number[] = [];
 
 /**
  * Kiểm tra và xử lý rate limiting cho refresh token
+ * Optimized for better UX since backend already handles auth rate limiting
  */
 const checkRateLimit = (): boolean => {
   const now = Date.now();
   
-  // Xóa các attempts cũ hơn 1 phút
+  // Xóa các attempts cũ
   refreshAttempts = refreshAttempts.filter(time => now - time < RATE_LIMIT_WINDOW);
   
-  // Kiểm tra số lần refresh trong 1 phút
+  // Kiểm tra số lần refresh trong window
   if (refreshAttempts.length >= MAX_REFRESH_ATTEMPTS) {
     const oldestAttempt = refreshAttempts[0];
     const waitTime = RATE_LIMIT_WINDOW - (now - oldestAttempt);
     
     if (waitTime > 0) {
-      console.warn(`Rate limit exceeded. Please wait ${Math.ceil(waitTime/1000)} seconds before trying again.`);
+      console.warn(`Refresh rate limit exceeded. Please wait ${Math.ceil(waitTime/1000)} seconds before trying again.`);
       return false;
     }
   }
@@ -45,6 +46,14 @@ const checkRateLimit = (): boolean => {
   // Thêm attempt mới
   refreshAttempts.push(now);
   return true;
+};
+
+/**
+ * Reset rate limit manually - useful for development and testing
+ */
+export const resetRefreshRateLimit = (): void => {
+  refreshAttempts = [];
+  console.log('Refresh token rate limit has been reset');
 };
 
 /**
@@ -60,14 +69,14 @@ export const refreshAccessToken = async (): Promise<string> => {
   try {
     // Kiểm tra rate limit
     if (!checkRateLimit()) {
-      throw new Error('Rate limit exceeded. Please try again later.');
+      throw new Error('Refresh rate limit exceeded. Please try again later.');
     }
 
-    // Kiểm tra thời gian từ lần refresh cuối
+    // Kiểm tra thời gian từ lần refresh cuối - reduced interval
     const now = Date.now();
     if (now - lastRefreshTime < MIN_REFRESH_INTERVAL) {
       // Nếu vừa refresh gần đây, đợi một chút
-      await new Promise(resolve => setTimeout(resolve, MIN_REFRESH_INTERVAL));
+      await new Promise(resolve => setTimeout(resolve, MIN_REFRESH_INTERVAL - (now - lastRefreshTime)));
     }
 
     // Sử dụng promise đã tồn tại nếu đang refresh

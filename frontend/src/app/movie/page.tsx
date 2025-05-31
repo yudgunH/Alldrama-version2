@@ -1,13 +1,17 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo, useCallback } from 'react';
 import { Movie } from '@/types/movie';
 import { Genre } from '@/types/genre';
 import MovieGrid from '@/components/features/movie/MovieGrid';
 import { Badge } from '@/components/ui/badge';
-import { useMovies } from '@/hooks/api/useMovies';
+import { useMoviesInfinite } from '@/hooks/api/useMoviesInfinite';
 import { useGenres } from '@/hooks/api/useGenres';
 import { useRouter } from 'next/navigation';
+import { useInfiniteScroll } from '@/hooks/useInfiniteScroll';
+import { Skeleton } from '@/components/ui/skeleton';
+import { Button } from '@/components/ui/button';
+import { RefreshCw } from 'lucide-react';
 
 interface ProcessedMovie extends Movie {
   type: 'movie' | 'series';
@@ -16,27 +20,44 @@ interface ProcessedMovie extends Movie {
 export default function MovieListPage() {
   const router = useRouter();
   const [activeGenre, setActiveGenre] = useState('all');
-  const [currentPage, setCurrentPage] = useState(1);
+  const [searchParams, setSearchParams] = useState({
+    genre: undefined as number | undefined,
+    sort: 'views' as const,
+    order: 'DESC' as const,
+  });
   
-  // Use the movies hook
+  // Use infinite scroll hook for movies
   const { 
     movies, 
     loading: isLoading, 
     pagination,
+    hasMore,
+    loadMore,
+    isValidating,
     searchMovies,
-  } = useMovies({ limit: 20 });
+    cacheStats,
+  } = useMoviesInfinite(searchParams, {
+    initialPageSize: 15, // Load 15 movies initially
+    pageSize: 20, // Load 20 more when scrolling
+    preloadCount: 5, // Preload 5 movie details
+    enableCache: true,
+  });
 
-  const {
-    getAllGenres,
-  } = useGenres();
+  // Infinite scroll hook
+  const { isFetching, lastElementRef } = useInfiniteScroll(
+    loadMore,
+    hasMore,
+    {
+      threshold: 200, // Trigger when 200px from bottom
+      enabled: !isLoading && hasMore,
+    }
+  );
 
+  const { getAllGenres } = useGenres();
   const [genres, setGenres] = useState<Genre[]>([]);
   const [genresLoading, setGenresLoading] = useState(true);
 
-  // State for filtered movies
-  const [allMovies, setAllMovies] = useState<ProcessedMovie[]>([]);
-
-  // Fetch genres when component mounts
+  // Fetch genres when component mounts - only once
   useEffect(() => {
     const fetchGenres = async () => {
       try {
@@ -55,51 +76,62 @@ export default function MovieListPage() {
     fetchGenres();
   }, [getAllGenres]);
 
-  // Fetch movies when filters change
-  useEffect(() => {
-    const fetchMovies = async () => {
-      try {
-        await searchMovies({
-          page: currentPage,
-          limit: 20,
-          genre: activeGenre !== 'all' ? Number(activeGenre) : undefined,
-          sort: 'views',
-          order: 'DESC'
-        });
-      } catch (error) {
-        console.error('Error fetching movies:', error);
-      }
-    };
-
-    fetchMovies();
-  }, [activeGenre, currentPage, searchMovies]);
-
   // Handle genre change
-  const handleGenreChange = (genre: string) => {
+  const handleGenreChange = useCallback((genre: string) => {
     if (genre === activeGenre) return;
+    
+    setActiveGenre(genre);
+    
+    const newParams = {
+      genre: genre !== 'all' ? Number(genre) : undefined,
+      sort: 'views' as const,
+      order: 'DESC' as const,
+    };
+    
+    setSearchParams(newParams);
+    searchMovies(newParams);
+    
+    // Navigate to search page for better UX
+    if (genre !== 'all') {
     router.push(`/search?genre=${encodeURIComponent(genre)}`);
-  };
+    }
+  }, [activeGenre, searchMovies, router]);
   
-  // Process movies with type info
-  useEffect(() => {
-    if (movies) {
-      const processedMovies = movies.map(movie => ({
+  // Memoize processed movies to avoid unnecessary recalculations
+  const allMovies = useMemo(() => {
+    if (!movies) return [];
+    
+    return movies.map(movie => ({
         ...movie,
         type: movie.totalEpisodes > 0 ? 'series' : 'movie'
       })) as ProcessedMovie[];
-      
-      setAllMovies(processedMovies);
-    }
   }, [movies]);
   
-  // Handle page change
-  const handlePageChange = (page: number) => {
-    setCurrentPage(page);
-    window.scrollTo({
-      top: 0,
-      behavior: 'smooth'
-    });
-  };
+  // Loading skeleton component
+  const LoadingSkeleton = () => (
+    <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4">
+      {Array.from({ length: 15 }).map((_, i) => (
+        <div key={i} className="space-y-3">
+          <Skeleton className="h-[300px] w-full rounded-lg" />
+          <Skeleton className="h-4 w-3/4" />
+          <Skeleton className="h-3 w-1/2" />
+        </div>
+      ))}
+    </div>
+  );
+
+  // Load more skeleton component
+  const LoadMoreSkeleton = () => (
+    <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4 mt-8">
+      {Array.from({ length: 10 }).map((_, i) => (
+        <div key={i} className="space-y-3">
+          <Skeleton className="h-[300px] w-full rounded-lg" />
+          <Skeleton className="h-4 w-3/4" />
+          <Skeleton className="h-3 w-1/2" />
+        </div>
+      ))}
+    </div>
+  );
 
   return (
     <div className="min-h-screen bg-gradient-to-b from-gray-900 via-gray-900 to-gray-950">
@@ -109,7 +141,15 @@ export default function MovieListPage() {
           <div className="flex flex-col md:flex-row md:items-end md:justify-between gap-6">
             <div>
               <h1 className="text-3xl md:text-4xl font-bold text-white mb-3">Khám phá phim</h1>
-              <p className="text-gray-400 text-lg max-w-2xl">Thư viện phim đa dạng với nhiều thể loại hấp dẫn, cập nhật liên tục những bộ phim mới nhất.</p>
+              <p className="text-gray-400 text-lg max-w-2xl">
+                Thư viện phim đa dạng với nhiều thể loại hấp dẫn, cập nhật liên tục những bộ phim mới nhất.
+              </p>
+              {/* Cache stats for debugging */}
+              {process.env.NODE_ENV === 'development' && cacheStats && (
+                <div className="mt-2 text-xs text-gray-500">
+                  Cache: {cacheStats.movies} movies, {cacheStats.movieDetails} details
+                </div>
+              )}
             </div>
           </div>
         </div>
@@ -121,6 +161,12 @@ export default function MovieListPage() {
           <div className="flex flex-col gap-4">
             <div className="flex flex-wrap justify-between items-center gap-3">
               <h3 className="text-white font-medium">Thể loại phim</h3>
+              {isValidating && (
+                <div className="flex items-center gap-2 text-sm text-gray-400">
+                  <RefreshCw className="w-4 h-4 animate-spin" />
+                  Đang tải...
+                </div>
+              )}
             </div>
             
             {/* Genre Tags */}
@@ -167,14 +213,48 @@ export default function MovieListPage() {
         
         {/* Movie Grid */}
         <div className="grid grid-cols-1 gap-8">
+          {isLoading ? (
+            <LoadingSkeleton />
+          ) : (
+            <>
           <MovieGrid
-            isLoading={isLoading}
+                isLoading={false}
             movies={allMovies}
-            showPagination={true}
+                showPagination={false} // Disable pagination for infinite scroll
             totalPages={pagination?.totalPages || 1}
-            currentPage={currentPage}
-            onPageChange={handlePageChange}
-          />
+                currentPage={1}
+                onPageChange={() => {}} // Not used with infinite scroll
+              />
+              
+              {/* Infinite scroll trigger element */}
+              {hasMore && (
+                <div ref={lastElementRef} className="w-full h-10 flex items-center justify-center">
+                  {isFetching && <LoadMoreSkeleton />}
+                </div>
+              )}
+              
+              {/* End of results message */}
+              {!hasMore && allMovies.length > 0 && (
+                <div className="text-center py-8">
+                  <p className="text-gray-400">Đã hiển thị tất cả {allMovies.length} phim</p>
+                </div>
+              )}
+              
+              {/* No results message */}
+              {!isLoading && allMovies.length === 0 && (
+                <div className="text-center py-12">
+                  <p className="text-gray-400 text-lg">Không tìm thấy phim nào</p>
+                  <Button 
+                    variant="outline" 
+                    className="mt-4"
+                    onClick={() => handleGenreChange('all')}
+                  >
+                    Xem tất cả phim
+                  </Button>
+                </div>
+              )}
+            </>
+          )}
         </div>
       </div>
     </div>

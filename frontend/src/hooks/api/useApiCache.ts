@@ -82,6 +82,105 @@ export const useApiCache = () => {
     mutate((key) => typeof key === 'string' && key.startsWith('views'), undefined, { revalidate: false });
   }, [mutate]);
 
+  /**
+   * Làm mới dữ liệu công khai sau khi đăng xuất
+   * Dữ liệu này có thể xem được mà không cần đăng nhập
+   */
+  const refreshPublicDataAfterLogout = useCallback(async () => {
+    try {
+      console.log('Refreshing public data after logout...');
+      
+      // Đợi một chút để đảm bảo cache đã được clear
+      await new Promise(resolve => setTimeout(resolve, 300));
+      
+      // Refresh homepage data
+      await mutate('homepage_data');
+      
+      // Refresh public movie lists
+      await mutate((key) => typeof key === 'string' && (
+        key.includes('movies') && !key.includes('user') ||
+        key.includes('homepage') ||
+        key.includes('popular') ||
+        key.includes('trending') ||
+        key.includes('newest') ||
+        key.includes('featured')
+      ));
+      
+      console.log('Public data refreshed successfully after logout');
+    } catch (error) {
+      console.error('Error refreshing public data after logout:', error);
+    }
+  }, [mutate]);
+
+  /**
+   * Làm mới dữ liệu người dùng sau khi đăng nhập
+   */
+  const refreshUserDataAfterLogin = useCallback(async () => {
+    try {
+      console.log('Refreshing user data after login...');
+      
+      // Đợi một chút để đảm bảo auth state đã ổn định
+      await new Promise(resolve => setTimeout(resolve, 300));
+      
+      // Refresh user-specific data
+      await mutate('favorites');
+      await mutate('watch-history');
+      await mutate((key) => typeof key === 'string' && (
+        key.includes('favorites') || 
+        key.includes('watch-history') ||
+        key.includes('user-profile') ||
+        key.includes('user-')
+      ));
+      
+      // Also refresh homepage to show personalized content
+      await mutate('homepage_data');
+      
+      console.log('User data refreshed successfully after login');
+    } catch (error) {
+      console.error('Error refreshing user data after login:', error);
+    }
+  }, [mutate]);
+
+  /**
+   * Clear toàn bộ cache và storage sau logout
+   */
+  const clearAllCacheAndStorage = useCallback(async () => {
+    try {
+      console.log('Clearing all cache and storage...');
+      
+      // 1. Clear SWR cache completely
+      await mutate(() => true, undefined, { revalidate: false });
+      
+      // 2. Clear browser storage
+      if (typeof window !== 'undefined') {
+        try {
+          sessionStorage.removeItem('auth-storage');
+          localStorage.removeItem('favorites-cache');
+          localStorage.removeItem('auth_last_toast_time');
+          
+          // Clear all cache-related items
+          Object.keys(localStorage).forEach(key => {
+            if (key.startsWith('swr-cache-') || key.startsWith('cache-') || key.includes('cache')) {
+              localStorage.removeItem(key);
+            }
+          });
+          
+          Object.keys(sessionStorage).forEach(key => {
+            if (key.startsWith('swr-cache-') || key.startsWith('cache-') || key.includes('cache')) {
+              sessionStorage.removeItem(key);
+            }
+          });
+        } catch (storageError) {
+          console.error('Error clearing storage:', storageError);
+        }
+      }
+      
+      console.log('All cache and storage cleared successfully');
+    } catch (error) {
+      console.error('Error clearing cache and storage:', error);
+    }
+  }, [mutate]);
+
   return {
     clearAllCache,
     clearCache,
@@ -92,5 +191,8 @@ export const useApiCache = () => {
     clearWatchHistoryCache,
     clearStatsCache,
     clearViewsCache,
+    refreshPublicDataAfterLogout,
+    refreshUserDataAfterLogin,
+    clearAllCacheAndStorage,
   };
 }; 

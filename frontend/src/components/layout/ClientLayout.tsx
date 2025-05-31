@@ -2,13 +2,15 @@
 
 import { useEffect, useState } from 'react';
 import { Toaster } from 'react-hot-toast';
-import { SWRConfig } from 'swr';
+import { SWRConfig, useSWRConfig } from 'swr';
 import { ThemeProvider } from 'next-themes';
-import { useRouter } from 'next/navigation';
+import { useRouter, usePathname } from 'next/navigation';
 import { authService } from '@/lib/api';
 import { refreshAccessToken, onTokenRefreshed, onTokenRefreshFailed } from '@/lib/api/authHelper';
 import MainLayout from '@/components/layout/MainLayout';
-import { useAuthStore } from '@/store/auth';
+import { useAuth } from '@/hooks/api/useAuth';
+import CacheDebug from "@/components/debug/CacheDebug";
+import { cacheManager } from '@/lib/cache/cacheManager';
 
 export default function ClientLayout({
   children,
@@ -16,84 +18,181 @@ export default function ClientLayout({
   children: React.ReactNode
 }) {
   const router = useRouter();
+  const pathname = usePathname();
   const [isRefreshing, setIsRefreshing] = useState(false);
-  const { isAuthenticated, token } = useAuthStore();
+  const { isAuthenticated, token } = useAuth();
+  const { mutate } = useSWRConfig();
 
-  // Xử lý refresh token khi cần thiết
+  // Monitor authentication state changes and clear cache when user logs out
+  const [previousAuthState, setPreviousAuthState] = useState<boolean | null>(null);
+  
   useEffect(() => {
-    let isMounted = true;
-
-    const handleTokenRefresh = async () => {
-      if (!isRefreshing) {
+    // Skip on first render
+    if (previousAuthState === null) {
+      setPreviousAuthState(isAuthenticated);
+      return;
+    }
+    
+    // If user was authenticated but now is not (logged out), clear all cache
+    if (previousAuthState === true && isAuthenticated === false) {
+      console.log('Authentication state changed: user logged out, clearing all cache and refreshing page data');
+      
+      const clearCacheAndRefresh = async () => {
         try {
-          setIsRefreshing(true);
+          // 1. Clear SWR cache completely
+          await mutate(() => true, undefined, { revalidate: false });
           
-          // Sử dụng authHelper để refresh token
-          const newToken = await refreshAccessToken();
+          // 2. Clear manual cache
+          cacheManager.clearAllCache();
           
-          if (!isMounted) return;
-          
-          // Cập nhật access token
-          authService.saveToken(newToken);
-          
-          // Refresh trang hiện tại
-          router.refresh();
-        } catch (error) {
-          console.error('Failed to refresh token:', error);
-          if (!isMounted) return;
-          
-          // Nếu refresh token thất bại, redirect đến trang login
-          router.push('/login');
-        } finally {
-          if (isMounted) {
-            setIsRefreshing(false);
+          // 3. Clear browser storage
+          try {
+            sessionStorage.removeItem('auth-storage');
+            localStorage.removeItem('favorites-cache');
+            localStorage.removeItem('auth_last_toast_time');
+            
+            // Clear all cache-related items
+            Object.keys(localStorage).forEach(key => {
+              if (key.startsWith('swr-cache-') || key.startsWith('cache-') || key.includes('cache')) {
+                localStorage.removeItem(key);
+              }
+            });
+            
+            Object.keys(sessionStorage).forEach(key => {
+              if (key.startsWith('swr-cache-') || key.startsWith('cache-') || key.includes('cache')) {
+                sessionStorage.removeItem(key);
+              }
+            });
+          } catch (storageError) {
+            console.error('Error clearing storage:', storageError);
           }
+          
+          // 4. Force refresh of public data after a short delay
+          setTimeout(async () => {
+            try {
+              console.log('Refreshing public data after logout...');
+              
+              // Đặt flag để cho phép refresh requests
+              if (typeof window !== 'undefined') {
+                (window as any).isRefreshingAfterLogout = true;
+              }
+              
+              // Refresh homepage data
+              await mutate('homepage_data');
+              
+              // Refresh movie lists that should be public
+              await mutate((key) => typeof key === 'string' && (
+                key.includes('movies') || 
+                key.includes('homepage') ||
+                key.includes('popular') ||
+                key.includes('trending') ||
+                key.includes('newest')
+              ));
+              
+              console.log('Public data refreshed successfully after logout');
+            } catch (refreshError) {
+              console.error('Error refreshing public data after logout:', refreshError);
+            } finally {
+              // Clear refresh flag sau khi hoàn tất
+              if (typeof window !== 'undefined') {
+                (window as any).isRefreshingAfterLogout = false;
+              }
+            }
+          }, 800); // Giảm delay xuống vì không cần đợi isLoggingOut flag nữa
+          
+          console.log('Cache cleared and data refresh initiated after logout');
+        } catch (error) {
+          console.error('Error clearing cache after logout:', error);
         }
-      }
-    };
+      };
+      
+      clearCacheAndRefresh();
+    }
+    
+    // If user was not authenticated but now is (logged in), revalidate user-specific data
+    if (previousAuthState === false && isAuthenticated === true) {
+      console.log('Authentication state changed: user logged in, refreshing user-specific data');
+      
+      const refreshUserData = async () => {
+        try {
+          // Small delay to ensure auth state is fully settled
+          await new Promise(resolve => setTimeout(resolve, 300));
+          
+          // Refresh user-specific data
+          await mutate('favorites');
+          await mutate('watch-history');
+          await mutate((key) => typeof key === 'string' && (
+            key.includes('favorites') || 
+            key.includes('watch-history') ||
+            key.includes('user-profile') ||
+            key.includes('user-')
+          ));
+          
+          // Also refresh homepage to show personalized content
+          await mutate('homepage_data');
+          
+          console.log('User-specific data refreshed successfully after login');
+        } catch (error) {
+          console.error('Error refreshing user data after login:', error);
+        }
+      };
+      
+      refreshUserData();
+    }
+    
+    setPreviousAuthState(isAuthenticated);
+  }, [isAuthenticated, mutate, previousAuthState]);
 
-    // Kiểm tra token và refresh nếu cần
-    const checkAndRefreshToken = async () => {
-      if (token && authService.isTokenExpired(token)) {
-        await handleTokenRefresh();
-      }
-    };
+  // Scroll to top on route change
+  useEffect(() => {
+    window.scrollTo(0, 0);
+  }, [pathname]);
 
-    // Đăng ký các callback xử lý refresh token
-    onTokenRefreshed((newToken) => {
-      if (isMounted) {
-        authService.saveToken(newToken);
-        router.refresh();
-      }
-    });
+  // Token refresh logic
+  useEffect(() => {
+    if (!isAuthenticated || !token) return;
 
-    onTokenRefreshFailed((error) => {
-      if (isMounted) {
-        console.error('Token refresh failed:', error);
+    const checkTokenExpiry = async () => {
+      try {
+        // Check if token is expired instead of validateToken
+        const isExpired = authService.isTokenExpired(token);
+        if (isExpired && !isRefreshing) {
+          setIsRefreshing(true);
+          await refreshAccessToken();
+          setIsRefreshing(false);
+        }
+      } catch (error) {
+        console.error('Token validation failed:', error);
+        setIsRefreshing(false);
         router.push('/login');
       }
-    });
-
-    checkAndRefreshToken();
-
-    // Cleanup function
-    return () => {
-      isMounted = false;
     };
-  }, [router, isRefreshing, token]);
 
-  // Kiểm tra authentication khi component mount
+    // Check token validity on mount and periodically
+    checkTokenExpiry();
+    const interval = setInterval(checkTokenExpiry, 5 * 60 * 1000); // Check every 5 minutes
+
+    return () => clearInterval(interval);
+  }, [isAuthenticated, token, router, isRefreshing]);
+
+  // Token refresh event handlers
   useEffect(() => {
-    // Danh sách các route cần xác thực
-    const protectedRoutes = ['/profile', '/watch'];
-    
-    // Chỉ redirect nếu đang ở route cần xác thực và chưa đăng nhập
-    if (!isAuthenticated && 
-        !window.location.pathname.includes('/login') &&
-        protectedRoutes.some(route => window.location.pathname.startsWith(route))) {
+    const handleTokenRefreshed = () => {
+      setIsRefreshing(false);
+    };
+
+    const handleTokenRefreshFailed = () => {
+      setIsRefreshing(false);
       router.push('/login');
-    }
-  }, [isAuthenticated, router]);
+    };
+
+    onTokenRefreshed(handleTokenRefreshed);
+    onTokenRefreshFailed(handleTokenRefreshFailed);
+
+    return () => {
+      // Cleanup listeners if needed
+    };
+  }, [router]);
 
   return (
     <ThemeProvider 
@@ -106,15 +205,11 @@ export default function ClientLayout({
     >
       <SWRConfig
         value={{
-          provider: () => new Map(),
           revalidateOnFocus: false,
-          errorRetryCount: 3,
-          onError: (error) => {
-            // Xử lý lỗi 401 (Unauthorized)
-            if (error.status === 401) {
-              router.refresh();
-            }
-          }
+          revalidateOnReconnect: false,
+          dedupingInterval: 10000,
+          errorRetryCount: 2,
+          errorRetryInterval: 5000,
         }}
       >
         <MainLayout>
@@ -164,6 +259,7 @@ export default function ClientLayout({
             },
           }}
         />
+        <CacheDebug />
       </SWRConfig>
     </ThemeProvider>
   );

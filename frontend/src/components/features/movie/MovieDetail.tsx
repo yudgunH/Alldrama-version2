@@ -8,8 +8,6 @@ import { generateMovieUrl, generateWatchUrl } from "@/utils/url"
 import { Star, Play, Film, Clock, Calendar, Eye, ChevronDown, ChevronUp, Info, Heart, Bookmark, TrendingUp, BarChart3, Layers, Share, X, MessageCircle } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import CommentSection from "./CommentSection"
-import { useMovieDetail } from "@/hooks/api/useMovieDetail"
-import { useEpisodes } from "@/hooks/api/useEpisodes"
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs"
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip"
 import { Separator } from "@/components/ui/separator"
@@ -25,6 +23,10 @@ import { useAuth } from "@/hooks/api/useAuth"
 import { toast } from "sonner"
 import { useFavorites } from "@/hooks/api/useFavorites"
 import { apiClient } from "@/lib/api/apiClient"
+import useSWR from "swr"
+import { movieService } from "@/lib/api/services/movieService"
+import { cacheManager } from "@/lib/cache/cacheManager"
+import { episodeService } from "@/lib/api/services/episodeService"
 
 interface MovieDetailProps {
   movieId: string | number
@@ -32,20 +34,95 @@ interface MovieDetailProps {
 }
 
 const MovieDetail = ({ movieId, initialData }: MovieDetailProps) => {
-  const { movie, isLoading: movieLoading, error: movieError } = useMovieDetail(movieId, initialData)
-  const { 
-    episodes, 
-    loading: episodesLoading, 
-    error: episodesError,
-    getEpisode,
-    findNextEpisode,
-    findPreviousEpisode,
-    incrementView,
-    getProcessingStatus
-  } = useEpisodes(movieId)
+  const { user, isAuthenticated } = useAuth()
+  const { toggleFavorite, isFavorite } = useFavorites()
   
-  const isLoading = movieLoading || episodesLoading
-  const error = movieError || episodesError
+  // Fetch similar movies with SWR
+  const { data: similarMovies } = useSWR(
+    movieId ? `similar-movies-${movieId}` : null,
+    async () => {
+      if (!initialData) return [];
+      
+      // Check cache first
+      const cacheKey = `similar-${movieId}`;
+      const cached = cacheManager.getStats(cacheKey);
+      if (cached) {
+        return cached;
+      }
+      
+      // Fetch similar movies
+      let similar: Movie[] = [];
+      if (initialData.genres && initialData.genres.length > 0) {
+        const primaryGenreId = initialData.genres[0].id;
+        const result = await movieService.getMoviesByGenre(Number(primaryGenreId), 10);
+        similar = result.movies.filter((m: Movie) => String(m.id) !== String(initialData.id));
+      }
+      
+      // Cache for 15 minutes
+      cacheManager.setStats(cacheKey, similar, 15 * 60 * 1000);
+      return similar;
+    },
+    {
+      revalidateOnFocus: false,
+      revalidateOnReconnect: false,
+      dedupingInterval: 300000, // 5 minutes
+    }
+  );
+
+  // Fetch episodes with SWR directly - much simpler
+  const { data: episodes = [], error: episodesError, isLoading: episodesLoading } = useSWR(
+    movieId ? `episodes-${movieId}` : null,
+    async () => {
+      if (!movieId) return [];
+      
+      console.log('MovieDetail - Fetching episodes for movie:', movieId);
+      
+      // Check cache first
+      const cached = cacheManager.getEpisodes(movieId);
+      if (cached && cached.length > 0) {
+        console.log('MovieDetail - Using cached episodes:', cached.length);
+        return cached;
+      }
+      
+      // Fetch from API
+      const episodesData = await episodeService.getEpisodesByMovieId(movieId);
+      console.log('MovieDetail - Fetched episodes from API:', episodesData.length);
+      
+      // Cache for 10 minutes
+      if (episodesData.length > 0) {
+        cacheManager.setEpisodes(movieId, episodesData, 10 * 60 * 1000);
+      }
+      
+      return episodesData;
+    },
+    {
+      revalidateOnFocus: false,
+      revalidateOnReconnect: false,
+      dedupingInterval: 60000, // 1 minute
+      errorRetryCount: 2,
+      shouldRetryOnError: (error) => {
+        // Only retry on network errors, not 4xx errors
+        return !error?.response || error.response.status >= 500;
+      }
+    }
+  );
+
+  // Use the provided initial data as movie
+  const movie = initialData
+  const isLoading = episodesLoading
+  const error = episodesError
+  
+  // Debug logging
+  console.log('MovieDetail - Debug Info:', {
+    movieId,
+    hasMovie: !!movie,
+    movieTitle: movie?.title,
+    episodesCount: episodes.length,
+    isLoading,
+    error: error?.toString(),
+    hasInitialData: !!initialData
+  });
+  
   const [showFullDescription, setShowFullDescription] = useState(false)
   const [activeEpisode, setActiveEpisode] = useState<string | null>(null)
   const [isWatchlist, setIsWatchlist] = useState(false)
@@ -55,10 +132,6 @@ const MovieDetail = ({ movieId, initialData }: MovieDetailProps) => {
   const isMobile = useMobile()
   const [isPlayingTrailer, setIsPlayingTrailer] = useState(false)
   
-  // Auth state and favorites functionality
-  const { user, isAuthenticated } = useAuth()
-  const { toggleFavorite, isFavorite } = useFavorites()
-
   // Check if the movie is in favorites when component mounts or movie changes
   useEffect(() => {
     if (isAuthenticated && movie) {
@@ -445,6 +518,7 @@ const MovieDetail = ({ movieId, initialData }: MovieDetailProps) => {
 
       {/* Main Content */}
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 md:py-12">
+        {/* Tabs */}
         <div className="grid grid-cols-1 lg:grid-cols-[1fr_320px] gap-8">
           {/* Main Column */}
           <div>
@@ -568,18 +642,42 @@ const MovieDetail = ({ movieId, initialData }: MovieDetailProps) => {
                       </span>
                     </h2>
                     
-                    {episodesLoading ? (
-                      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-                        {[...Array(6)].map((_, i) => (
-                          <div key={i} className="animate-pulse">
-                            <div className="aspect-video bg-gray-800 rounded-xl mb-2"></div>
-                            <div className="h-4 bg-gray-800 rounded w-3/4"></div>
-                          </div>
-                        ))}
+                    {isLoading ? (
+                      <div className="space-y-4">
+                        <div className="flex items-center gap-2 text-gray-400 mb-4">
+                          <div className="w-4 h-4 border-2 border-indigo-500 border-t-transparent rounded-full animate-spin"></div>
+                          Đang tải danh sách tập phim...
+                        </div>
+                        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                          {[...Array(6)].map((_, i) => (
+                            <div key={i} className="animate-pulse">
+                              <div className="aspect-video bg-gray-800 rounded-xl mb-2"></div>
+                              <div className="h-4 bg-gray-800 rounded w-3/4"></div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    ) : error ? (
+                      <div className="text-center py-8">
+                        <div className="bg-red-900/20 border border-red-800 rounded-lg p-4">
+                          <p className="text-red-400 mb-2">Không thể tải danh sách tập phim</p>
+                          <p className="text-red-300 text-sm mb-4">{error.toString()}</p>
+                          <Button 
+                            variant="outline" 
+                            size="sm"
+                            onClick={() => window.location.reload()}
+                          >
+                            Thử lại
+                          </Button>
+                        </div>
                       </div>
                     ) : episodes.length === 0 ? (
                       <div className="text-center py-8">
-                        <p className="text-gray-400">Chưa có tập phim nào</p>
+                        <div className="bg-gray-800/30 rounded-lg p-6">
+                          <Layers className="w-16 h-16 text-gray-500 mx-auto mb-4" />
+                          <p className="text-gray-400 text-lg mb-2">Chưa có tập phim nào</p>
+                          <p className="text-gray-500 text-sm">Tập phim sẽ được cập nhật sớm</p>
+                        </div>
                       </div>
                     ) : (
                       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
@@ -616,6 +714,10 @@ const MovieDetail = ({ movieId, initialData }: MovieDetailProps) => {
                                     alt={episode.title}
                                     fill
                                     className="object-cover"
+                                    onError={(e) => {
+                                      const target = e.target as HTMLImageElement;
+                                      target.src = "/placeholder.svg";
+                                    }}
                                   />
                                   <div className="absolute inset-0 bg-gradient-to-t from-black/70 to-transparent opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
                                     <div className="w-12 h-12 rounded-full bg-indigo-600/80 flex items-center justify-center">

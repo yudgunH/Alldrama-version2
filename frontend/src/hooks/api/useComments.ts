@@ -4,6 +4,7 @@ import { Comment } from '@/types';
 import { commentService, CreateCommentRequest, UpdateCommentRequest } from '@/lib/api/services/commentService';
 import { toast } from 'react-hot-toast';
 import { API_ENDPOINTS } from '@/lib/api/endpoints';
+import { cacheManager } from '@/lib/cache/cacheManager';
 
 export const useComments = (movieId: string | number, initialPage: number = 1, initialLimit: number = 10) => {
   const [page, setPage] = useState(initialPage);
@@ -11,32 +12,65 @@ export const useComments = (movieId: string | number, initialPage: number = 1, i
   const [sort, setSort] = useState<string>('createdAt');
   const [order, setOrder] = useState<'ASC' | 'DESC'>('DESC');
 
-  // SWR key
+  // Debug logging
+  console.log('useComments - Input params:', { movieId, page, limit, sort, order });
+
+  // SWR key với cache fingerprint
   const key = movieId ? 
-    `${API_ENDPOINTS.COMMENTS.BY_MOVIE(movieId)}?page=${page}&limit=${limit}&sort=${sort}&order=${order}` 
+    `comments-${movieId}-p${page}-l${limit}-${sort}-${order}` 
     : null;
 
-  // Fetcher function for SWR
+  console.log('useComments - SWR key:', key);
+
+  // Optimized fetcher function với cache fallback
   const fetcher = useCallback(
     async () => {
-      if (!movieId) return [];
+      if (!movieId) return { comments: [], total: 0 };
+      
+      console.log('useComments - Fetching comments for movieId:', movieId);
+      
       try {
-        return await commentService.getCommentsByMovieId(movieId, page, limit, sort, order);
+        // Service đã handle cache internally
+        const result = await commentService.getCommentsByMovieId(movieId, page, limit, sort, order);
+        console.log('useComments - Fetch result:', result);
+        return result;
       } catch (error) {
-        console.error('Error fetching comments:', error);
+        console.error('useComments - Error fetching comments:', error);
+        
+        // Fallback to cache in case of network error
+        const cached = cacheManager.getComments(movieId, page, limit);
+        if (cached) {
+          console.log('useComments - Using stale cache due to error');
+          return cached;
+        }
+        
         throw error;
       }
     },
     [movieId, page, limit, sort, order]
   );
 
-  // Use SWR hook
-  const { data, error, isLoading, isValidating, mutate } = useSWR<Comment[]>(
+  // Optimized SWR configuration
+  const { data, error, isLoading, isValidating, mutate } = useSWR<{ comments: Comment[]; total: number }>(
     key,
-    fetcher
+    fetcher,
+    {
+      revalidateOnFocus: false,
+      revalidateOnReconnect: false,
+      revalidateIfStale: false, // Trust our cache
+      dedupingInterval: 60000, // 1 minute deduplication
+      focusThrottleInterval: 300000, // 5 minutes focus throttle
+      errorRetryCount: 2,
+      errorRetryInterval: 5000,
+      // Use cache as fallback
+      fallbackData: movieId ? (cacheManager.getComments(movieId, page, limit) || undefined) : undefined,
+    }
   );
 
-  // Add a new comment
+  // Debug logging for SWR result
+  console.log('useComments - SWR result:', { data, error, isLoading });
+
+  // Optimized add comment with optimistic update
   const addComment = useCallback(
     async (commentText: string, parentId?: string | number) => {
       if (!movieId) {
@@ -46,23 +80,75 @@ export const useComments = (movieId: string | number, initialPage: number = 1, i
 
       try {
         const commentData: CreateCommentRequest = {
-          movieId: movieId,
+          movieId: Number(movieId),
           comment: commentText,
-          parentId: parentId || null,
         };
 
+        // Optimistic update - tạm thời thêm comment vào UI
+        const tempComment: Comment = {
+          id: Date.now(), // Temporary ID
+          comment: commentText,
+          movieId: Number(movieId),
+          userId: 0, // Will be filled by backend
+          userName: 'You',
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+        };
+
+        // Update UI immediately
+        if (data && page === 1) {
+          const optimisticData = {
+            comments: [tempComment, ...data.comments],
+            total: data.total + 1
+          };
+          mutate(optimisticData, false); // Don't revalidate immediately
+        }
+
+        // Call API
         const result = await commentService.createComment(commentData);
         
-        // Refresh comments
+        // Revalidate to get real data from server
         await mutate();
-        toast.success('Đã thêm bình luận');
+        
         return result.comment;
       } catch (err) {
-        toast.error('Không thể thêm bình luận');
-        return null;
+        console.error('Error adding comment:', err);
+        // Revert optimistic update on error
+        await mutate();
+        throw err;
       }
     },
-    [movieId, mutate]
+    [movieId, mutate, data, page]
+  );
+
+  // Optimized delete comment with optimistic update
+  const deleteComment = useCallback(
+    async (commentId: string | number) => {
+      try {
+        // Optimistic update - remove comment from UI immediately
+        if (data) {
+          const optimisticData = {
+            comments: data.comments.filter(c => c.id !== Number(commentId)),
+            total: Math.max(0, data.total - 1)
+          };
+          mutate(optimisticData, false); // Don't revalidate immediately
+        }
+
+        // Call API
+        await commentService.deleteComment(commentId);
+        
+        // Revalidate to get updated data
+        await mutate();
+        
+        return true;
+      } catch (err) {
+        console.error('Error deleting comment:', err);
+        // Revert optimistic update on error
+        await mutate();
+        throw err;
+      }
+    },
+    [mutate, data]
   );
 
   // Update comment
@@ -74,29 +160,10 @@ export const useComments = (movieId: string | number, initialPage: number = 1, i
         
         // Refresh comments
         await mutate();
-        toast.success('Đã cập nhật bình luận');
         return result.comment;
       } catch (err) {
-        toast.error('Không thể cập nhật bình luận');
-        return null;
-      }
-    },
-    [mutate]
-  );
-
-  // Delete comment
-  const deleteComment = useCallback(
-    async (commentId: string | number) => {
-      try {
-        await commentService.deleteComment(commentId);
-        
-        // Refresh comments
-        await mutate();
-        toast.success('Đã xóa bình luận');
-        return true;
-      } catch (err) {
-        toast.error('Không thể xóa bình luận');
-        return false;
+        console.error('Error updating comment:', err);
+        throw err;
       }
     },
     [mutate]
@@ -108,8 +175,8 @@ export const useComments = (movieId: string | number, initialPage: number = 1, i
       try {
         return await commentService.getCommentById(commentId);
       } catch (err) {
-        toast.error('Không thể lấy thông tin bình luận');
-        return null;
+        console.error('Error getting comment:', err);
+        throw err;
       }
     },
     []
@@ -127,7 +194,8 @@ export const useComments = (movieId: string | number, initialPage: number = 1, i
   }, []);
 
   return {
-    comments: data || [],
+    comments: data?.comments || [],
+    total: data?.total || 0,
     loading: isLoading,
     isValidating,
     error,
@@ -139,7 +207,8 @@ export const useComments = (movieId: string | number, initialPage: number = 1, i
     goToPage,
     changeSort,
     currentPage: page,
-    totalPages: Math.ceil((data?.length || 0) / limit),
+    totalPages: Math.ceil((data?.total || 0) / limit),
+    hasNextPage: page * limit < (data?.total || 0),
     setLimit,
   };
 };

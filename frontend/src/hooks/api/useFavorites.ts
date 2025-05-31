@@ -37,7 +37,7 @@ export const useFavorites = () => {
     if (!isAuthenticated) {
       clearFavorites();
       return [];
-    }
+            }
     
     setLoading(true);
     try {
@@ -48,7 +48,7 @@ export const useFavorites = () => {
       // Ignore cancellation errors during logout
       if (error?.message?.includes('Cancel request because user is logging out')) {
         return [];
-      }
+        }
       console.error('Error fetching favorites:', error);
       toast.error('Không thể tải danh sách yêu thích');
       return [];
@@ -65,7 +65,7 @@ export const useFavorites = () => {
         icon: '🔒'
       });
       return false;
-    }
+  }
 
     const currentStatus = isFavoriteInStore(movieId);
     
@@ -75,9 +75,9 @@ export const useFavorites = () => {
     } else {
       addFavorite({ 
         id: Date.now(), // Temporary ID
-        movieId,
-        favoritedAt: new Date().toISOString()
-      } as Favorite);
+          movieId,
+          favoritedAt: new Date().toISOString()
+        } as Favorite);
     }
     
     try {
@@ -93,7 +93,7 @@ export const useFavorites = () => {
       }
       
       toast.success(result.message);
-      return result.favorited;
+        return result.favorited;
     } catch (error: any) {
       // Ignore cancellation errors during logout
       if (error?.message?.includes('Cancel request because user is logging out')) {
@@ -120,11 +120,11 @@ export const useFavorites = () => {
     removeFavorite(movieId);
     
     try {
-      await favoriteService.removeFromFavorites(movieId);
+        await favoriteService.removeFromFavorites(movieId);
       toast.success('Đã xóa khỏi danh sách yêu thích', {
         duration: 2000
       });
-      return true;
+        return true;
     } catch (error: any) {
       // Ignore cancellation errors during logout
       if (error?.message?.includes('Cancel request because user is logging out')) {

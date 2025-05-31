@@ -1,13 +1,9 @@
 'use client'
 
 import { useParams, useSearchParams, useRouter } from 'next/navigation'
-import { useEffect, useState, useCallback, useRef } from 'react'
-import axios from 'axios'
+import { useEffect, useState, useCallback, useRef, useMemo } from 'react'
 import { ArrowLeft } from 'lucide-react'
 import { Button } from '@/components/ui/button'
-
-import { API_ENDPOINTS } from '@/lib/api/endpoints'
-import { Movie, Episode } from '@/types'
 import { Skeleton } from '@/components/ui/skeleton'
 import VideoPlayer from '@/components/features/movie/VideoPlayer'
 import NotFoundMessage from '@/components/features/watch/NotFoundMessage'
@@ -18,7 +14,10 @@ import RelatedMovies from '@/components/features/watch/RelatedMovies'
 import { generateWatchUrl } from '@/utils/url'
 import { useWatchHistory } from '@/hooks/api/useWatchHistory'
 import { useAuth } from '@/hooks/api/useAuth'
-import { apiClient } from '@/lib/api/apiClient'
+import { Movie, Episode } from '@/types'
+import { movieService, episodeService } from '@/lib/api'
+import { cacheManager } from '@/lib/cache/cacheManager'
+import useSWR from 'swr'
 
 // Extend base types to include subtitles
 interface MovieWithSubtitles extends Movie {
@@ -50,26 +49,109 @@ export default function WatchPage() {
   const episodeNum = searchParams?.get('ep')          // ?ep=1
   const savedProgress = searchParams?.get('progress') // ?progress=123 (thời gian đã xem trước đó)
   
+  /* ----------------- Extract movie ID from slug ----------------- */
+  const movieId = useMemo(() => {
+    if (!slug) return null;
+    const id = slug.split('-').pop();
+    return id && !isNaN(Number(id)) ? Number(id) : null;
+  }, [slug]);
+  
   /* ----------------- local state ----------------- */
-  const [movie,  setMovie]  = useState<MovieWithSubtitles | null>(null)
-  const [eps,    setEps]    = useState<EpisodeWithSubtitles[]>([])
-  const [ep,     setEp]     = useState<EpisodeWithSubtitles | null>(null)
+  const [activeEpisode, setActiveEpisode] = useState<EpisodeWithSubtitles | null>(null)
   const [nextEp, setNextEp] = useState<EpisodeWithSubtitles | null>(null)
   const [prevEp, setPrevEp] = useState<EpisodeWithSubtitles | null>(null)
-
-  const [loading, setLoading] = useState(true)
-  const [err,     setErr]     = useState<string | null>(null)
+  const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid')
   const videoRef = useRef<HTMLVideoElement | null>(null)
-  
-  /* ----------------- UI control ----------------- */
-  const [viewMode,  setViewMode]    = useState<'grid' | 'list'>('grid')
-  
-  /* ----------------- derived ----------------- */
-  const isSeries = Boolean(ep)
   
   /* ----------------- Auth & Watch History ----------------- */
   const { isAuthenticated } = useAuth()
   const { updateProgress } = useWatchHistory()
+  
+  /* ----------------- Fetch movie data with SWR and cache ----------------- */
+  const { data: movie, error: movieError, isLoading: movieLoading } = useSWR(
+    movieId ? `movie-detail-${movieId}` : null,
+    async () => {
+      if (!movieId) return null;
+      
+      // Check cache first
+      const cached = cacheManager.getMovieDetails(movieId);
+      if (cached) {
+        console.log(`Using cached movie data for watch page: ${movieId}`);
+        return cached;
+      }
+      
+      // Fetch from API if not cached
+      console.log(`Fetching movie data from API for watch page: ${movieId}`);
+      const movieData = await movieService.getMovieById(movieId);
+      
+      // Cache the result for 30 minutes
+      cacheManager.setMovieDetails(movieId, movieData, 30 * 60 * 1000);
+      
+      return movieData;
+    },
+    {
+      revalidateOnFocus: false,
+      revalidateOnReconnect: false,
+      revalidateIfStale: false,
+      dedupingInterval: 60000, // 1 minute
+      errorRetryCount: 2,
+      shouldRetryOnError: (error) => {
+        return !error?.response || error.response.status >= 500;
+      }
+    }
+  );
+
+  /* ----------------- Fetch episodes data with SWR and cache ----------------- */
+  const { data: episodes, error: episodesError, isLoading: episodesLoading } = useSWR(
+    movieId && movie && movie.totalEpisodes > 0 ? `episodes-${movieId}` : null,
+    async () => {
+      if (!movieId) return [];
+      
+      // Check cache first
+      const cached = cacheManager.getEpisodes(movieId);
+      if (cached) {
+        console.log(`Using cached episodes data for movie: ${movieId}`);
+        return cached;
+      }
+      
+      // Fetch from API if not cached
+      console.log(`Fetching episodes data from API for movie: ${movieId}`);
+      const episodesData = await episodeService.getEpisodesByMovieId(movieId);
+      
+      // Cache the result for 10 minutes
+      cacheManager.setEpisodes(movieId, episodesData, 10 * 60 * 1000);
+      
+      return episodesData;
+    },
+    {
+      revalidateOnFocus: false,
+      revalidateOnReconnect: false,
+      dedupingInterval: 60000, // 1 minute
+    }
+  );
+
+  /* ----------------- Set active episode and navigation ----------------- */
+  useEffect(() => {
+    if (!episodes || episodes.length === 0) {
+      setActiveEpisode(null);
+      setNextEp(null);
+      setPrevEp(null);
+      return;
+    }
+
+    // Determine current episode
+    let current = episodes[0];
+    if (episodeId) {
+      const found = episodes.find((e: EpisodeWithSubtitles) => String(e.id) === episodeId);
+      if (found) current = found;
+    }
+    setActiveEpisode(current);
+
+    // Set navigation episodes
+    const idx = episodes.findIndex((e: EpisodeWithSubtitles) => e.id === current.id);
+    setPrevEp(idx > 0 ? episodes[idx - 1] : null);
+    setNextEp(idx < episodes.length - 1 ? episodes[idx + 1] : null);
+  }, [episodes, episodeId]);
   
   // Debounce function to prevent excessive API calls
   const debounce = <T extends (...args: any[]) => any>(func: T, delay: number) => {
@@ -92,8 +174,8 @@ export default function WatchPage() {
         
         // Xác định episodeId
         let episodeIdNumber: number
-        if (isSeries && ep) {
-          episodeIdNumber = Number(ep.id)
+        if (activeEpisode) {
+          episodeIdNumber = Number(activeEpisode.id)
         } else {
           // Đối với phim lẻ, sử dụng movieId làm episodeId
           episodeIdNumber = movieIdNumber
@@ -117,84 +199,34 @@ export default function WatchPage() {
         console.error('Lỗi khi xử lý tiến trình xem:', err)
       }
     }, 5000), // Update at most every 5 seconds
-    [isAuthenticated, movie, isSeries, ep, updateProgress]
+    [isAuthenticated, movie, activeEpisode, updateProgress]
   )
 
-  /* ----------------- fetch data ----------------- */
-  useEffect(() => {
-    const load = async () => {
-      try {
-        setLoading(true)
-        setErr(null)
-
-        /* id trong slug ở cuối: phim-hay-123  -> 123 */
-        const movieId = slug.split('-').pop()
-        if (!movieId || isNaN(+movieId)) throw new Error('invalid id')
-
-        /* movie */
-        const m = await apiClient.get<Movie>(API_ENDPOINTS.MOVIES.DETAIL(movieId))
-        setMovie(m)
-
-        /* lấy danh sách tập (nếu có) */
-        if (m.totalEpisodes > 0) {
-          const list = await apiClient.get<Episode[]>(API_ENDPOINTS.EPISODES.LIST_BY_MOVIE(movieId))
-          setEps(list)
-
-          // xác định tập hiện tại
-          let current = list[0]
-          if (episodeId) {
-            const found = list.find((e: EpisodeWithSubtitles) => String(e.id) === episodeId)
-            if (found) current = found
-          }
-          setEp(current)
-
-          const idx = list.findIndex((e: EpisodeWithSubtitles) => e.id === current.id)
-          setPrevEp(idx > 0 ? list[idx - 1] : null)
-          setNextEp(idx < list.length - 1 ? list[idx + 1] : null)
-        }
-      } catch (e) {
-        console.error(e)
-        setErr('Đã xảy ra lỗi khi tải nội dung')
-      } finally {
-        setLoading(false)
-      }
-    }
-    load()
-  }, [slug, episodeId])
-
-  /* ----------------- loading / error ----------------- */
-  if (loading) {
-    return (
-      <div className="h-[70vh] flex items-center justify-center">
-        <Skeleton className="w-3/4 h-[80%] max-w-7xl rounded-xl" />
-      </div>
-    )
-  }
-  if (err || !movie) {
-    return <NotFoundMessage message="Không thể tải nội dung" description={err || ''} />
-  }
-
   /* ----------------- derived values ----------------- */
+  const isLoading = movieLoading || episodesLoading;
+  const error = movieError || episodesError;
+  const isSeries = Boolean(activeEpisode);
+  
   // Get video source URL with proper fallbacks
   const getVideoSrc = () => {
     // For episode, use its playlist if available
-    if (isSeries && ep) {
-      if (ep.playlistUrl && ep.playlistUrl.startsWith('http')) {
-        return ep.playlistUrl;
+    if (isSeries && activeEpisode) {
+      if (activeEpisode.playlistUrl && activeEpisode.playlistUrl.startsWith('http')) {
+        return activeEpisode.playlistUrl;
       }
       // If not, try to construct it intelligently
-      if (movie.id && ep.episodeNumber) {
-        return `https://media.alldrama.tech/episodes/${movie.id}/${ep.episodeNumber}/hls/master.m3u8`;
+      if (movie?.id && activeEpisode.episodeNumber) {
+        return `https://media.alldrama.tech/episodes/${movie.id}/${activeEpisode.episodeNumber}/hls/master.m3u8`;
       }
     }
     
     // For movie, use its playlist if available
-    if (movie.playlistUrl && movie.playlistUrl.startsWith('http')) {
+    if (movie?.playlistUrl && movie.playlistUrl.startsWith('http')) {
       return movie.playlistUrl;
     }
     
     // Fallback to constructed URL
-    return `https://media.alldrama.tech/movies/${movie.id}/hls/master.m3u8`;
+    return movie ? `https://media.alldrama.tech/movies/${movie.id}/hls/master.m3u8` : '';
   };
   
   const videoSrc = getVideoSrc();
@@ -202,18 +234,18 @@ export default function WatchPage() {
   // Get poster URL with proper fallbacks and without hardcoded paths
   const getPosterUrl = () => {
     // For episode, use its thumbnail if available
-    if (isSeries && ep) {
-      if (ep.thumbnailUrl && ep.thumbnailUrl.startsWith('http')) {
-        return ep.thumbnailUrl;
+    if (isSeries && activeEpisode) {
+      if (activeEpisode.thumbnailUrl && activeEpisode.thumbnailUrl.startsWith('http')) {
+        return activeEpisode.thumbnailUrl;
       }
       // If not, try to construct it intelligently
-      if (movie.id && ep.episodeNumber) {
-        return `https://media.alldrama.tech/episodes/${movie.id}/${ep.episodeNumber}/thumbnail.jpg`;
+      if (movie?.id && activeEpisode.episodeNumber) {
+        return `https://media.alldrama.tech/episodes/${movie.id}/${activeEpisode.episodeNumber}/thumbnail.jpg`;
       }
     }
     
     // For movie, use its poster if available
-    if (movie.posterUrl) {
+    if (movie?.posterUrl) {
       if (movie.posterUrl.startsWith('http')) {
         return movie.posterUrl;
       }
@@ -226,14 +258,14 @@ export default function WatchPage() {
   
   const posterSrc = getPosterUrl();
   
-  const title = isSeries
-    ? `${movie.title} - Tập ${ep!.episodeNumber}: ${ep!.title}`
-    : movie.title
+  const title = isSeries && activeEpisode
+    ? `${movie?.title} - Tập ${activeEpisode.episodeNumber}: ${activeEpisode.title}`
+    : movie?.title || '';
   
   // Get subtitles with proper types
-  const subtitles = isSeries 
-    ? (ep!.subtitles || [])
-    : (movie.subtitles || [])
+  const subtitles = isSeries && activeEpisode
+    ? (activeEpisode.subtitles || [])
+    : ((movie as MovieWithSubtitles)?.subtitles || []);
   
   // Xác định thời gian bắt đầu video (từ tiến độ lưu trước đó)
   let startTime = 0
@@ -249,8 +281,23 @@ export default function WatchPage() {
     }
   }
 
-  /* ----------------- autoplay handling ----------------- */
-  // Removing autoplay - will only play when user clicks
+  /* ----------------- loading / error ----------------- */
+  if (isLoading) {
+    return (
+      <div className="h-[70vh] flex items-center justify-center">
+        <Skeleton className="w-3/4 h-[80%] max-w-7xl rounded-xl" />
+      </div>
+    )
+  }
+  
+  if (error || !movie) {
+    return <NotFoundMessage message="Không thể tải nội dung" description={error?.message || 'Đã xảy ra lỗi khi tải nội dung'} />
+  }
+
+  // Update the episode watch url generation
+  const generateEpisodeLink = (movie: Movie, episode: Episode) => {
+    return generateWatchUrl(movie.id, movie.title, episode.id, episode.episodeNumber);
+  }
   
   /* ----------------- render ----------------- */
   return (
@@ -274,10 +321,10 @@ export default function WatchPage() {
           w-full max-w-3xl mx-auto
           md:max-w-none md:mx-0">
           {/* Sheet mobile */}
-          {isSeries && (
+          {isSeries && episodes && (
             <MobileEpisodeSheet
-              episodes={eps}
-              currentEpisode={ep!}
+              episodes={episodes}
+              currentEpisode={activeEpisode!}
               movieId={String(movie.id)}
               movieTitle={movie.title}
               episodeView={viewMode}
@@ -327,8 +374,8 @@ export default function WatchPage() {
                   const movieIdNumber = Number(movie.id)
                   let episodeIdNumber: number
                   
-                  if (isSeries && ep) {
-                    episodeIdNumber = Number(ep.id)
+                  if (activeEpisode) {
+                    episodeIdNumber = Number(activeEpisode.id)
                   } else {
                     episodeIdNumber = movieIdNumber
                   }
@@ -352,11 +399,11 @@ export default function WatchPage() {
           <div className="lg:col-span-2 space-y-6">
             <ContentInfoCard
               movie={movie}
-              currentEpisode={ep ?? undefined}
+              currentEpisode={activeEpisode ?? undefined}
               prevEpisode={prevEp ?? undefined}
               nextEpisode={nextEp ?? undefined}
               isMovie={!isSeries}
-              episodeListResponse={{ episodes: eps }}
+              episodeListResponse={{ episodes: episodes || [] }}
             />
 
             <CommentSection movieId={String(movie.id)} />

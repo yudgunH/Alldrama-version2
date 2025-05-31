@@ -60,9 +60,31 @@ class ApiClient {
       (config) => {
         // Kiểm tra xem đang trong quá trình đăng xuất không
         if (typeof window !== 'undefined' && (window as any).isLoggingOut) {
-          // Nếu đang đăng xuất, hủy request
-          const error = new Error('Cancel request because user is logging out');
-          return Promise.reject(error);
+          // Cho phép refresh data requests sau logout
+          const isRefreshingAfterLogout = (window as any).isRefreshingAfterLogout;
+          
+          // Cho phép một số requests cần thiết cho refresh data sau logout
+          const allowedDuringLogout = [
+            '/movies',
+            '/homepage', 
+            '/popular',
+            '/trending',
+            '/newest',
+            '/featured'
+          ];
+          
+          const isAllowedRequest = allowedDuringLogout.some(path => 
+            config.url?.includes(path) && !config.url?.includes('user')
+          );
+          
+          // Nếu đang refresh data sau logout hoặc là allowed request, cho phép
+          if (isRefreshingAfterLogout || isAllowedRequest) {
+            // Allow the request
+          } else {
+            // Nếu request không được phép trong quá trình logout, hủy nó
+            const error = new Error('Cancel request because user is logging out');
+            return Promise.reject(error);
+          }
         }
         
         // Lấy token từ authStore hoặc cookie
@@ -74,7 +96,8 @@ class ApiClient {
             url: config.url, 
             baseURL: config.baseURL || '(none)',
             fullUrl: config.baseURL ? `${config.baseURL}${config.url}` : config.url,
-            hasToken: !!token
+            hasToken: !!token,
+            timestamp: new Date().toISOString()
           });
         }
         

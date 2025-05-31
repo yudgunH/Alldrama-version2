@@ -4,6 +4,8 @@ import { authService } from '@/lib/api';
 import { useRouter } from 'next/navigation';
 import { toast } from 'react-hot-toast';
 import { useAuthStore } from '@/store/auth';
+import { mutate } from 'swr';
+import { cacheManager } from '@/lib/cache/cacheManager';
 
 export const useAuth = () => {
   const [loading, setLoading] = useState(false);
@@ -80,13 +82,13 @@ export const useAuth = () => {
 
   /**
    * Đăng xuất người dùng
-   * Gọi API logout để xóa refresh token cookie
+   * Sử dụng auth store để thực hiện logout - tất cả cache clearing đã được xử lý trong store
    */
   const logout = useCallback(async () => {
     setLoading(true);
     
     try {
-      console.log("Bắt đầu đăng xuất...");
+      console.log("Bắt đầu đăng xuất từ useAuth...");
       
       // Đặt cờ đang đăng xuất để ngăn các API request mới
       if (typeof window !== 'undefined') {
@@ -94,44 +96,24 @@ export const useAuth = () => {
         window.isLoggingOut = true;
       }
       
-      // Thực hiện logout thông qua auth store
+      // Auth store sẽ xử lý toàn bộ cache clearing và API calls
       await auth.logout();
       
-      // Xóa dữ liệu session storage/local storage nếu cần
-      if (typeof window !== 'undefined') {
-        // Xóa thêm các storage khác nếu có
-        try {
-          sessionStorage.removeItem('auth-storage');
-          localStorage.removeItem('favorites-cache');
-          localStorage.removeItem('auth_last_toast_time');
-        } catch (error) {
-          console.error("Lỗi khi xóa dữ liệu storage:", error);
-        }
-      }
-      
       // Đợi một chút để đảm bảo mọi thứ được xóa
-      await new Promise(resolve => setTimeout(resolve, 300));
+      await new Promise(resolve => setTimeout(resolve, 500));
       
       // Chuyển hướng đến trang đăng nhập
       router.push('/login');
       
-      console.log("Đăng xuất thành công.");
+      console.log("Đăng xuất thành công từ useAuth.");
     } catch (err) {
-      console.error("Lỗi khi đăng xuất:", err);
+      console.error("Lỗi khi đăng xuất từ useAuth:", err);
       
-      // Ngay cả khi API lỗi, vẫn đăng xuất ở local
-      try {
-        // Xóa token, cookie và storage
-        authService.clearToken();
-        if (typeof window !== 'undefined') {
-          sessionStorage.removeItem('auth-storage');
-        }
-      } catch (error) {
-        console.error("Lỗi khi xóa dữ liệu cục bộ:", error);
-      }
-      
-      // Chuyển hướng đến trang đăng nhập
+      // Fallback: vẫn chuyển hướng đến login page ngay cả khi có lỗi
       router.push('/login');
+      
+      // Hiển thị thông báo lỗi
+      toast.error('Đã có lỗi xảy ra khi đăng xuất, nhưng bạn đã được đăng xuất.');
     } finally {
       setLoading(false);
       
@@ -141,7 +123,7 @@ export const useAuth = () => {
           // @ts-ignore: Property 'isLoggingOut' does not exist on type 'Window & typeof globalThis'
           window.isLoggingOut = false;
         }
-      }, 2000);
+      }, 3000); // Tăng thời gian lên 3s để đảm bảo data refresh có thể hoàn tất
     }
   }, [auth, router]);
 

@@ -3,6 +3,7 @@ import useSWR from 'swr';
 import { Episode, EpisodeViewRequest } from '@/types';
 import { toast } from 'react-hot-toast';
 import { episodeService } from '@/lib/api/services/episodeService';
+import { viewService } from '@/lib/api/services/viewService';
 import { API_ENDPOINTS } from '@/lib/api/endpoints';
 
 export const useEpisodes = (movieId: string | number | null) => {
@@ -46,19 +47,20 @@ export const useEpisodes = (movieId: string | number | null) => {
     []
   );
 
-  // Increment view count
+  // Increment view count using new viewService
   const incrementView = useCallback(
     async (episodeId: string | number, movieId: number, progress: number, duration: number) => {
       try {
-        const viewData: EpisodeViewRequest = {
-          movieId,
-          progress,
-          duration
-        };
+        const result = await viewService.incrementEpisodeView(episodeId, movieId, progress, duration);
         
-        return await episodeService.incrementView(episodeId, viewData);
+        if (!result.success) {
+          toast.error(result.message);
+        }
+        
+        return result;
       } catch (err) {
         console.error('Không thể tăng lượt xem:', err);
+        toast.error('Không thể cập nhật lượt xem');
         return null;
       }
     },
