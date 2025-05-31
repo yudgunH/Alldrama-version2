@@ -142,9 +142,9 @@ const UserBadge = ({ badge }: { badge: any }) => {
   const Icon = badge.icon;
   
   return (
-    <div className={`inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium border ${badge.borderColor} ${badge.glow} shadow-lg bg-gradient-to-r ${badge.gradient} ${badge.textColor} animate-pulse hover:animate-none transition-all duration-300`}>
-      <Icon className="w-3 h-3" />
-      <span className="font-semibold tracking-wide">{badge.text}</span>
+    <div className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-xs font-medium border ${badge.borderColor} ${badge.glow} shadow-lg bg-gradient-to-r ${badge.gradient} ${badge.textColor} animate-pulse hover:animate-none transition-all duration-300`}>
+      <Icon className="w-2.5 h-2.5" />
+      <span className="font-semibold tracking-wide text-xs">{badge.text}</span>
     </div>
   );
 };
@@ -354,7 +354,7 @@ export default function CommentSection({ movieId }: CommentSectionProps) {
             
             return (
               <div key={comment.id} className="rounded-lg p-4 hover:bg-gray-800/40 transition-all duration-200 border border-transparent hover:border-gray-700/50">
-              <div className="flex gap-4">
+                <div className="flex gap-4">
                   <Avatar className="w-10 h-10 ring-2 ring-gray-600 hover:ring-indigo-400 transition-all duration-200">
                     <AvatarImage src={comment.user?.avatar_url} alt={comment.user?.full_name || 'User'} />
                     <AvatarFallback className="bg-gradient-to-br from-indigo-500 to-purple-600 text-white font-semibold">
@@ -363,20 +363,20 @@ export default function CommentSection({ movieId }: CommentSectionProps) {
                   </Avatar>
                   <div className="flex-1">
                     <div className="flex items-start justify-between mb-2">
-                      <div className="flex flex-col gap-2">
+                      <div className="flex flex-col justify-center h-10 gap-0.5">
                         <div className="flex items-center gap-2">
-                          <h4 className="text-lg font-semibold bg-gradient-to-r from-indigo-200 to-purple-200 bg-clip-text text-transparent">
+                          <h4 className="text-sm font-medium bg-gradient-to-r from-indigo-200 to-purple-200 bg-clip-text text-transparent leading-tight">
                             {comment.user?.full_name || comment.userName || 'Người dùng ẩn danh'}
                           </h4>
-                          <span className="text-sm text-gray-400">• {formatDate(comment.createdAt)}</span>
-                </div>
+                          <span className="text-xs text-gray-400 leading-tight">• {formatDate(comment.createdAt)}</span>
+                        </div>
                         {/* User badges */}
-                        <div className="flex flex-wrap gap-2">
+                        <div className="flex flex-wrap gap-1">
                           {badges.map((badge, index) => (
                             <UserBadge key={index} badge={badge} />
                           ))}
-              </div>
-            </div>
+                        </div>
+                      </div>
                       {/* Delete button for comment owner or admin */}
                       {isAuthenticated && user && (comment.userId === user.id || user.role === 'admin') && (
                         <Button
@@ -388,8 +388,8 @@ export default function CommentSection({ movieId }: CommentSectionProps) {
                           Xóa
                         </Button>
                       )}
-        </div>
-                    <p className="text-gray-300 leading-relaxed bg-gray-800/30 rounded-lg p-3 border border-gray-700/50">
+                    </div>
+                    <p className="text-gray-300">
                       {comment.comment}
                     </p>
                   </div>

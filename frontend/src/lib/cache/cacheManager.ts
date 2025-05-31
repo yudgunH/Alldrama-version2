@@ -76,11 +76,20 @@ class CacheManager {
 
   // Episode cache methods
   setEpisodes(movieId: string | number, episodes: Episode[], ttl: number = this.DEFAULT_TTL): void {
-    this.set(this.cache.episodes, String(movieId), episodes, ttl);
+    // Ensure episodes is always an array
+    const validEpisodes = Array.isArray(episodes) ? episodes : [];
+    this.set(this.cache.episodes, String(movieId), validEpisodes, ttl);
   }
 
   getEpisodes(movieId: string | number): Episode[] | null {
-    return this.get(this.cache.episodes, String(movieId));
+    const episodes = this.get(this.cache.episodes, String(movieId));
+    // Return null if not found, or return the array (even if empty)
+    return episodes;
+  }
+
+  // Invalidate episode cache for a movie
+  invalidateEpisodeCache(movieId: string | number): void {
+    this.cache.episodes.delete(String(movieId));
   }
 
   // Comment cache methods

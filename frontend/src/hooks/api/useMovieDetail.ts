@@ -1,4 +1,4 @@
-import { useEffect, useState, useRef } from 'react'
+import { useEffect, useState, useRef, useCallback } from 'react'
 import { API_ENDPOINTS } from '@/lib/api/endpoints'
 import type { Movie, Episode } from '@/types'
 import { apiClient } from '@/lib/api/apiClient'
@@ -19,9 +19,6 @@ export const useMovieDetail = (movieId: string | number, initialData?: Movie) =>
   
   // AbortController để hủy requests khi component unmount
   const abortControllerRef = useRef<AbortController | null>(null)
-  
-  // Add flag to track if episode fetch was already initiated
-  const episodesFetchedRef = useRef(false)
 
   // Cleanup on unmount
   useEffect(() => {
@@ -33,68 +30,32 @@ export const useMovieDetail = (movieId: string | number, initialData?: Movie) =>
     }
   }, [])
 
-  // Cache TTL check
-  const isCacheValid = (key: string) => {
-    return cacheManager.getMovieDetails(key) !== null;
-  }
-
-  // Function to fetch both movie and episodes
-  const fetchMovieAndEpisodes = async (signal: AbortSignal) => {
+  // Function to fetch only movie data
+  const fetchMovieOnly = useCallback(async (signal: AbortSignal) => {
     try {
-      setIsLoading(true);
-      setError(null);
-
       // Check cache first
       const cachedMovie = cacheManager.getMovieDetails(movieId);
-      const cachedEpisodes = cacheManager.getEpisodes(movieId);
-
-      let movieData: Movie;
-      let episodesData: Episode[] = [];
-
+      
       if (cachedMovie) {
-        movieData = cachedMovie;
-        setMovie(movieData);
-      } else {
-        // Fetch movie details
-        movieData = await apiClient.get<Movie>(
-          API_ENDPOINTS.MOVIES.DETAIL(movieId),
-          { signal }
-        );
-        
-        if (!isMounted.current) return;
-        
-        setMovie(movieData);
-        // Cache movie details for 30 minutes
-        cacheManager.setMovieDetails(movieId, movieData, 30 * 60 * 1000);
+        setMovie(cachedMovie);
+        setIsLoading(false);
+        return;
       }
 
-      if (cachedEpisodes) {
-        episodesData = cachedEpisodes;
-        setEpisodes(episodesData);
-      } else {
-        // Fetch episodes
-        try {
-          episodesData = await apiClient.get<Episode[]>(
-            API_ENDPOINTS.EPISODES.LIST_BY_MOVIE(movieId),
-            { signal }
-          );
-          
-          if (!isMounted.current) return;
-          
-          setEpisodes(episodesData);
-          // Cache episodes for 10 minutes
-          cacheManager.setEpisodes(movieId, episodesData, 10 * 60 * 1000);
-        } catch (episodeError) {
-          console.warn('Error fetching episodes:', episodeError);
-          // Don't fail the whole request if episodes fail
-          setEpisodes([]);
-        }
-      }
-
+      // Fetch movie details
+      const movieData = await apiClient.get<Movie>(
+        API_ENDPOINTS.MOVIES.DETAIL(movieId),
+        { signal }
+      );
+      
+      if (!isMounted.current) return;
+      
+      setMovie(movieData);
       setIsLoading(false);
+      // Cache movie details for 30 minutes
+      cacheManager.setMovieDetails(movieId, movieData, 30 * 60 * 1000);
     } catch (err: any) {
       if (err.name === 'AbortError' || err.name === 'CanceledError') {
-        console.log('Movie fetch aborted due to component unmount');
         return;
       }
       
@@ -102,90 +63,113 @@ export const useMovieDetail = (movieId: string | number, initialData?: Movie) =>
       setError(err.message || 'Đã xảy ra lỗi khi tải thông tin phim');
       setIsLoading(false);
     }
-  };
-  
-  // Function to fetch only episodes when we already have movie data
-  const fetchEpisodesOnly = async (signal: AbortSignal) => {
+  }, [movieId]);
+
+  // Function to fetch only episodes
+  const fetchEpisodesOnly = useCallback(async (signal: AbortSignal) => {
     try {
       // Check cache first
       const cachedEpisodes = cacheManager.getEpisodes(movieId);
       
-      if (cachedEpisodes) {
+      if (cachedEpisodes !== null) {
+        // We have cached data (even if empty array) - use it
         setEpisodes(cachedEpisodes);
         return;
       }
 
+      // No cache - fetch from API
       const fetchedEpisodes = await apiClient.get<Episode[]>(
         API_ENDPOINTS.EPISODES.LIST_BY_MOVIE(movieId),
         { signal }
       );
       
-      if (!isMounted.current) return; // Exit early if unmounted
+      // Ensure episodes is always an array
+      const validEpisodes = Array.isArray(fetchedEpisodes) ? fetchedEpisodes : [];
+      setEpisodes(validEpisodes);
       
-      setEpisodes(fetchedEpisodes);
-      
-      // Cache episodes for 10 minutes
-      cacheManager.setEpisodes(movieId, fetchedEpisodes, 10 * 60 * 1000);
+      // Cache episodes for 10 minutes (even if empty - to mark as "fetched")
+      cacheManager.setEpisodes(movieId, validEpisodes, 10 * 60 * 1000);
     } catch (err: any) {
       // Properly handle AbortError without logging them as real errors
       if (err.name === 'AbortError' || err.name === 'CanceledError') {
-        console.log('Episode fetch aborted due to component unmount');
         return;
       }
       
       // Handle other errors but don't disrupt UI flow
       console.error('Error fetching episodes:', err);
+      // Set empty array on error to ensure UI doesn't break
+      setEpisodes([]);
+      // Cache empty array to mark as "attempted"
+      cacheManager.setEpisodes(movieId, [], 5 * 60 * 1000); // Shorter cache for failures
     }
-  };
-  
-  // Main effect to fetch data
-  useEffect(() => {
-    if (!movieId) return;
+  }, [movieId]);
 
-    // Create new AbortController for this effect
-    abortControllerRef.current = new AbortController();
-    const signal = abortControllerRef.current.signal;
-      
+  // Effect to handle initialData changes
+  useEffect(() => {
     if (initialData) {
-      // If we have initial movie data, just fetch episodes
-      if (!episodesFetchedRef.current) {
-        episodesFetchedRef.current = true;
-        fetchEpisodesOnly(signal);
-      }
-    } else {
-      // Check cache first
-      const cachedMovie = cacheManager.getMovieDetails(movieId);
-      
-      if (cachedMovie) {
-        setMovie(cachedMovie);
-          setIsLoading(false);
-        
-        // Still fetch episodes if not cached
-        const cachedEpisodes = cacheManager.getEpisodes(movieId);
-        if (!cachedEpisodes && !episodesFetchedRef.current) {
-          episodesFetchedRef.current = true;
-          fetchEpisodesOnly(signal);
-        } else if (cachedEpisodes) {
-          setEpisodes(cachedEpisodes);
-        }
-      } else {
-        // Fetch both movie and episodes
-        fetchMovieAndEpisodes(signal);
+      setMovie(initialData);
+      setIsLoading(false);
+      setError(null);
     }
-  }
-  
-    // Cleanup function
+  }, [initialData]);
+
+  // Effect to fetch episodes (separate from movie fetching)
+  useEffect(() => {
+    if (!movieId) {
+      setEpisodes([]);
+      return;
+    }
+
+    // Create new AbortController for episodes
+    const controller = new AbortController();
+    abortControllerRef.current = controller;
+    const signal = controller.signal;
+
+    // Fetch episodes
+    fetchEpisodesOnly(signal);
+
     return () => {
-      if (abortControllerRef.current) {
-        abortControllerRef.current.abort();
-      }
+      controller.abort();
     };
-  }, [movieId, initialData]);
+  }, [movieId, fetchEpisodesOnly]);
+
+  // Effect to fetch movie (only when no initialData)
+  useEffect(() => {
+    if (!movieId || initialData) return;
+
+    // Reset state
+    setMovie(null);
+    setIsLoading(true);
+    setError(null);
+
+    const controller = new AbortController();
+    const signal = controller.signal;
+
+    // Fetch movie
+    fetchMovieOnly(signal);
+
+    return () => {
+      controller.abort();
+    };
+  }, [movieId, initialData, fetchMovieOnly]);
+
+  // Cache TTL check
+  const isCacheValid = (key: string) => {
+    return cacheManager.getMovieDetails(key) !== null;
+  }
 
   return { 
     movie, 
     episodes, 
     isLoading, 
     error,
+    // Helper function to force refresh episodes (useful for debugging)
+    refreshEpisodes: () => {
+      if (movieId && isMounted.current) {
+        cacheManager.invalidateEpisodeCache(movieId);
+        const controller = new AbortController();
+        fetchEpisodesOnly(controller.signal);
+      }
+    },
   };
 }; 

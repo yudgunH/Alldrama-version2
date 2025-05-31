@@ -89,17 +89,6 @@ const MovieDetail = ({ movieId, initialData }: MovieDetailProps) => {
     }
   );
   
-  // Debug logging
-  console.log('MovieDetail - Debug Info:', {
-    movieId,
-    hasMovie: !!movie,
-    movieTitle: movie?.title,
-    episodesCount: episodes?.length || 0,
-    isLoading,
-    error: error?.toString(),
-    hasInitialData: !!initialData
-  });
-  
   const [showFullDescription, setShowFullDescription] = useState(false)
   const [activeEpisode, setActiveEpisode] = useState<string | null>(null)
   const [isWatchlist, setIsWatchlist] = useState(false)
@@ -671,7 +660,7 @@ const MovieDetail = ({ movieId, initialData }: MovieDetailProps) => {
                           Đang tải danh sách tập phim...
                         </div>
                         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-                          {[...Array(6)].map((_, i) => (
+                          {[...Array(3)].map((_, i) => (
                             <div key={i} className="animate-pulse">
                               <div className="aspect-video bg-gray-800 rounded-xl mb-2"></div>
                               <div className="h-4 bg-gray-800 rounded w-3/4"></div>
