@@ -139,6 +139,6 @@ Cấu hình nằm trong file `wrangler.toml`:
 ```toml
 [[r2_buckets]]
 binding = "MEDIA_BUCKET"
-bucket_name = "alldrama-storage"
-preview_bucket_name = "alldrama-storage-dev"
+bucket_name = "movie-web-vn"
+preview_bucket_name = "movie-web-vn-dev"
 ```

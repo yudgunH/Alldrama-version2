@@ -684,7 +684,7 @@ export const processVideoFromWorker = async (req: Request, res: Response): Promi
       const r2AccountId = process.env.R2_ACCOUNT_ID || '';
       const r2AccessKey = process.env.R2_ACCESS_KEY_ID || ''; // Đảm bảo tên biến môi trường đúng
       const r2SecretKey = process.env.R2_SECRET_ACCESS_KEY || ''; // Đảm bảo tên biến môi trường đúng
-      const r2BucketName = process.env.R2_BUCKET || 'alldrama-storage'; // Đồng bộ tên biến môi trường với r2Service
+      const r2BucketName = process.env.R2_BUCKET || 'movie-web-vn'; // Đồng bộ tên biến môi trường với r2Service
       
       // Khởi chạy container sử dụng exec thay vì spawn
       const containerName = `hls-processor-${episodeId}-${Date.now()}`;
