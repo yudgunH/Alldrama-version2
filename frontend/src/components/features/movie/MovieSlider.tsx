@@ -208,7 +208,7 @@ const MovieSlider = ({
             // Mobile view with horizontal scrolling and touch support
             <div 
               ref={containerRef}
-              className="overflow-x-auto flex gap-3 snap-x snap-mandatory scrollbar-hide pb-4"
+              className="overflow-x-auto flex gap-2 snap-x snap-mandatory scrollbar-hide pb-4"
               style={{ 
                 scrollbarWidth: 'none', 
                 WebkitOverflowScrolling: 'touch',
@@ -223,7 +223,7 @@ const MovieSlider = ({
                   key={String(movie.id)}
                   className="flex-shrink-0 snap-start" 
                   style={{ 
-                    width: 'calc(33.333% - 0.75rem)',
+                    width: 'calc(33.333% - 0.5rem)',
                     scrollSnapAlign: 'start'
                   }}
                 >
@@ -241,7 +241,7 @@ const MovieSlider = ({
                       trigger={
                         <Link 
                           href={generateMovieUrl(movie.id, movie.title)} 
-                          className="transition-transform hover:scale-[1.03] duration-300 block w-full h-full"
+                          className="transition-transform hover:scale-[1.02] duration-300 block w-full h-full"
                         >
                           <MovieCard
                             movie={movie}

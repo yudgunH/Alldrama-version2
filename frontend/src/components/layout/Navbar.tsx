@@ -42,7 +42,6 @@ import { useAuth } from "@/hooks/api/useAuth"
 import { toast } from "react-hot-toast"
 import { useApiCache, CacheMatcher } from "@/hooks/api/useApiCache"
 import { API_ENDPOINTS } from "@/lib/api/endpoints"
-import { clearHomepageCache } from "@/hooks/api/useHomepageData"
 import { genreService } from "@/lib/api"
 import { cacheManager } from "@/lib/cache/cacheManager"
 import { Genre } from "@/types"
@@ -129,18 +128,10 @@ const NavbarContent = () => {
     )
   }
 
-  // Handle logo click to clear cache when going to homepage
+  // Handle logo click - remove unnecessary cache clearing
   const handleLogoClick = (e: React.MouseEvent) => {
-    // Only do special handling if not already on homepage
-    if (pathname !== '/') {
-      e.preventDefault();
-      
-      // Clear the homepage data cache to ensure fresh data
-      clearHomepageCache();
-      
-      // Manually navigate to homepage
-      router.push('/');
-    }
+    // Just navigate normally, no need to clear cache
+    // Cache should persist for better performance
   };
 
   // Xử lý sự kiện scroll
@@ -280,7 +271,6 @@ const NavbarContent = () => {
               <NavButton 
                 href="/" 
                 active={pathname === "/"}
-                onClick={() => pathname !== "/" && clearHomepageCache()}
               >
                 <Home className="h-4 w-4 mr-1.5" />
                 Trang chủ
@@ -556,7 +546,7 @@ const NavbarContent = () => {
               <SheetContent side="right" className="w-[280px] sm:w-[350px] bg-gray-900 border-gray-800 text-white p-0">
                 <SheetHeader className="p-4 border-b border-gray-800/50 mb-0 bg-gradient-to-b from-black to-transparent">
                   <SheetTitle className="flex items-center gap-2 text-white">
-                    <Link href="/" onClick={(e) => { handleLogoClick(e); }} className="flex items-center gap-2">
+                    <Link href="/" className="flex items-center gap-2">
                       <div className="w-8 h-8 relative overflow-hidden rounded-full bg-gradient-to-br from-amber-500 to-amber-600 p-0.5 shadow-md shadow-amber-900/20">
                         <div className="absolute inset-0 bg-black rounded-full m-0.5"></div>
                         <Image
@@ -578,22 +568,20 @@ const NavbarContent = () => {
                   <div className="space-y-1 mb-6">
                     <h3 className="text-sm font-medium text-gray-400 px-2 mb-2">Điều hướng</h3>
                     <SheetClose asChild>
-                      <Button
-                        variant={pathname === "/" ? "default" : "ghost"}
-                        className={cn(
-                          "w-full justify-start rounded-lg",
-                          pathname === "/"
-                            ? "bg-amber-600 hover:bg-amber-700 text-white"
-                            : "text-gray-300 hover:text-white hover:bg-gray-800/50",
-                        )}
-                        onClick={() => pathname !== "/" && clearHomepageCache()}
-                        asChild
-                      >
-                        <Link href="/">
+                      <Link href="/">
+                        <Button
+                          variant={pathname === "/" ? "default" : "ghost"}
+                          className={cn(
+                            "w-full justify-start rounded-lg",
+                            pathname === "/"
+                              ? "bg-amber-600 hover:bg-amber-700 text-white"
+                              : "text-gray-300 hover:text-white hover:bg-gray-800/50",
+                          )}
+                        >
                           <Home className="h-4 w-4 mr-2" />
                           Trang chủ
-                        </Link>
-                      </Button>
+                        </Button>
+                      </Link>
                     </SheetClose>
                     <SheetClose asChild>
                       <Button

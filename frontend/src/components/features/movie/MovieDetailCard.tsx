@@ -40,8 +40,13 @@ const MovieDetailCard = ({
     )
   }
 
-  // Get image info for backdrop and poster
-  const backdropInfo = getImageInfo(movie.backdropUrl || movie.posterUrl, movie.id, 'backdrop')
+  // Get image info for backdrop and poster - use poster URL to generate backdrop URL
+  const backdropInfo = getImageInfo(
+    movie.backdropUrl, 
+    movie.id, 
+    'backdrop',
+    movie.posterUrl
+  );
   const posterInfo = getImageInfo(movie.posterUrl, movie.id, 'poster')
 
   return (
@@ -56,7 +61,7 @@ const MovieDetailCard = ({
               src={backdropInfo.url}
               alt={movie.title}
               fill
-              className="object-cover"
+              className="object-cover object-center"
               sizes="(max-width: 1200px) 50vw, 33vw"
               priority
               onError={(e) => {
@@ -88,7 +93,7 @@ const MovieDetailCard = ({
                   src={posterInfo.url}
                   alt={movie.title}
                   fill
-                  className="object-cover"
+                  className="object-cover object-center"
                   sizes="96px"
                   onError={(e) => {
                     console.log('MovieDetailCard - Poster image load error for URL:', posterInfo.url);

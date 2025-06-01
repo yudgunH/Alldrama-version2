@@ -5,6 +5,7 @@ import Image from 'next/image';
 import { Movie } from '@/types';
 import { generateMovieUrl } from '@/utils/url';
 import { getImageInfo } from '@/utils/image';
+import { useMobile } from '@/hooks/use-mobile';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Play, Film, X } from 'lucide-react';
 import { cn } from '@/lib/utils';
@@ -48,10 +49,11 @@ const heroStyles = `
   
   @media (max-width: 768px) {
     .hero-gradient-overlay {
-      background: linear-gradient(to right,
-        rgba(0, 0, 0, 0.95) 0%,
-        rgba(0, 0, 0, 0.85) 40%,
-        rgba(0, 0, 0, 0.7) 100%
+      background: linear-gradient(to bottom,
+        rgba(0, 0, 0, 0.3) 0%,
+        rgba(0, 0, 0, 0.5) 30%,
+        rgba(0, 0, 0, 0.8) 70%,
+        rgba(0, 0, 0, 0.95) 100%
       );
     }
   }
@@ -66,6 +68,7 @@ const Hero = ({ movies = [], isLoading = false }: HeroProps) => {
   const [currentIndex, setCurrentIndex] = useState(0);
   const [failedImages, setFailedImages] = useState<Set<string>>(new Set());
   const [showTrailer, setShowTrailer] = useState(false);
+  const isMobile = useMobile();
 
   // Get featured movies (top 5)
   const featuredMovies = movies.slice(0, 5);
@@ -98,27 +101,35 @@ const Hero = ({ movies = [], isLoading = false }: HeroProps) => {
     setShowTrailer(false);
   }, []);
 
-  // Extract YouTube video ID from URL
-  const getYouTubeVideoId = (url: string) => {
-    const regExp = /^.*(youtu.be\/|v\/|u\/\w\/|embed\/|watch\?v=|&v=)([^#&?]*).*/;
-    const match = url.match(regExp);
-    return (match && match[2].length === 11) ? match[2] : null;
-  };
-
   if (isLoading || !currentMovie) {
     return (
-      <div className="h-[70vh] sm:h-[80vh] bg-gradient-to-b from-gray-900 to-black">
-        <div className="max-w-7xl h-full mx-auto px-4 sm:px-6 lg:px-8 flex flex-col justify-center">
+      <div className={cn(
+        "bg-gradient-to-b from-gray-900 to-black",
+        isMobile ? "min-h-[50vh] h-auto" : "h-[70vh] sm:h-[80vh]"
+      )}>
+        <div className={cn(
+          "max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex flex-col justify-center",
+          isMobile ? "min-h-[50vh] py-6" : "h-full"
+        )}>
           <div className="animate-pulse space-y-8">
-            <div className="h-12 sm:h-16 bg-gray-800 rounded-lg max-w-[70%]"></div>
+            <div className={cn(
+              "bg-gray-800 rounded-lg max-w-[70%]",
+              isMobile ? "h-8" : "h-12 sm:h-16"
+            )}></div>
             <div className="space-y-3">
               <div className="h-4 bg-gray-800 rounded max-w-[90%]"></div>
               <div className="h-4 bg-gray-800 rounded max-w-[80%]"></div>
-              <div className="h-4 bg-gray-800 rounded max-w-[60%]"></div>
+              {!isMobile && <div className="h-4 bg-gray-800 rounded max-w-[60%]"></div>}
             </div>
             <div className="flex gap-2">
-              <div className="h-10 w-28 bg-amber-800/50 rounded-full"></div>
-              <div className="h-10 w-32 bg-gray-800/80 rounded-full"></div>
+              <div className={cn(
+                "bg-amber-800/50 rounded-full",
+                isMobile ? "h-8 w-24" : "h-10 w-28"
+              )}></div>
+              <div className={cn(
+                "bg-gray-800/80 rounded-full",
+                isMobile ? "h-8 w-28" : "h-10 w-32"
+              )}></div>
             </div>
           </div>
         </div>
@@ -126,20 +137,27 @@ const Hero = ({ movies = [], isLoading = false }: HeroProps) => {
     );
   }
 
-  // Get backdrop image info
+  // Get backdrop image info - use poster URL to generate backdrop URL
   const backdropInfo = getImageInfo(
-    currentMovie.backdropUrl || currentMovie.posterUrl, 
+    currentMovie.backdropUrl, 
     currentMovie.id, 
-    'backdrop'
+    'backdrop',
+    currentMovie.posterUrl
   );
   const shouldShowSkeleton = backdropInfo.shouldShowSkeleton || failedImages.has(backdropInfo.url);
 
   return (
     <>
       <style jsx global>{heroStyles}</style>
-      <section className="relative w-full h-[70vh] sm:h-[80vh] lg:h-[85vh] overflow-hidden">
+      <section className={cn(
+        "relative w-full overflow-hidden",
+        isMobile ? "min-h-[50vh] h-auto" : "h-[70vh] sm:h-[80vh] lg:h-[85vh]"
+      )}>
         {/* Background Images with Smooth Transitions */}
-        <div className="absolute inset-0 w-full h-full">
+        <div className={cn(
+          "absolute inset-0 w-full",
+          isMobile ? "h-full min-h-[50vh]" : "h-full"
+        )}>
           <AnimatePresence mode="wait">
             <motion.div
               key={`bg-${currentMovie.id}`}
@@ -161,7 +179,10 @@ const Hero = ({ movies = [], isLoading = false }: HeroProps) => {
                   fill
                   priority
                   sizes="100vw"
-                  className="object-cover object-center"
+                  className={cn(
+                    "object-center",
+                    isMobile ? "object-cover" : "object-cover"
+                  )}
                   quality={90}
                   onError={() => {
                     console.log('Hero - Background image load error for movie:', currentMovie.id);
@@ -183,7 +204,12 @@ const Hero = ({ movies = [], isLoading = false }: HeroProps) => {
         </div>
 
         {/* Content with Smooth Animations */}
-        <div className="relative h-full max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex items-center">
+        <div className={cn(
+          "relative max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex items-center",
+          isMobile 
+            ? "min-h-[50vh] items-end pb-6 pt-6" 
+            : "h-full items-center"
+        )}>
           <AnimatePresence mode="wait">
             <motion.div 
               key={`content-${currentMovie.id}`}
@@ -195,13 +221,23 @@ const Hero = ({ movies = [], isLoading = false }: HeroProps) => {
                 ease: [0.25, 0.46, 0.45, 0.94],
                 delay: 0.1
               }}
-              className="max-w-xl md:max-w-2xl space-y-5 sm:space-y-6 pt-16 sm:pt-0"
+              className={cn(
+                "space-y-5 sm:space-y-6",
+                isMobile 
+                  ? "max-w-full w-full" 
+                  : "max-w-xl md:max-w-2xl pt-16 sm:pt-0"
+              )}
             >
               <motion.h1 
                 initial={{ opacity: 0, y: 30 }}
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ duration: 0.6, delay: 0.2 }}
-                className="text-3xl sm:text-4xl md:text-5xl xl:text-6xl font-bold text-white leading-tight tracking-tight hero-text-shadow"
+                className={cn(
+                  "font-bold text-white leading-tight tracking-tight hero-text-shadow",
+                  isMobile 
+                    ? "text-2xl sm:text-3xl" 
+                    : "text-3xl sm:text-4xl md:text-5xl xl:text-6xl"
+                )}
               >
                 {currentMovie.title}
               </motion.h1>
@@ -210,7 +246,12 @@ const Hero = ({ movies = [], isLoading = false }: HeroProps) => {
                 initial={{ opacity: 0, y: 20 }}
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ duration: 0.6, delay: 0.3 }}
-                className="text-white hero-description sm:text-lg line-clamp-3 md:line-clamp-4 leading-relaxed"
+                className={cn(
+                  "text-white hero-description leading-relaxed",
+                  isMobile 
+                    ? "text-sm line-clamp-2" 
+                    : "sm:text-lg line-clamp-3 md:line-clamp-4"
+                )}
               >
                 {currentMovie.summary || 'Một bộ phim đáng xem với nội dung hấp dẫn và diễn xuất tuyệt vời.'}
               </motion.p>
@@ -219,7 +260,10 @@ const Hero = ({ movies = [], isLoading = false }: HeroProps) => {
                 initial={{ opacity: 0, y: 20 }}
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ duration: 0.6, delay: 0.4 }}
-                className="flex flex-wrap gap-2 sm:gap-3 items-center text-sm sm:text-base text-white hero-tag"
+                className={cn(
+                  "flex flex-wrap gap-2 sm:gap-3 items-center text-white hero-tag",
+                  isMobile ? "text-xs" : "text-sm sm:text-base"
+                )}
               >
                 <span className="font-medium">{currentMovie.releaseYear || 'N/A'}</span>
                 <span className="w-1.5 h-1.5 rounded-full bg-amber-500" />
@@ -244,7 +288,7 @@ const Hero = ({ movies = [], isLoading = false }: HeroProps) => {
                 transition={{ duration: 0.6, delay: 0.5 }}
                 className="flex flex-wrap items-center gap-2 pt-1"
               >
-                {currentMovie.genres?.slice(0, 3).map((genre, index) => {
+                {currentMovie.genres?.slice(0, isMobile ? 2 : 3).map((genre, index) => {
                   const genreId = typeof genre === 'string' ? genre : genre.id;
                   const genreName = typeof genre === 'string' ? genre : genre.name;
                   
@@ -252,7 +296,10 @@ const Hero = ({ movies = [], isLoading = false }: HeroProps) => {
                     <Link 
                       key={`${genreId}-${index}`} 
                       href={`/movie?genre=${encodeURIComponent(genreName)}`} 
-                      className="px-3 py-1 bg-amber-600/20 hover:bg-amber-600 backdrop-blur-sm rounded-full text-white text-sm transition-all hover-scale border border-amber-500/30"
+                      className={cn(
+                        "px-3 py-1 bg-amber-600/20 hover:bg-amber-600 backdrop-blur-sm rounded-full text-white transition-all hover-scale border border-amber-500/30",
+                        isMobile ? "text-xs" : "text-sm"
+                      )}
                     >
                       {genreName}
                     </Link>
@@ -264,19 +311,31 @@ const Hero = ({ movies = [], isLoading = false }: HeroProps) => {
                 initial={{ opacity: 0, y: 20 }}
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ duration: 0.6, delay: 0.6 }}
-                className="flex flex-wrap gap-3 sm:gap-4 pt-4 sm:pt-6"
+                className={cn(
+                  "flex flex-wrap gap-3 sm:gap-4",
+                  isMobile ? "pt-3" : "pt-4 sm:pt-6"
+                )}
               >
                 <Link
                   href={generateMovieUrl(currentMovie.id, currentMovie.title)}
-                  className="group px-6 py-3 bg-amber-600 hover:bg-amber-700 text-white font-medium rounded-full transition-all duration-300 inline-flex items-center shadow-lg shadow-amber-900/30 hover:shadow-xl hover:shadow-amber-900/40 hover:translate-y-[-2px]"
+                  className={cn(
+                    "group bg-amber-600 hover:bg-amber-700 text-white font-medium rounded-full transition-all duration-300 inline-flex items-center shadow-lg shadow-amber-900/30 hover:shadow-xl hover:shadow-amber-900/40 hover:translate-y-[-2px]",
+                    isMobile ? "px-4 py-2 text-sm" : "px-6 py-3"
+                  )}
                 >
-                  <div className="relative mr-2 w-5 h-5">
+                  <div className={cn(
+                    "relative mr-2",
+                    isMobile ? "w-4 h-4" : "w-5 h-5"
+                  )}>
                     <div className="absolute inset-0 bg-white rounded-full opacity-20 group-hover:animate-ping"></div>
-                    <Play className="relative z-10 h-5 w-5" fill="white" />
+                    <Play className={cn(
+                      "relative z-10",
+                      isMobile ? "h-4 w-4" : "h-5 w-5"
+                    )} fill="white" />
                   </div>
                   <span>Xem ngay</span>
                 </Link>
-                {currentMovie.trailerUrl && (
+                {currentMovie.trailerUrl && !isMobile && (
                   <button
                     onClick={handleTrailerClick}
                     className="group px-6 py-3 bg-black/50 hover:bg-black/70 text-white font-medium rounded-full transition-all duration-300 inline-flex items-center shadow-lg shadow-black/40 backdrop-blur-sm hover:shadow-xl hover:translate-y-[-2px] border border-white/10"
@@ -292,17 +351,24 @@ const Hero = ({ movies = [], isLoading = false }: HeroProps) => {
 
         {/* Movie Indicators with Progress */}
         {featuredMovies.length > 1 && (
-          <div className="absolute bottom-8 left-1/2 -translate-x-1/2 z-30">
+          <div className={cn(
+            "absolute left-1/2 -translate-x-1/2 z-30",
+            isMobile ? "bottom-4" : "bottom-8"
+          )}>
             <div className="flex gap-3 items-center">
               {featuredMovies.map((_, index) => (
                 <button
                   key={index}
                   onClick={() => handleSlideChange(index)}
                   className={cn(
-                    "relative h-2 rounded-full transition-all duration-300",
+                    "relative rounded-full transition-all duration-300",
+                    isMobile ? "h-1.5" : "h-2",
                     index === currentIndex 
-                      ? "bg-amber-500 w-12" 
-                      : "bg-white/30 hover:bg-white/50 w-2"
+                      ? "bg-amber-500" 
+                      : "bg-white/30 hover:bg-white/50",
+                    index === currentIndex 
+                      ? (isMobile ? "w-8" : "w-12")
+                      : (isMobile ? "w-1.5" : "w-2")
                   )}
                 >
                   {/* Progress bar for current slide */}
@@ -321,7 +387,10 @@ const Hero = ({ movies = [], isLoading = false }: HeroProps) => {
         )}
         
         {/* Hiệu ứng overlay gradient phía dưới */}
-        <div className="absolute bottom-0 left-0 right-0 h-20 bg-gradient-to-t from-black to-transparent"></div>
+        <div className={cn(
+          "absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black to-transparent",
+          isMobile ? "h-16" : "h-20"
+        )}></div>
       </section>
 
       {/* Trailer Modal */}
@@ -340,44 +409,34 @@ const Hero = ({ movies = [], isLoading = false }: HeroProps) => {
               animate={{ scale: 1, opacity: 1 }}
               exit={{ scale: 0.8, opacity: 0 }}
               transition={{ duration: 0.3 }}
-              className="relative w-full max-w-4xl aspect-video bg-black rounded-lg overflow-hidden shadow-2xl"
+              className={cn(
+                "relative bg-black rounded-lg overflow-hidden shadow-2xl",
+                isMobile 
+                  ? "w-full aspect-video" 
+                  : "w-full max-w-4xl aspect-video"
+              )}
               onClick={(e) => e.stopPropagation()}
             >
               {/* Close Button */}
               <button
                 onClick={handleCloseTrailer}
-                className="absolute top-4 right-4 z-10 p-2 bg-black/50 hover:bg-black/70 text-white rounded-full transition-all duration-200 hover:scale-110"
+                className={cn(
+                  "absolute top-4 right-4 z-10 p-2 bg-black/50 hover:bg-black/70 text-white rounded-full transition-all duration-200 hover:scale-110",
+                  isMobile && "top-2 right-2 p-1.5"
+                )}
               >
-                <X className="h-6 w-6" />
+                <X className={cn(isMobile ? "h-5 w-5" : "h-6 w-6")} />
               </button>
 
-              {/* YouTube Embed */}
-              {(() => {
-                const videoId = getYouTubeVideoId(currentMovie.trailerUrl);
-                if (videoId) {
-                  return (
-                    <iframe
-                      src={`https://www.youtube.com/embed/${videoId}?autoplay=1&rel=0&modestbranding=1`}
-                      title={`${currentMovie.title} - Trailer`}
-                      className="w-full h-full"
-                      allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
-                      allowFullScreen
-                    />
-                  );
-                } else {
-                  // Fallback for non-YouTube URLs
-                  return (
-                    <video
-                      src={currentMovie.trailerUrl}
-                      controls
-                      autoPlay
-                      className="w-full h-full object-cover"
-                    >
-                      Trình duyệt của bạn không hỗ trợ video.
-                    </video>
-                  );
-                }
-              })()}
+              {/* Video Player */}
+              <video
+                src={currentMovie.trailerUrl}
+                controls
+                autoPlay
+                className="w-full h-full object-cover"
+              >
+                Trình duyệt của bạn không hỗ trợ video.
+              </video>
             </motion.div>
           </motion.div>
         )}
