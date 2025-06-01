@@ -12,7 +12,7 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { cn } from '@/lib/utils'
 import { Movie } from '@/types'
 import { generateMovieUrl } from '@/utils/url'
-import { getSafePosterUrl, getImageInfo } from '@/utils/image'
+import { getImageInfo } from '@/utils/image'
 import { useMobile } from '@/hooks/use-mobile'
 import { motion, AnimatePresence } from 'framer-motion'
 
@@ -224,7 +224,7 @@ const FeaturedContentSwitcher = ({
   }, [totalItems])
   
   // Calculate visible thumbnails
-  const visibleThumbs = useMemo(() => Math.min(items.length, 8), [items.length])
+  const visibleThumbs = useMemo(() => Math.min(items.length, isMobile ? 4 : 8), [items.length, isMobile])
   
   // Track failed images to prevent retry loops
   const [failedImages, setFailedImages] = useState<Set<string>>(new Set())
@@ -238,16 +238,16 @@ const FeaturedContentSwitcher = ({
     return wrapContainer ? (
       <section className="bg-gray-950">
         <div className="w-full">
-          <div className="py-12">
-            <Skeleton className="h-8 w-48 mb-6" />
-            <Skeleton className="w-full aspect-[21/9] rounded-lg" />
+          <div className={cn("py-12", isMobile && "py-6")}>
+            <Skeleton className={cn("mb-6", isMobile ? "h-6 w-32" : "h-8 w-48")} />
+            <Skeleton className={cn("w-full rounded-lg", isMobile ? "aspect-[16/9]" : "aspect-[21/9]")} />
           </div>
         </div>
       </section>
     ) : (
-      <div className="py-12">
-        <Skeleton className="h-8 w-48 mb-6" />
-        <Skeleton className="w-full aspect-[21/9] rounded-lg" />
+      <div className={cn("py-12", isMobile && "py-6")}>
+        <Skeleton className={cn("mb-6", isMobile ? "h-6 w-32" : "h-8 w-48")} />
+        <Skeleton className={cn("w-full rounded-lg", isMobile ? "aspect-[16/9]" : "aspect-[21/9]")} />
       </div>
     )
   }
@@ -261,10 +261,13 @@ const FeaturedContentSwitcher = ({
       onTouchStart={handleTouchStart} 
       onTouchMove={handleTouchMove} 
       onTouchEnd={handleTouchEnd} 
-      className={cn('space-y-4 py-12', className)}
+      className={cn('space-y-4', isMobile ? 'py-6' : 'py-12', className)}
     >
       {title && (
-        <h2 className="text-2xl font-bold mb-6 flex items-center">
+        <h2 className={cn(
+          "font-bold mb-6 flex items-center",
+          isMobile ? "text-lg" : "text-2xl"
+        )}>
           <span className={`bg-gradient-to-r ${styles.titleGradient} bg-clip-text text-transparent`}>
             {title}
           </span>
@@ -273,7 +276,10 @@ const FeaturedContentSwitcher = ({
       
       <div className="relative">
         {/* Featured Item Display */}
-        <div className="relative w-full aspect-[30/9] overflow-hidden rounded-lg">
+        <div className={cn(
+          "relative w-full overflow-hidden rounded-lg",
+          isMobile ? "aspect-[16/9]" : "aspect-[30/9]"
+        )}>
           {selectedItem && (
             <AnimatePresence mode="wait">
               <motion.div
@@ -285,7 +291,13 @@ const FeaturedContentSwitcher = ({
                 className="absolute inset-0"
               >
                 {(() => {
-                  const imageInfo = getImageInfo(selectedItem.posterUrl, selectedItem.id, 'poster');
+                  // Use backdrop image for main display, fallback to poster
+                  const imageInfo = getImageInfo(
+                    selectedItem.backdropUrl, 
+                    selectedItem.id, 
+                    'backdrop',
+                    selectedItem.posterUrl
+                  );
                   const shouldShowSkeleton = imageInfo.shouldShowSkeleton || failedImages.has(imageInfo.url);
                   
                   return shouldShowSkeleton ? (
@@ -293,10 +305,10 @@ const FeaturedContentSwitcher = ({
                   ) : (
                     <Image
                       src={imageInfo.url}
-                      alt={selectedItem?.title || "Movie poster"}
+                      alt={selectedItem?.title || "Movie backdrop"}
                       fill
                       priority
-                      className="object-cover"
+                      className="object-cover object-center"
                       onError={(e) => {
                         console.log('FeaturedContentSwitcher - Main image load error for URL:', imageInfo.url);
                         handleImageError(imageInfo.url);
@@ -311,54 +323,80 @@ const FeaturedContentSwitcher = ({
           
           {selectedItem && (
             <div className={cn(
-              "absolute bottom-0 left-0 w-full p-2",
-              viewportSize.width < 640 ? "" : "p-6 pb-16"
+              "absolute bottom-0 left-0 w-full",
+              isMobile ? "p-3 pb-4" : "p-6 pb-16"
             )}>
-              <div className="flex flex-col gap-2 max-w-2xl">
-                <h3 className={cn(` font-bold bg-gradient-to-r ${styles.titleGradient} bg-clip-text text-transparent`, viewportSize.width < 640 ? "text-base" : "text-3xl")}>
+              <div className={cn(
+                "flex flex-col gap-2",
+                isMobile ? "max-w-full" : "max-w-2xl"
+              )}>
+                <h3 className={cn(
+                  "font-bold bg-gradient-to-r bg-clip-text text-transparent",
+                  styles.titleGradient,
+                  isMobile ? "text-lg" : "text-3xl"
+                )}>
                   {selectedItem.title}
                 </h3>
                 <div className="flex items-center gap-2">
                   {selectedItem.releaseYear && (
-                    <Badge variant="outline" className="text-xs bg-white/10 text-white">
+                    <Badge variant="outline" className={cn(
+                      "bg-white/10 text-white",
+                      isMobile ? "text-[10px] px-1.5 py-0.5" : "text-xs"
+                    )}>
                       {selectedItem.releaseYear}
                     </Badge>
                   )}
                   {selectedItem.rating && (
-                    <Badge variant="outline" className="flex items-center gap-1 text-xs bg-white/10 text-white">
-                      <Star className="h-3 w-3" />
+                    <Badge variant="outline" className={cn(
+                      "flex items-center gap-1 bg-white/10 text-white",
+                      isMobile ? "text-[10px] px-1.5 py-0.5" : "text-xs"
+                    )}>
+                      <Star className={cn(isMobile ? "h-2.5 w-2.5" : "h-3 w-3")} />
                       {typeof selectedItem.rating === 'number' 
                         ? selectedItem.rating.toFixed(1) 
                         : selectedItem.rating}
                     </Badge>
                   )}
                 </div>
-                <p className="text-sm text-white/80 line-clamp-2 md:line-clamp-3">
+                <p className={cn(
+                  "text-white/80 leading-relaxed",
+                  isMobile 
+                    ? "text-xs line-clamp-2" 
+                    : "text-sm line-clamp-2 md:line-clamp-3"
+                )}>
                   {selectedItem.summary || "Đang cập nhật thông tin phim..."}
                 </p>
-                <div className="flex items-center gap-2 mt-2">
+                <div className={cn(
+                  "flex items-center gap-2",
+                  isMobile ? "mt-1" : "mt-2"
+                )}>
                   <Button
                     variant="default"
-                    size="sm"
-                    className="gap-1"
+                    size={isMobile ? "sm" : "sm"}
+                    className={cn(
+                      "gap-1",
+                      isMobile && "text-xs px-3 py-1.5 h-auto"
+                    )}
                     asChild
                   >
                     <Link href={`/watch/${String(selectedItem.id)}`}>
-                      <Play className="h-3 w-3" />
+                      <Play className={cn(isMobile ? "h-3 w-3" : "h-3 w-3")} />
                       Xem ngay
                     </Link>
                   </Button>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    className="gap-1 bg-white/10 hover:bg-white/20 text-sm text-white"
-                    asChild
-                  >
-                    <Link href={generateMovieUrl(String(selectedItem.id), selectedItem.title)}>
-                      <Info className="h-3 w-3" />
-                      Chi tiết
-                    </Link>
-                  </Button>
+                  {!isMobile && (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="gap-1 bg-white/10 hover:bg-white/20 text-sm text-white"
+                      asChild
+                    >
+                      <Link href={generateMovieUrl(String(selectedItem.id), selectedItem.title)}>
+                        <Info className="h-3 w-3" />
+                        Chi tiết
+                      </Link>
+                    </Button>
+                  )}
                 </div>
               </div>
             </div>
@@ -366,85 +404,93 @@ const FeaturedContentSwitcher = ({
         </div>
         
         {/* Thumbnail Navigation - Desktop only */}
-        {showThumbnails && (
-          <>
-            {/* Desktop thumbnails */}
-            <div className="absolute bottom-0 left-0 right-0 translate-y-1/2 px-8 hidden md:block">
-              <div className="flex justify-center">
-                <div className="inline-flex p-2 rounded-xl space-x-6 shadow-xl">
-                  {items.slice(0, visibleThumbs).map((item, index) => {
-                    const thumbInfo = getImageInfo(item.posterUrl, item.id, 'poster');
-                    const shouldShowSkeleton = thumbInfo.shouldShowSkeleton || failedImages.has(thumbInfo.url);
-                    
-                    return (
-                      <div
-                        key={item.id || index}
-                        className={cn(
-                          'relative rounded-md overflow-hidden transition-all duration-200 cursor-pointer h-27 w-20',
-                          index === selectedIndex 
-                            ? 'ring-2 ring-indigo-600 ring-offset-2 ring-offset-gray-950 z-10 scale-110' 
-                            : 'opacity-70 hover:opacity-100'
-                        )}
-                        onClick={() => handleItemSelect(index)}
-                      >
-                        {shouldShowSkeleton ? (
-                          <Skeleton className="w-full h-full" />
-                        ) : (
-                          <img
-                            src={thumbInfo.url}
-                            alt={item?.title || `Movie ${index + 1}`}
-                            className="w-full h-full object-cover"
-                            onError={(e) => {
-                              console.log('FeaturedContentSwitcher - Thumbnail image load error for URL:', thumbInfo.url);
-                              handleImageError(thumbInfo.url);
-                            }}
-                          />
-                        )}
-                        <div className={cn(
-                          "absolute bottom-0 left-0 right-0 py-1 px-1.5 text-[10px] font-medium truncate",
-                          index === selectedIndex 
-                            ? 'bg-indigo-600 text-white'
-                            : 'bg-gray-900/80 text-gray-300'
-                        )}>
-                          {item.title || `Movie ${index + 1}`}
-                        </div>
-                        {index === selectedIndex && (
-                          <div className="absolute inset-0 bg-gray-900/50 flex items-center justify-center">
-                            <div className="rounded-full bg-indigo-600/80 p-1">
-                              <Play className="h-3 w-3 text-white" />
-                            </div>
-                          </div>
-                        )}
+        {showThumbnails && !isMobile && (
+          <div className="absolute bottom-0 left-0 right-0 translate-y-1/2 px-8">
+            <div className="flex justify-center">
+              <div className="inline-flex p-2 rounded-xl space-x-6 shadow-xl">
+                {items.slice(0, visibleThumbs).map((item, index) => {
+                  const thumbInfo = getImageInfo(item.posterUrl, item.id, 'poster');
+                  const shouldShowSkeleton = thumbInfo.shouldShowSkeleton || failedImages.has(thumbInfo.url);
+                  
+                  return (
+                    <div
+                      key={item.id || index}
+                      className={cn(
+                        'relative rounded-md overflow-hidden transition-all duration-200 cursor-pointer h-27 w-20',
+                        index === selectedIndex 
+                          ? 'ring-2 ring-indigo-600 ring-offset-2 ring-offset-gray-950 z-10 scale-110' 
+                          : 'opacity-70 hover:opacity-100'
+                      )}
+                      onClick={() => handleItemSelect(index)}
+                    >
+                      {shouldShowSkeleton ? (
+                        <Skeleton className="w-full h-full" />
+                      ) : (
+                        <img
+                          src={thumbInfo.url}
+                          alt={item?.title || `Movie ${index + 1}`}
+                          className="w-full h-full object-cover object-center"
+                          onError={(e) => {
+                            console.log('FeaturedContentSwitcher - Thumbnail image load error for URL:', thumbInfo.url);
+                            handleImageError(thumbInfo.url);
+                          }}
+                        />
+                      )}
+                      <div className={cn(
+                        "absolute bottom-0 left-0 right-0 py-1 px-1.5 text-[10px] font-medium truncate",
+                        index === selectedIndex 
+                          ? 'bg-indigo-600 text-white'
+                          : 'bg-gray-900/80 text-gray-300'
+                      )}>
+                        {item.title || `Movie ${index + 1}`}
                       </div>
-                    );
-                  })}
-                </div>
+                      {index === selectedIndex && (
+                        <div className="absolute inset-0 bg-gray-900/50 flex items-center justify-center">
+                          <div className="rounded-full bg-indigo-600/80 p-1">
+                            <Play className="h-3 w-3 text-white" />
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
               </div>
             </div>
-            
-            {/* Mobile dots navigation */}
-            <div className="md:hidden flex items-center justify-center mt-8">
-              <div className="inline-flex bg-gray-900/90 backdrop-blur-md px-3 py-2 rounded-full space-x-2">
-                {items.map((_, index) => (
-                  <button
-                    key={index}
-                    onClick={() => handleItemSelect(index)}
-                    className={cn(
-                      'rounded-full transition-all',
-                      index === selectedIndex 
-                        ? 'bg-indigo-600 w-3 h-3' 
-                        : 'bg-gray-700 w-2 h-2 hover:bg-gray-600'
-                    )}
-                    aria-label={`Go to item ${index + 1}`}
-                  />
-                ))}
-              </div>
+          </div>
+        )}
+        
+        {/* Mobile dots navigation */}
+        {(isMobile || !showThumbnails) && (
+          <div className={cn(
+            "flex items-center justify-center",
+            isMobile ? "mt-4" : "mt-8"
+          )}>
+            <div className={cn(
+              "inline-flex bg-gray-900/90 backdrop-blur-md rounded-full space-x-2",
+              isMobile ? "px-2 py-1.5" : "px-3 py-2"
+            )}>
+              {items.map((_, index) => (
+                <button
+                  key={index}
+                  onClick={() => handleItemSelect(index)}
+                  className={cn(
+                    'rounded-full transition-all',
+                    index === selectedIndex 
+                      ? 'bg-indigo-600' 
+                      : 'bg-gray-700 hover:bg-gray-600',
+                    index === selectedIndex 
+                      ? (isMobile ? "w-2.5 h-2.5" : "w-3 h-3")
+                      : (isMobile ? "w-1.5 h-1.5" : "w-2 h-2")
+                  )}
+                  aria-label={`Go to item ${index + 1}`}
+                />
+              ))}
             </div>
-          </>
+          </div>
         )}
         
         {/* Progress Indicator for non-thumbnail mode */}
-        {showProgress && !showThumbnails && (
+        {showProgress && !showThumbnails && !isMobile && (
           <div className="flex items-center justify-center mt-8 gap-1">
             {items.map((_, index) => (
               <button

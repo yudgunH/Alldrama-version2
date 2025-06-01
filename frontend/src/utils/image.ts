@@ -19,17 +19,34 @@ export function shouldShowSkeleton(imageUrl: string | null | undefined): boolean
 }
 
 /**
+ * Convert poster URL to backdrop URL by replacing "poster" with "backdrop"
+ * @param posterUrl - The poster URL
+ * @returns Backdrop URL
+ */
+export function convertPosterToBackdrop(posterUrl: string): string {
+  return posterUrl.replace(/\/poster(\.|$)/, '/backdrop$1');
+}
+
+/**
  * Get image info with skeleton flag
  * @param imageUrl - The image URL
  * @param movieId - Movie ID for auto-detection
  * @param type - Type of image
+ * @param posterUrl - Poster URL to convert to backdrop if needed
  * @returns Object with url and shouldShowSkeleton flag
  */
 export function getImageInfo(
   imageUrl: string | null | undefined,
   movieId?: number | string,
-  type: 'poster' | 'backdrop' | 'thumbnail' = 'poster'
+  type: 'poster' | 'backdrop' | 'thumbnail' = 'poster',
+  posterUrl?: string | null | undefined
 ): { url: string; shouldShowSkeleton: boolean } {
+  // For backdrop type, if no backdrop URL but have poster URL, convert it
+  if (type === 'backdrop' && shouldShowSkeleton(imageUrl) && posterUrl && !shouldShowSkeleton(posterUrl)) {
+    const backdropUrl = convertPosterToBackdrop(posterUrl);
+    return { url: backdropUrl, shouldShowSkeleton: false };
+  }
+  
   // Check if should show skeleton first
   if (shouldShowSkeleton(imageUrl)) {
     // If no movieId either, definitely show skeleton
@@ -253,6 +270,17 @@ export function getSafeBackdropUrl(
       }
       
       // Auto-detect format for backdrop
+      return getAutoDetectedImageUrl(`https://media.alldrama.tech/movies/${movieId}/backdrop`);
+    }
+  }
+
+  // If no backdrop but have poster, convert poster to backdrop
+  if (posterUrl && !shouldShowSkeleton(posterUrl)) {
+    if (posterUrl.startsWith('http://') || posterUrl.startsWith('https://')) {
+      return convertPosterToBackdrop(posterUrl);
+    }
+    if (movieId) {
+      // Auto-detect format for backdrop based on poster structure
       return getAutoDetectedImageUrl(`https://media.alldrama.tech/movies/${movieId}/backdrop`);
     }
   }

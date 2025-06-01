@@ -299,21 +299,58 @@ const MovieDetail = ({ movieId, initialData }: MovieDetailProps) => {
       <div className="relative w-full h-[50vh] md:h-[75vh] overflow-hidden">
         {/* Background Image with Overlay */}
         <div className="absolute inset-0 w-full h-full">
+          {/* Backdrop Image */}
+          {(() => {
+            const backdropInfo = getImageInfo(
+              movie.backdropUrl, 
+              movie.id, 
+              'backdrop',
+              movie.posterUrl
+            );
+            
+            return backdropInfo.shouldShowSkeleton ? (
+              <Skeleton className="w-full h-full" />
+            ) : (
+              <Image
+                src={backdropInfo.url}
+                alt={movie.title}
+                fill
+                priority
+                sizes="100vw"
+                className="object-cover object-center"
+                quality={90}
+                onError={() => {
+                  console.log('MovieDetail - Backdrop image load error for movie:', movie.id);
+                }}
+              />
+            );
+          })()}
+          
           <div className="absolute inset-0 bg-gradient-to-r from-gray-800/40 to-gray-900/40 mix-blend-multiply z-0" />
           <div className="absolute inset-0 bg-[url('/images/noise.png')] opacity-[0.02] mix-blend-overlay pointer-events-none z-0" />
           <div className="absolute inset-0 bg-gradient-to-t from-background via-background/90 to-background/30 z-0" />
         </div>
 
         {/* Trailer Player */}
-        {isPlayingTrailer && movie.trailerUrl && (
+        {isPlayingTrailer && (
           <div className="absolute inset-0 z-50 bg-black">
             <div className="relative w-full h-full">
-              <iframe
-                src={movie.trailerUrl}
-                className="w-full h-full"
-                allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
-                allowFullScreen
-              />
+              {movie.trailerUrl ? (
+                <iframe
+                  src={movie.trailerUrl}
+                  className="w-full h-full"
+                  allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                  allowFullScreen
+                />
+              ) : (
+                <div className="w-full h-full flex items-center justify-center">
+                  <div className="text-center text-white">
+                    <Film className="h-16 w-16 mx-auto mb-4 text-gray-400" />
+                    <h3 className="text-xl font-semibold mb-2">Hiện chưa có trailer để xem</h3>
+                    <p className="text-gray-400">Trailer sẽ được cập nhật sớm nhất có thể</p>
+                  </div>
+                </div>
+              )}
               <Button
                 variant="ghost"
                 size="icon"

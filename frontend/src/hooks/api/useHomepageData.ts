@@ -65,7 +65,14 @@ const SWR_CACHE_KEY = 'homepage_data';
 
 // Static method to clear homepage cache from anywhere
 export const clearHomepageCache = () => {
+  console.log('Clearing homepage cache...');
   globalMutate(SWR_CACHE_KEY, undefined, { revalidate: false });
+  
+  // Force a fresh fetch after a short delay
+  setTimeout(() => {
+    console.log('Triggering homepage data refresh...');
+    globalMutate(SWR_CACHE_KEY);
+  }, 150);
 };
 
 export const useHomepageData = (sections: SectionConfig[] = DEFAULT_SECTIONS) => {
@@ -124,7 +131,12 @@ export const useHomepageData = (sections: SectionConfig[] = DEFAULT_SECTIONS) =>
       revalidateOnFocus: false,
       revalidateOnReconnect: false,
       revalidateIfStale: true,
-      dedupingInterval: 5000
+      dedupingInterval: 2000,
+      errorRetryCount: 3,
+      errorRetryInterval: 1000,
+      shouldRetryOnError: (error) => {
+        return !error?.response || error.response.status >= 500;
+      }
     }
   );
 
