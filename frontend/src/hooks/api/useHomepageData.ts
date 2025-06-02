@@ -39,18 +39,18 @@ export const DEFAULT_SECTIONS: SectionConfig[] = [
     title: 'Phim đang hot',
     limit: 10,
     sortFn: (a, b) => ((b.views || 0) * (b.rating || 0)) - ((a.views || 0) * (a.rating || 0))
-  },
-  {
-    type: 'action',
-    title: 'Phim hành động',
-    limit: 10,
-    filterFn: (movie) => movie.genres?.some(genre => genre.id === 1)
-  },
-  {
-    type: 'drama',
-    title: 'Phim tình cảm',
-    limit: 10,
-    filterFn: (movie) => movie.genres?.some(genre => genre.id === 3)
+  // },
+  // {
+  //   type: 'action',
+  //   title: 'Phim hành động',
+  //   limit: 10,
+  //   filterFn: (movie) => movie.genres?.some(genre => genre.id === 1)
+  // },
+  // {
+  //   type: 'drama',
+  //   title: 'Phim tình cảm',
+  //   limit: 10,
+  //   filterFn: (movie) => movie.genres?.some(genre => genre.id === 3)
   }
 ];
 
