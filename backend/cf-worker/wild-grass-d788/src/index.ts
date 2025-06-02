@@ -54,8 +54,8 @@ app.post("/api/upload", async (c) => {
       }
     });
     
-    // Sử dụng domain chính thức cho URL
-    const fileUrl = `https://${c.env.CLOUDFLARE_DOMAIN}/${fileKey}`;
+    // Sử dụng domain Worker cho URL
+    const fileUrl = `https://${c.env.WORKER_DOMAIN}/${fileKey}`;
     
     return c.json({
       success: true,
@@ -68,6 +68,104 @@ app.post("/api/upload", async (c) => {
     return c.json({
       success: false,
       error: error instanceof Error ? error.message : "Unknown error"
+    }, 500);
+  }
+});
+
+app.post('/upload-episode-video', async (c) => {
+  try {
+    // Xác thực thông qua header
+    const secret = c.req.header('X-Worker-Secret');
+    if (secret !== c.env.WORKER_SECRET) {
+      return c.json({ error: 'Unauthorized' }, 401);
+    }
+
+    // Nhận và xử lý formData
+    const formData = await c.req.formData();
+    
+    // Lấy movieId và episodeId từ formData
+    const movieId = formData.get('movieId') as string;
+    const episodeId = formData.get('episodeId') as string;
+    const file = formData.get('video') as File;
+    
+    if (!movieId || !episodeId) {
+      return c.json({ error: 'Thiếu thông tin phim hoặc tập phim' }, 400);
+    }
+    
+    if (!file || !file.type.startsWith('video/')) {
+      return c.json({ error: 'Không tìm thấy file video hợp lệ' }, 400);
+    }
+    
+    // Tạo key cho file trong R2
+    const fileKey = `episodes/${movieId}/${episodeId}/original.mp4`;
+    
+    // Upload file lên R2
+    await c.env.MEDIA_BUCKET.put(fileKey, await file.arrayBuffer(), {
+      httpMetadata: {
+        contentType: file.type,
+      }
+    });
+    
+    // Sử dụng domain Worker cho URL
+    const fileUrl = `https://${c.env.WORKER_DOMAIN}/${fileKey}`;
+    
+    // Gọi webhook đến backend để bắt đầu xử lý HLS trong container
+    try {
+      const backendUrl = c.env.BACKEND_URL || 'https://alldramaz.com';
+      const response = await fetch(`${backendUrl}/api/media/worker/process-video`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Worker-Secret': c.env.WORKER_SECRET || 'alldrama-worker-secret'
+        },
+        body: JSON.stringify({
+          videoKey: fileKey,
+          movieId,
+          episodeId,
+          callbackUrl: `${backendUrl}/api/media/hls-processor/callback`
+        })
+      });
+      
+      const result = await response.json() as { error?: string, jobId?: string };
+      
+      if (!response.ok) {
+        console.error(`Error from backend: ${JSON.stringify(result)}`);
+        return c.json({
+          success: true,
+          message: "Upload thành công nhưng có lỗi khi khởi động xử lý HLS",
+          url: fileUrl,
+          key: fileKey,
+          processingError: result.error || 'Unknown error from backend',
+          status: 'warning'
+        });
+      }
+      
+      return c.json({
+        success: true,
+        message: "Upload thành công, đang xử lý HLS",
+        url: fileUrl,
+        key: fileKey,
+        processingId: result.jobId,
+        status: 'processing'
+      });
+    } catch (error) {
+      console.error('Error calling backend:', error);
+      
+      // Nếu lỗi khi gọi backend, vẫn trả về thành công nhưng với cảnh báo
+      return c.json({
+        success: true,
+        message: "Upload thành công nhưng có lỗi khi khởi động xử lý HLS",
+        url: fileUrl,
+        key: fileKey,
+        error: error instanceof Error ? error.message : 'Unknown error',
+        status: 'warning'
+      });
+    }
+  } catch (error) {
+    console.error('Upload error:', error);
+    return c.json({ 
+      success: false, 
+      error: error instanceof Error ? error.message : 'Unknown error' 
     }, 500);
   }
 });
@@ -113,15 +211,15 @@ app.post("/api/convert-hls", async (c) => {
         }
       });
       
-      // URL HLS sử dụng domain chính thức
-      const hlsUrl = `https://${c.env.CLOUDFLARE_DOMAIN}/hls/${hlsOutputPath}/master.m3u8`;
+      // URL HLS sử dụng domain Worker
+      const hlsUrl = `https://${c.env.WORKER_DOMAIN}/hls/${hlsOutputPath}/master.m3u8`;
       
       // Gọi API backend để xử lý video
       try {
         console.log(`Gửi yêu cầu xử lý HLS đến backend API`);
         
         // URL của backend API
-        const backendUrl = `${c.env.BACKEND_URL}/api/media/process-video`;
+        const backendUrl = `${c.env.BACKEND_URL}/api/media/worker/process-video`;
         
         // Gửi request đến backend API
         const backendResponse = await fetch(backendUrl, {
@@ -300,7 +398,7 @@ app.get("/api/hls-status/:jobId/:movieId/:episodeId", async (c) => {
       movieId: jobMetadata.movieId,
       episodeId: jobMetadata.episodeId,
       hlsPath: hlsPath,
-      hlsUrl: `https://${c.env.CLOUDFLARE_DOMAIN}/hls/${hlsPath}`,
+      hlsUrl: `https://${c.env.WORKER_DOMAIN}/hls/${hlsPath}`,
       createdAt: jobMetadata.createdAt,
       updatedAt: jobMetadata.updatedAt
     });
@@ -328,14 +426,22 @@ app.get("/resize/:width/:height/*", async (c) => {
       return c.json({ error: "Image not found" }, 404);
     }
     
-    // Trả về hình ảnh gốc (trong thực tế sẽ thêm xử lý resize)
-    return new Response(object.body, {
-      headers: {
-        "Content-Type": object.httpMetadata?.contentType || "image/jpeg",
-        "Cache-Control": "public, max-age=31536000, immutable",
-        "Access-Control-Allow-Origin": `https://${c.env.CLOUDFLARE_DOMAIN}`
-      }
+    // Lấy origin từ request header
+    const origin = c.req.header("Origin");
+    const headers = new Headers({
+      "Content-Type": object.httpMetadata?.contentType || "image/jpeg",
+      "Cache-Control": "public, max-age=31536000, immutable"
     });
+    
+    // Nếu có origin, sử dụng nó; nếu không, cho phép tất cả
+    if (origin) {
+      headers.set("Access-Control-Allow-Origin", origin);
+    } else {
+      headers.set("Access-Control-Allow-Origin", "*");
+    }
+    
+    // Trả về hình ảnh gốc (trong thực tế sẽ thêm xử lý resize)
+    return new Response(object.body, { headers });
   } catch (error) {
     console.error(`Error resizing image: ${error}`);
     return c.json({ error: error instanceof Error ? error.message : "Unknown error" }, 500);
@@ -391,9 +497,10 @@ app.get("/hls/*", async (c) => {
     }
     
     // Cài đặt CORS headers
-    headers.set("Access-Control-Allow-Origin", `https://${c.env.CLOUDFLARE_DOMAIN}`);
+    headers.set("Access-Control-Allow-Origin", "*"); // Cho phép tất cả origin
     headers.set("Access-Control-Allow-Methods", "GET, HEAD, OPTIONS");
-    headers.set("Access-Control-Allow-Headers", "Content-Type, Range");
+    headers.set("Access-Control-Allow-Headers", "Content-Type, Range, Authorization");
+    headers.set("Access-Control-Max-Age", "86400"); // 24 giờ
     
     // Cài đặt cache headers để tối ưu hóa hiệu suất
     if (path.endsWith(".m3u8")) {
@@ -460,7 +567,7 @@ app.delete("/admin/delete-r2-object/*", async (c) => {
     }
     
     // Lấy đường dẫn file cần xóa
-    const path = c.req.path.substring(20); // Bỏ '/admin/delete-r2-object/'
+    const path = c.req.path.replace('/admin/delete-r2-object/', '');
     
     if (!path || path.length < 5) {
       return c.json({ 
@@ -504,7 +611,7 @@ app.delete("/admin/delete-r2-prefix/*", async (c) => {
     }
     
     // Lấy prefix cần xóa
-    const prefix = c.req.path.substring(21); // Bỏ '/admin/delete-r2-prefix/'
+    const prefix = c.req.path.replace('/admin/delete-r2-prefix/', '');
     
     if (!prefix || prefix.length < 3) {
       return c.json({ 
@@ -548,14 +655,25 @@ app.delete("/admin/delete-r2-prefix/*", async (c) => {
 
 // Thêm route OPTIONS cho preflight CORS requests
 app.options("*", (c) => {
+  // Lấy origin từ request header
+  const origin = c.req.header("Origin");
+  const headers = new Headers({
+    "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS, HEAD",
+    "Access-Control-Allow-Headers": "Content-Type, Authorization, X-Worker-Secret, Range",
+    "Access-Control-Max-Age": "86400",
+    "Access-Control-Allow-Credentials": "true"
+  });
+  
+  // Nếu có origin, sử dụng nó; nếu không cho phép tất cả
+  if (origin) {
+    headers.set("Access-Control-Allow-Origin", origin);
+  } else {
+    headers.set("Access-Control-Allow-Origin", "*");
+  }
+  
   return new Response(null, {
     status: 204,
-    headers: {
-      "Access-Control-Allow-Origin": `https://${c.env.CLOUDFLARE_DOMAIN}`,
-      "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS",
-      "Access-Control-Allow-Headers": "Content-Type, Authorization",
-      "Access-Control-Max-Age": "86400"
-    }
+    headers
   });
 });
 
@@ -564,11 +682,89 @@ app.use("*", async (c, next) => {
   const response = await next();
   
   // Thêm CORS headers cho tất cả các responses
-  c.header("Access-Control-Allow-Origin", `https://${c.env.CLOUDFLARE_DOMAIN}`);
+  // Cho phép cả domain chính và các origin khác nếu cần
+  const origin = c.req.header("Origin");
+  if (origin) {
+    c.header("Access-Control-Allow-Origin", origin);
+  } else {
+    c.header("Access-Control-Allow-Origin", "*");
+  }
   c.header("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS");
-  c.header("Access-Control-Allow-Headers", "Content-Type, Authorization");
+  c.header("Access-Control-Allow-Headers", "Content-Type, Authorization, Range, X-Worker-Secret");
+  c.header("Access-Control-Allow-Credentials", "true");
   
   return response;
+});
+
+// Thêm route cho file gốc (đặt trước export default app hoặc ở cuối file)
+app.get("/*", async (c) => {
+  try {
+    const path = c.req.path.substring(1); // Bỏ dấu / đầu tiên
+    
+    if (!path || path === "" || path === "/") {
+      return c.json({ error: "Invalid path" }, 400);
+    }
+    
+    console.log(`Serving file from R2: ${path}`);
+    
+    // Lấy file từ R2 bucket
+    const object = await c.env.MEDIA_BUCKET.get(path);
+    
+    if (!object) {
+      console.log(`File không tìm thấy tại đường dẫn: ${path}`);
+      return c.json({ error: "File not found" }, 404);
+    }
+    
+    console.log(`Đã tìm thấy file: ${object.key}, kích thước: ${object.size}`);
+    
+    const headers = new Headers();
+    
+    // Sử dụng Content-Type từ metadata nếu có
+    const contentType = object.httpMetadata?.contentType;
+    if (contentType) {
+      headers.set("Content-Type", contentType);
+    } else {
+      // Nếu không có, đoán dựa vào phần mở rộng
+      if (path.endsWith(".mp4")) {
+        headers.set("Content-Type", "video/mp4");
+      } else if (path.endsWith(".jpg") || path.endsWith(".jpeg")) {
+        headers.set("Content-Type", "image/jpeg");
+      } else if (path.endsWith(".png")) {
+        headers.set("Content-Type", "image/png");
+      } else if (path.endsWith(".webp")) {
+        headers.set("Content-Type", "image/webp");
+      } else {
+        headers.set("Content-Type", "application/octet-stream");
+      }
+    }
+    
+    // Cài đặt CORS headers - cấu hình mở rộng hơn
+    headers.set("Access-Control-Allow-Origin", "*"); // Cho phép tất cả origin
+    headers.set("Access-Control-Allow-Methods", "GET, HEAD, OPTIONS");
+    headers.set("Access-Control-Allow-Headers", "Content-Type, Range, Authorization");
+    headers.set("Access-Control-Max-Age", "86400"); // 24 giờ
+    
+    // Cache cho files
+    headers.set("Cache-Control", "public, max-age=31536000, immutable"); // 1 năm
+    
+    return new Response(object.body, { headers });
+  } catch (error) {
+    console.error(`Error serving file: ${error}`);
+    return c.json({ error: error instanceof Error ? error.message : "Unknown error" }, 500);
+  }
+});
+
+// Thêm handler OPTIONS cho tất cả các route để hỗ trợ CORS preflight
+app.options("/*", (c) => {
+  return new Response(null, {
+    status: 204,
+    headers: {
+      "Access-Control-Allow-Origin": "*",
+      "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS, HEAD",
+      "Access-Control-Allow-Headers": "Content-Type, Authorization, X-Worker-Secret, Range",
+      "Access-Control-Max-Age": "86400",
+    },
+  });
 });
 
 // Hàm kiểm tra token

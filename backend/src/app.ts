@@ -27,10 +27,10 @@ app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 app.use(cookieParser());
 
 // Thêm middleware bảo mật
-app.use(securityMiddleware);
+//app.use(securityMiddleware);
 
 // Áp dụng global rate limit cho tất cả các route
-app.use(globalLimiter);
+//app.use(globalLimiter);
 
 // CORS middleware
 // app.use(cors({
@@ -42,13 +42,43 @@ app.use(globalLimiter);
 //   allowedHeaders: ['Origin', 'X-Requested-With', 'Content-Type', 'Accept', 'Authorization', 'X-Worker-Secret', 'XSRF-TOKEN']
 // }));
 
+const allowedOrigins = [
+  'http://localhost:3000',
+  'https://alldrama.tech',
+  'https://alldrama.net',
+  'https://www.alldrama.net',
+  'https://alldrama-version2.vercel.app',
+  'https://alldrama.online',
+  'https://alldrama-vietnam-frontend.vercel.app'
+];
+
 app.use(cors({
-  origin: 'http://localhost:3000',
+  origin: function (origin, callback) {
+    if (!origin || allowedOrigins.includes(origin)) {
+      callback(null, true);
+    } else {
+      callback(new Error('Not allowed by CORS'));
+    }
+  },
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Origin', 'X-Requested-With', 'Content-Type', 'Accept', 'Authorization', 'X-Worker-Secret', 'XSRF-TOKEN']
+  allowedHeaders: [
+    'Origin', 'X-Requested-With', 'Content-Type', 'Accept',
+    'Authorization', 'X-Worker-Secret', 'XSRF-TOKEN'
+  ]
 }));
-app.options('*', cors({ origin: 'http://localhost:3000', credentials: true }));
+
+app.options('*', cors({
+  origin: function (origin, callback) {
+    if (!origin || allowedOrigins.includes(origin)) {
+      callback(null, true);
+    } else {
+      callback(new Error('Not allowed by CORS'));
+    }
+  },
+  credentials: true
+}));
+
 
 // Swagger Documentation
 app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(swaggerSpec, {

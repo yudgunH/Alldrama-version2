@@ -1,32 +1,24 @@
 import { useCallback } from 'react';
-import useSWR from 'swr';
-import { viewService, ViewResponse, ViewStats } from '@/lib/api/services/viewService';
-import { useApiCache } from './useApiCache';
 import { toast } from 'react-hot-toast';
+import { viewService } from '@/lib/api/services/viewService';
+import { useApiCache } from './useApiCache';
 
 export const useViews = () => {
   const { clearCache } = useApiCache();
 
-  // Xóa cache cho lượt xem
   const clearViewCache = useCallback(() => {
     clearCache('views');
   }, [clearCache]);
 
-  // Hook lấy lượt xem phim
-  const useMovieViews = (movieId: string | number | null) => {
-    const { data, error, isLoading, mutate } = useSWR(
-      movieId ? `views/movie/${movieId}` : null,
-      () => movieId ? viewService.getMovieViews(movieId) : null,
-      {
-        revalidateOnFocus: false,
-        dedupingInterval: 60000, // 1 phút
-      }
-    );
-
+  // Hook để tăng lượt xem phim
+  const useMovieViewIncrement = () => {
     // Tăng lượt xem phim với throttling
-    const incrementView = useCallback(async (progress: number = 0, duration: number = 0) => {
-      if (!movieId) return null;
-      
+    const incrementView = useCallback(async (
+      movieId: string | number,
+      progress: number = 0, 
+      duration: number = 0
+    ) => {
+      console.log('🎬 useMovieViewIncrement called:', { movieId, progress, duration })
       try {
         const result = await viewService.incrementMovieView(movieId, progress, duration);
         
@@ -36,13 +28,8 @@ export const useViews = () => {
           return result;
         }
         
-        // Cập nhật cache SWR nếu thành công
-        if (result.success && result.views !== undefined) {
-          mutate({ views: result.views }, false);
-        } else {
-          // Refresh data từ server
-          mutate();
-        }
+        // Xóa cache stats để refresh dữ liệu mới
+        clearViewCache();
         
         return result;
       } catch (error) {
@@ -50,42 +37,29 @@ export const useViews = () => {
         toast.error('Không thể cập nhật lượt xem');
         throw error;
       }
-    }, [movieId, mutate]);
+    }, [clearViewCache]);
 
     // Kiểm tra có thể increment view không
-    const canIncrement = useCallback(() => {
-      return movieId ? viewService.canIncrementView(movieId) : false;
-    }, [movieId]);
+    const canIncrement = useCallback((movieId: string | number) => {
+      return viewService.canIncrementView(movieId);
+    }, []);
 
     return {
-      views: data?.views,
-      isLoading,
-      isError: error,
       incrementView,
       canIncrement,
-      mutate,
     };
   };
 
-  // Hook lấy lượt xem tập phim
-  const useEpisodeViews = (episodeId: string | number | null) => {
-    const { data, error, isLoading, mutate } = useSWR(
-      episodeId ? `views/episode/${episodeId}` : null,
-      () => episodeId ? viewService.getEpisodeViews(episodeId) : null,
-      {
-        revalidateOnFocus: false,
-        dedupingInterval: 60000, // 1 phút
-      }
-    );
-
+  // Hook để tăng lượt xem tập phim
+  const useEpisodeViewIncrement = () => {
     // Tăng lượt xem tập phim với throttling
     const incrementView = useCallback(async (
+      episodeId: string | number,
       movieId: string | number,
       progress: number = 0, 
       duration: number = 0
     ) => {
-      if (!episodeId) return null;
-      
+      console.log('📺 useEpisodeViewIncrement called:', { episodeId, movieId, progress, duration })
       try {
         const result = await viewService.incrementEpisodeView(episodeId, movieId, progress, duration);
         
@@ -95,13 +69,8 @@ export const useViews = () => {
           return result;
         }
         
-        // Cập nhật cache SWR nếu thành công
-        if (result.success && result.views !== undefined) {
-          mutate({ views: result.views }, false);
-        } else {
-          // Refresh data từ server
-          mutate();
-        }
+        // Xóa cache stats để refresh dữ liệu mới
+        clearViewCache();
         
         return result;
       } catch (error) {
@@ -109,26 +78,22 @@ export const useViews = () => {
         toast.error('Không thể cập nhật lượt xem');
         throw error;
       }
-    }, [episodeId, mutate]);
+    }, [clearViewCache]);
 
     // Kiểm tra có thể increment view không
-    const canIncrement = useCallback(() => {
-      return episodeId ? viewService.canIncrementView(undefined, episodeId) : false;
-    }, [episodeId]);
+    const canIncrement = useCallback((episodeId: string | number) => {
+      return viewService.canIncrementView(undefined, episodeId);
+    }, []);
 
     return {
-      views: data?.views,
-      isLoading,
-      isError: error,
       incrementView,
       canIncrement,
-      mutate,
     };
   };
 
   return {
-    useMovieViews,
-    useEpisodeViews,
+    useMovieViewIncrement,
+    useEpisodeViewIncrement,
     clearViewCache,
     // Utility methods
     clearThrottleCache: viewService.clearThrottleCache,

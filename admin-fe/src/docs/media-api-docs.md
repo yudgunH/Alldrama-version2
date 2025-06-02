@@ -341,10 +341,20 @@ Authorization: Bearer {accessToken}
 ```json
 {
   "episodeId": 456,
-  "isProcessed": true,
-  "processingError": null,
-  "playlistUrl": "https://cdn.example.com/episodes/123/456/hls/master.m3u8",
-  "thumbnailUrl": "https://cdn.example.com/episodes/123/456/thumbnail.jpg"
+  "processingStatus": "processing",
+  "playlistUrl": null,
+  "thumbnailUrl": null,
+  "progress": 65,
+  "lastUpdated": "2024-01-15T10:30:00.000Z",
+  "estimatedTimeRemaining": 70,
+  "jobMetadata": {
+    "status": "PROCESSING",
+    "progress": 65,
+    "error": null,
+    "thumbnailUrl": "episodes/123/456/thumbnail.jpg",
+    "masterPlaylistUrl": "episodes/123/456/hls/master.m3u8",
+    "lastUpdated": "2024-01-15T10:30:00.000Z"
+  }
 }
 ```
 
@@ -354,47 +364,112 @@ Authorization: Bearer {accessToken}
 - 404: Không tìm thấy tập phim
 - 500: Lỗi máy chủ
 
-### Xử lý video (từ worker)
+### Kiểm tra trạng thái chi tiết
 
 ```
-POST /api/media/process-video
+GET /api/media/episodes/:movieId/:episodeId/processing-status-detailed
 ```
 
-**Mô tả**: API nội bộ được gọi bởi Cloudflare Worker để bắt đầu quá trình xử lý HLS
+**Mô tả**: Kiểm tra trạng thái chi tiết bao gồm tiến độ xử lý realtime
 
 **Headers**:
 
 ```
-X-Worker-Secret: {workerSecret}
-Content-Type: application/json
+Authorization: Bearer {accessToken}
 ```
 
-**Request Body**:
+**Path Parameters**:
 
-```json
-{
-  "videoKey": "episodes/123/456/original.mp4",
-  "movieId": 123,
-  "episodeId": 456,
-  "jobId": "job-12345",
-  "callbackUrl": "https://worker.example.com/api/hls-callback/job-12345"
-}
-```
+- `movieId`: ID của phim
+- `episodeId`: ID của tập phim
 
 **Response (200 - OK)**:
 
 ```json
 {
   "success": true,
-  "jobId": "job-12345",
-  "error": null
+  "episodeId": 456,
+  "movieId": 123,
+  "processingStatus": "processing",
+  "playlistUrl": null,
+  "thumbnailUrl": null,
+  "progress": 65,
+  "lastUpdated": "2024-01-15T10:30:00.000Z",
+  "estimatedTimeRemaining": 70,
+  "jobMetadata": {
+    "status": "PROCESSING",
+    "progress": 65,
+    "error": null,
+    "thumbnailUrl": "episodes/123/456/thumbnail.jpg",
+    "masterPlaylistUrl": "episodes/123/456/hls/master.m3u8",
+    "lastUpdated": "2024-01-15T10:30:00.000Z"
+  }
 }
 ```
 
 **Lỗi**:
 
-- 400: Thiếu thông tin cần thiết
 - 401: Không được xác thực
+- 404: Không tìm thấy tập phim
+- 500: Lỗi máy chủ
+
+### Kiểm tra trạng thái tất cả tập phim
+
+```
+GET /api/media/movies/:movieId/processing-status
+```
+
+**Mô tả**: Kiểm tra trạng thái xử lý của tất cả tập phim trong một phim
+
+**Headers**:
+
+```
+Authorization: Bearer {accessToken}
+```
+
+**Path Parameters**:
+
+- `movieId`: ID của phim
+
+**Response (200 - OK)**:
+
+```json
+{
+  "success": true,
+  "movieId": 123,
+  "summary": {
+    "total": 24,
+    "completed": 20,
+    "processing": 2,
+    "pending": 1,
+    "failed": 1,
+    "unknown": 0
+  },
+  "episodes": [
+    {
+      "episodeId": 456,
+      "episodeNumber": 1,
+      "title": "Tập 1",
+      "processingStatus": "completed",
+      "playlistUrl": "https://cdn.example.com/episodes/123/456/hls/master.m3u8",
+      "thumbnailUrl": "https://cdn.example.com/episodes/123/456/thumbnail.jpg"
+    },
+    {
+      "episodeId": 457,
+      "episodeNumber": 2,
+      "title": "Tập 2",
+      "processingStatus": "processing",
+      "playlistUrl": null,
+      "thumbnailUrl": null
+    }
+  ]
+}
+```
+
+**Lỗi**:
+
+- 401: Không được xác thực
+- 404: Không tìm thấy phim
 - 500: Lỗi máy chủ
 
 ## Cloudflare Worker API
@@ -434,6 +509,46 @@ Content-Type: multipart/form-data
 **Lỗi**:
 
 - 400: Không tìm thấy file
+- 401: Không được xác thực
+- 500: Lỗi máy chủ
+
+### Upload video cho tập phim (qua Worker)
+
+```
+POST https://worker.example.com/upload-episode-video
+```
+
+**Mô tả**: Upload file video cho tập phim và khởi động xử lý HLS
+
+**Headers**:
+
+```
+X-Worker-Secret: {workerSecret}
+Content-Type: multipart/form-data
+```
+
+**Form Data**:
+
+- `movieId`: ID của phim
+- `episodeId`: ID của tập phim
+- `video`: File video cần upload (MP4, WebM)
+
+**Response (200 - OK)**:
+
+```json
+{
+  "success": true,
+  "message": "Upload thành công, đang xử lý HLS",
+  "url": "https://cdn.example.com/episodes/123/456/original.mp4",
+  "key": "episodes/123/456/original.mp4",
+  "processingId": "job-12345",
+  "status": "processing"
+}
+```
+
+**Lỗi**:
+
+- 400: Thiếu thông tin hoặc không tìm thấy file
 - 401: Không được xác thực
 - 500: Lỗi máy chủ
 
@@ -555,8 +670,8 @@ GET https://worker.example.com/api/hls-status/:jobId/:movieId/:episodeId
   "episodeId": 456,
   "hlsPath": "episodes/123/456/hls/master.m3u8",
   "hlsUrl": "https://cdn.example.com/hls/episodes/123/456/hls/master.m3u8",
-  "createdAt": "2023-05-01T12:00:00.000Z",
-  "updatedAt": "2023-05-01T12:10:00.000Z"
+  "createdAt": "2024-01-15T10:00:00.000Z",
+  "updatedAt": "2024-01-15T10:30:00.000Z"
 }
 ```
 
@@ -588,12 +703,12 @@ GET https://worker.example.com/list-r2/:prefix
     {
       "key": "episodes/123/456/original.mp4",
       "size": 1234567,
-      "uploadedAt": "2023-05-01T12:00:00.000Z"
+      "uploadedAt": "2024-01-15T10:00:00.000Z"
     },
     {
       "key": "episodes/123/456/thumbnail.jpg",
       "size": 12345,
-      "uploadedAt": "2023-05-01T12:00:00.000Z"
+      "uploadedAt": "2024-01-15T10:00:00.000Z"
     }
   ]
 }

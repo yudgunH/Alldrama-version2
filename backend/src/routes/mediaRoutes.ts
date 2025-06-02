@@ -7,12 +7,19 @@ import {
   getPresignedUploadUrl,
   deleteMedia,
   getVideoProcessingStatus,
+  getDetailedProcessingStatus,
+  getMovieProcessingStatus,
   processVideo,
   deleteEpisode,
-  deleteMovie
+  deleteMovie,
+  processVideoFromWorker,
+  hlsProcessorCallback
 } from '../controllers/mediaController';
 import { imageUpload, videoUpload, validateFileType, authenticate, requireAdmin } from '../middleware';
 import { uploadLimiter } from '../middleware/rateLimit';
+import { runAsyncWrapper } from '../utils/runAsyncWrapper';
+import { Request, Response } from 'express';
+import * as mediaController from '../controllers/mediaController';
 
 const router = express.Router();
 
@@ -95,7 +102,46 @@ router.get('/episodes/:episodeId/processing-status',
   getVideoProcessingStatus
 );
 
+// Route lấy trạng thái xử lý video chi tiết (bao gồm thông tin từ job-metadata)
+router.get('/episodes/:movieId/:episodeId/processing-status-detailed',
+  authenticate,
+  getDetailedProcessingStatus
+);
+
 // Thêm route cho xử lý video từ worker
-router.post('/process-video', processVideo);
+router.post('/process-video', runAsyncWrapper(processVideoFromWorker));
+
+// Xử lý webhook từ Cloudflare Worker
+router.post('/worker/process-video', runAsyncWrapper(processVideoFromWorker));
+
+// Route xóa phương tiện của phim
+router.delete('/movies/:movieId/:mediaType', authenticate, runAsyncWrapper(deleteMedia));
+
+// Thêm route mới
+// Callback từ container HLS processor
+router.post('/hls-processor/callback', runAsyncWrapper(hlsProcessorCallback));
+
+// Route lấy trạng thái xử lý của tất cả tập phim trong một phim
+router.get('/movies/:movieId/processing-status',
+  authenticate,
+  getMovieProcessingStatus
+);
+
+// === ADMIN R2 MANAGEMENT ENDPOINTS ===
+
+// Liệt kê files trên R2 theo prefix (để debug)
+router.get('/admin/r2/list/:prefix(*)', authenticate, requireAdmin, async (req: Request, res: Response) => {
+  await mediaController.listR2Files(req, res);
+});
+
+// Xóa tất cả file theo prefix (nguy hiểm - chỉ admin)
+router.delete('/admin/r2/prefix/:prefix(*)', authenticate, requireAdmin, async (req: Request, res: Response) => {
+  await mediaController.deleteFilesByPrefix(req, res);
+});
+
+// Xóa file đơn lẻ theo key
+router.delete('/admin/r2/file/:key(*)', authenticate, requireAdmin, async (req: Request, res: Response) => {
+  await mediaController.deleteR2File(req, res);
+});
 
 export default router; 

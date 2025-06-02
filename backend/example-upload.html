@@ -1,0 +1,173 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Test Upload Video HLS</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+            line-height: 1.6;
+        }
+        h1 {
+            text-align: center;
+            color: #333;
+        }
+        .form-group {
+            margin-bottom: 15px;
+        }
+        label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: bold;
+        }
+        input, button {
+            width: 100%;
+            padding: 10px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+        }
+        button {
+            background-color: #4CAF50;
+            color: white;
+            border: none;
+            cursor: pointer;
+            font-size: 16px;
+            margin-top: 10px;
+        }
+        button:hover {
+            background-color: #45a049;
+        }
+        .result {
+            margin-top: 20px;
+            padding: 15px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            background-color: #f9f9f9;
+            display: none;
+        }
+        .progress-container {
+            width: 100%;
+            height: 20px;
+            background-color: #f1f1f1;
+            border-radius: 4px;
+            margin-top: 10px;
+            display: none;
+        }
+        .progress-bar {
+            height: 20px;
+            background-color: #4CAF50;
+            border-radius: 4px;
+            width: 0%;
+            text-align: center;
+            color: white;
+        }
+    </style>
+</head>
+<body>
+    <h1>Test Upload Video HLS</h1>
+    
+    <div class="form-group">
+        <label for="movieId">ID Phim:</label>
+        <input type="text" id="movieId" name="movieId" required placeholder="Nhập ID phim">
+    </div>
+    
+    <div class="form-group">
+        <label for="episodeId">ID Tập Phim:</label>
+        <input type="text" id="episodeId" name="episodeId" required placeholder="Nhập ID tập phim">
+    </div>
+    
+    <div class="form-group">
+        <label for="video">Chọn Video:</label>
+        <input type="file" id="video" name="video" accept="video/*" required>
+    </div>
+    
+    <div class="form-group">
+        <label for="worker-url">Worker URL:</label>
+        <input type="text" id="worker-url" name="worker-url" value="https://wild-grass-d788.ndhung0901.workers.dev/upload-episode-video" required>
+    </div>
+    
+    <div class="form-group">
+        <label for="worker-secret">Worker Secret:</label>
+        <input type="text" id="worker-secret" name="worker-secret" value="alldrama-worker-secret" required>
+    </div>
+    
+    <div class="progress-container" id="progress-container">
+        <div class="progress-bar" id="progress-bar">0%</div>
+    </div>
+    
+    <button id="upload-btn">Upload</button>
+    
+    <div class="result" id="result"></div>
+    
+    <script>
+        document.getElementById('upload-btn').addEventListener('click', async () => {
+            const movieId = document.getElementById('movieId').value;
+            const episodeId = document.getElementById('episodeId').value;
+            const videoFile = document.getElementById('video').files[0];
+            const workerUrl = document.getElementById('worker-url').value;
+            const workerSecret = document.getElementById('worker-secret').value;
+            
+            if (!movieId || !episodeId || !videoFile) {
+                alert('Vui lòng điền đầy đủ thông tin và chọn file video!');
+                return;
+            }
+            
+            // Hiển thị thanh tiến trình
+            const progressContainer = document.getElementById('progress-container');
+            const progressBar = document.getElementById('progress-bar');
+            progressContainer.style.display = 'block';
+            
+            try {
+                // Tạo FormData
+                const formData = new FormData();
+                formData.append('movieId', movieId);
+                formData.append('episodeId', episodeId);
+                formData.append('video', videoFile);
+                
+                // Tạo XMLHttpRequest để theo dõi tiến trình
+                const xhr = new XMLHttpRequest();
+                
+                xhr.upload.onprogress = (event) => {
+                    if (event.lengthComputable) {
+                        const percentComplete = Math.round((event.loaded / event.total) * 100);
+                        progressBar.style.width = percentComplete + '%';
+                        progressBar.textContent = percentComplete + '%';
+                    }
+                };
+                
+                xhr.onload = function() {
+                    const resultDiv = document.getElementById('result');
+                    resultDiv.style.display = 'block';
+                    
+                    try {
+                        const response = JSON.parse(xhr.responseText);
+                        resultDiv.innerHTML = `<h3>Kết quả:</h3><pre>${JSON.stringify(response, null, 2)}</pre>`;
+                    } catch (e) {
+                        resultDiv.innerHTML = `<h3>Kết quả:</h3><p>Lỗi khi phân tích phản hồi: ${e.message}</p><pre>${xhr.responseText}</pre>`;
+                    }
+                };
+                
+                xhr.onerror = function() {
+                    const resultDiv = document.getElementById('result');
+                    resultDiv.style.display = 'block';
+                    resultDiv.innerHTML = `<h3>Lỗi:</h3><p>Có lỗi xảy ra khi gửi yêu cầu</p>`;
+                };
+                
+                // Gửi request
+                xhr.open('POST', workerUrl, true);
+                xhr.setRequestHeader('X-Worker-Secret', workerSecret);
+                xhr.send(formData);
+                
+            } catch (error) {
+                const resultDiv = document.getElementById('result');
+                resultDiv.style.display = 'block';
+                resultDiv.innerHTML = `<h3>Lỗi:</h3><p>${error.message}</p>`;
+            }
+        });
+    </script>
+</body>
+</html> 

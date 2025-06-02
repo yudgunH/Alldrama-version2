@@ -1,0 +1,32 @@
+version: '3'
+
+services:
+  hls-processor:
+    build:
+      context: .
+    image: alldrama-hls-processor:latest
+    volumes:
+      - ./temp:/input
+      - ./output:/output
+    environment:
+      - NODE_ENV=production
+    restart: "no"
+    network_mode: "host"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    user: "root"
+    # Sẽ chạy thông qua command line, không tự động start
+    command: ["echo", "HLS processor container is ready"]
+
+  test-run:
+    image: alldrama-hls-processor:latest
+    volumes:
+      - ./temp:/input
+      - ./output:/output
+    environment:
+      - NODE_ENV=development
+    network_mode: "host"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    user: "root"
+    command: ["/input/original.mp4", "/output", "test", "test", "r2_account", "r2_access", "r2_secret", "r2_bucket", "http://127.0.0.1:5000/api/media/hls-processor/callback"] 

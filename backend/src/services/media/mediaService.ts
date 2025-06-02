@@ -8,7 +8,8 @@ import {
   deleteFileFromR2,
   deleteHlsFiles,
   downloadFromR2,
-  uploadDirectoryToR2
+  uploadDirectoryToR2,
+  downloadFromR2AsBuffer
 } from './r2Service';
 import { 
   convertToHls, 
@@ -152,7 +153,7 @@ export class MediaService {
         videoUrl: originalUrl,
         thumbnailUrl,
         duration,
-        isProcessed: false 
+        processingStatus: 'pending'
       }, { where: { id: episodeId } });
       
       // Xóa file tạm
@@ -237,6 +238,14 @@ export class MediaService {
           }
           
           if (!downloadSuccess) {
+            // Cập nhật trạng thái thất bại
+            await Episode.update(
+              {
+                processingStatus: 'failed'
+              },
+              { where: { id: episodeId, movieId } }
+            );
+            
             throw new Error(`Không thể tải video sau 3 lần thử: ${lastError?.message || 'Lỗi không xác định'}`);
           }
           
@@ -247,7 +256,7 @@ export class MediaService {
           // Cập nhật trạng thái lỗi cho episode
           await Episode.update(
             {
-              isProcessed: false,
+              processingStatus: 'error',
               processingError: `Lỗi khi tải video: ${downloadError instanceof Error ? downloadError.message : String(downloadError)}`
             },
             { where: { id: episodeId, movieId } }
@@ -271,14 +280,13 @@ export class MediaService {
       await convertToHls(localVideoPath, outputDir, movieId, episodeId);
       logger.info('Đã hoàn thành chuyển đổi HLS');
       
-      // Tạo URL playlist - Sửa lại đường dẫn cho đúng
-      const playlistUrl = `https://${process.env.CLOUDFLARE_DOMAIN}/episodes/${movieId}/${episodeId}/hls/master.m3u8`;
+      // Tạo URL playlist - Sử dụng domain Worker
+      const playlistUrl = `https://${process.env.CLOUDFLARE_WORKER_DOMAIN || process.env.WORKER_DOMAIN}/episodes/${movieId}/${episodeId}/hls/master.m3u8`;
       
       // Cập nhật trạng thái episode trong database
       await Episode.update(
         {
-          isProcessed: true,
-          processingError: null,
+          processingStatus: 'completed',
           playlistUrl,
           thumbnailUrl
         },
@@ -321,8 +329,7 @@ export class MediaService {
       try {
         await Episode.update(
           {
-            isProcessed: false,
-            processingError: error instanceof Error ? error.message : 'Lỗi không xác định'
+            processingStatus: 'failed'
           },
           { where: { id: episodeId, movieId } }
         );
@@ -399,7 +406,7 @@ export class MediaService {
       
       // Cập nhật trạng thái episode là đang xử lý
       await Episode.update(
-        { isProcessed: false, processingError: null },
+        { processingStatus: 'pending' },
         { where: { id: episodeId, movieId } }
       );
       
@@ -547,24 +554,59 @@ export class MediaService {
    */
   public async getVideoProcessingStatus(episodeId: number): Promise<{
     episodeId: number;
-    isProcessed: boolean;
-    processingError: string | null;
+    processingStatus: string;
     playlistUrl: string | null;
     thumbnailUrl: string | null;
+    progress?: number;
+    lastUpdated?: string;
+    jobMetadata?: any;
   }> {
     const episode = await Episode.findByPk(episodeId);
     
     if (!episode) {
       throw new Error('Không tìm thấy tập phim');
     }
-    
-    return {
+
+    // Thông tin cơ bản từ database
+    const basicStatus = {
       episodeId,
-      isProcessed: episode.isProcessed,
-      processingError: episode.processingError,
+      processingStatus: episode.processingStatus || 'unknown',
       playlistUrl: episode.playlistUrl,
       thumbnailUrl: episode.thumbnailUrl
     };
+
+    // Nếu đang xử lý, lấy thêm thông tin chi tiết từ job-metadata
+    if (episode.processingStatus === 'processing' || episode.processingStatus === 'pending') {
+      try {
+        // Lấy movieId từ episode
+        const movieId = episode.movieId;
+        
+        // Tải job-metadata từ R2
+        const metadataKey = `episodes/${movieId}/${episodeId}/hls/job-metadata.json`;
+        
+        const metadataBuffer = await downloadFromR2AsBuffer(metadataKey);
+        const jobMetadata = JSON.parse(metadataBuffer.toString());
+        
+        return {
+          ...basicStatus,
+          progress: jobMetadata.progress || 0,
+          lastUpdated: jobMetadata.lastUpdated,
+          jobMetadata: {
+            status: jobMetadata.status,
+            progress: jobMetadata.progress,
+            error: jobMetadata.error,
+            thumbnailUrl: jobMetadata.thumbnailUrl,
+            masterPlaylistUrl: jobMetadata.masterPlaylistUrl,
+            lastUpdated: jobMetadata.lastUpdated
+          }
+        };
+      } catch (metadataError) {
+        // Nếu không lấy được metadata, chỉ trả về thông tin cơ bản
+        this.logger.warn(`Không thể lấy job metadata cho episode ${episodeId}:`, metadataError);
+      }
+    }
+    
+    return basicStatus;
   }
 
   /**

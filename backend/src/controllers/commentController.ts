@@ -176,4 +176,141 @@ export const deleteComment = async (req: AuthRequest, res: Response) => {
     logger.error('Error deleting comment:', error);
     return res.status(500).json({ message: 'Lỗi khi xóa bình luận' });
   }
+};
+
+// Lấy tất cả bình luận trong hệ thống (admin only)
+export const getAllComments = async (req: Request, res: Response) => {
+  try {
+    const { 
+      page, 
+      limit, 
+      sort, 
+      order, 
+      movieId, 
+      userId, 
+      search, 
+      dateFrom, 
+      dateTo 
+    } = req.query;
+    
+    const commentService = getCommentService();
+    
+    // Parse date strings nếu có
+    let parsedDateFrom: Date | undefined;
+    let parsedDateTo: Date | undefined;
+    
+    if (dateFrom && typeof dateFrom === 'string') {
+      parsedDateFrom = new Date(dateFrom);
+    }
+    
+    if (dateTo && typeof dateTo === 'string') {
+      parsedDateTo = new Date(dateTo);
+    }
+    
+    const result = await commentService.getAllComments({
+      page: page ? Number(page) : undefined,
+      limit: limit ? Number(limit) : undefined,
+      sort: sort as string | undefined,
+      order: (order as 'ASC' | 'DESC' | undefined),
+      movieId: movieId ? Number(movieId) : undefined,
+      userId: userId ? Number(userId) : undefined,
+      search: search as string | undefined,
+      dateFrom: parsedDateFrom,
+      dateTo: parsedDateTo
+    });
+    
+    return res.status(200).json(result);
+  } catch (error) {
+    logger.error('Error fetching all comments:', error);
+    return res.status(500).json({ message: 'Lỗi khi lấy danh sách tất cả bình luận' });
+  }
+};
+
+// Lấy bình luận mới nhất
+export const getLatestComments = async (req: Request, res: Response) => {
+  try {
+    const { limit } = req.query;
+    const commentService = getCommentService();
+    
+    const comments = await commentService.getLatestComments(
+      limit ? Number(limit) : undefined
+    );
+    
+    return res.status(200).json(comments);
+  } catch (error) {
+    logger.error('Error fetching latest comments:', error);
+    return res.status(500).json({ message: 'Lỗi khi lấy bình luận mới nhất' });
+  }
+};
+
+// Lấy bình luận theo người dùng
+export const getCommentsByUser = async (req: Request, res: Response) => {
+  try {
+    const { userId } = req.params;
+    const { page, limit, sort, order } = req.query;
+    
+    const commentService = getCommentService();
+    
+    try {
+      const result = await commentService.getCommentsByUser(
+        Number(userId),
+        {
+          page: page ? Number(page) : undefined,
+          limit: limit ? Number(limit) : undefined,
+          sort: sort as string | undefined,
+          order: (order as 'ASC' | 'DESC' | undefined)
+        }
+      );
+      
+      return res.status(200).json(result);
+    } catch (error) {
+      if (error instanceof Error && error.message === 'Không tìm thấy người dùng') {
+        return res.status(404).json({ message: error.message });
+      }
+      throw error;
+    }
+  } catch (error) {
+    logger.error('Error fetching user comments:', error);
+    return res.status(500).json({ message: 'Lỗi khi lấy bình luận của người dùng' });
+  }
+};
+
+// Lấy bình luận của chính mình
+export const getMyComments = async (req: AuthRequest, res: Response) => {
+  try {
+    if (!req.user) {
+      return res.status(401).json({ message: 'Bạn cần đăng nhập để xem bình luận của mình' });
+    }
+    
+    const { page, limit, sort, order } = req.query;
+    const commentService = getCommentService();
+    
+    const result = await commentService.getCommentsByUser(
+      req.user.id,
+      {
+        page: page ? Number(page) : undefined,
+        limit: limit ? Number(limit) : undefined,
+        sort: sort as string | undefined,
+        order: (order as 'ASC' | 'DESC' | undefined)
+      }
+    );
+    
+    return res.status(200).json(result);
+  } catch (error) {
+    logger.error('Error fetching my comments:', error);
+    return res.status(500).json({ message: 'Lỗi khi lấy bình luận của bạn' });
+  }
+};
+
+// Lấy thống kê bình luận (admin only)
+export const getCommentsStats = async (req: Request, res: Response) => {
+  try {
+    const commentService = getCommentService();
+    const stats = await commentService.getCommentsStats();
+    
+    return res.status(200).json(stats);
+  } catch (error) {
+    logger.error('Error fetching comments stats:', error);
+    return res.status(500).json({ message: 'Lỗi khi lấy thống kê bình luận' });
+  }
 }; 

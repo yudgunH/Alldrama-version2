@@ -24,13 +24,13 @@ GET /api/episodes/movie/:movieId
     "episodeNumber": 1,
     "title": "Tập 1: Bắt đầu cuộc hành trình",
     "description": "Mô tả nội dung tập phim",
-    "playlistUrl": "https://example.com/playlist.m3u8",
-    "thumbnailUrl": "https://example.com/thumbnail.jpg",
+    "playlistUrl": "https://cdn.example.com/episodes/1/1/hls/master.m3u8",
+    "thumbnailUrl": "https://cdn.example.com/episodes/1/1/thumbnail.jpg",
     "duration": 2400,
-    "isProcessed": true,
+    "processingStatus": "completed",
     "views": 1200,
-    "createdAt": "2023-05-01T10:30:00.000Z",
-    "updatedAt": "2023-05-01T10:30:00.000Z"
+    "createdAt": "2024-01-15T10:30:00.000Z",
+    "updatedAt": "2024-01-15T10:30:00.000Z"
   },
   {
     "id": 2,
@@ -38,13 +38,13 @@ GET /api/episodes/movie/:movieId
     "episodeNumber": 2,
     "title": "Tập 2: Cuộc gặp gỡ định mệnh",
     "description": "Mô tả nội dung tập phim",
-    "playlistUrl": "https://example.com/playlist2.m3u8",
-    "thumbnailUrl": "https://example.com/thumbnail2.jpg",
-    "duration": 2600,
-    "isProcessed": true,
-    "views": 980,
-    "createdAt": "2023-05-08T10:30:00.000Z",
-    "updatedAt": "2023-05-08T10:30:00.000Z"
+    "playlistUrl": null,
+    "thumbnailUrl": null,
+    "duration": 0,
+    "processingStatus": "processing",
+    "views": 0,
+    "createdAt": "2024-01-15T11:30:00.000Z",
+    "updatedAt": "2024-01-15T11:30:00.000Z"
   }
 ]
 ```
@@ -75,19 +75,18 @@ GET /api/episodes/:id
   "episodeNumber": 1,
   "title": "Tập 1: Bắt đầu cuộc hành trình",
   "description": "Mô tả nội dung tập phim",
-  "playlistUrl": "https://example.com/playlist.m3u8",
-  "thumbnailUrl": "https://example.com/thumbnail.jpg",
+  "playlistUrl": "https://cdn.example.com/episodes/1/1/hls/master.m3u8",
+  "thumbnailUrl": "https://cdn.example.com/episodes/1/1/thumbnail.jpg",
   "duration": 2400,
-  "isProcessed": true,
-  "processingError": null,
+  "processingStatus": "completed",
   "views": 1200,
-  "createdAt": "2023-05-01T10:30:00.000Z",
-  "updatedAt": "2023-05-01T10:30:00.000Z",
+  "createdAt": "2024-01-15T10:30:00.000Z",
+  "updatedAt": "2024-01-15T10:30:00.000Z",
   "movie": {
     "id": 1,
     "title": "Tên phim",
-    "releaseYear": 2023,
-    "posterUrl": "https://example.com/poster.jpg"
+    "releaseYear": 2024,
+    "posterUrl": "https://cdn.example.com/movies/1/poster.jpg"
   }
 }
 ```
@@ -119,10 +118,7 @@ Content-Type: application/json
   "movieId": 1,
   "episodeNumber": 3,
   "title": "Tập 3: Đối mặt với thử thách",
-  "description": "Mô tả nội dung tập phim",
-  "playlistUrl": "https://example.com/playlist3.m3u8",
-  "thumbnailUrl": "https://example.com/thumbnail3.jpg",
-  "duration": 2500
+  "description": "Mô tả nội dung tập phim"
 }
 ```
 
@@ -137,13 +133,13 @@ Content-Type: application/json
     "episodeNumber": 3,
     "title": "Tập 3: Đối mặt với thử thách",
     "description": "Mô tả nội dung tập phim",
-    "playlistUrl": "https://example.com/playlist3.m3u8",
-    "thumbnailUrl": "https://example.com/thumbnail3.jpg",
-    "duration": 2500,
-    "isProcessed": false,
+    "playlistUrl": null,
+    "thumbnailUrl": null,
+    "duration": 0,
+    "processingStatus": "pending",
     "views": 0,
-    "createdAt": "2023-05-15T10:30:00.000Z",
-    "updatedAt": "2023-05-15T10:30:00.000Z"
+    "createdAt": "2024-01-15T12:30:00.000Z",
+    "updatedAt": "2024-01-15T12:30:00.000Z"
   }
 }
 ```
@@ -181,10 +177,7 @@ Content-Type: application/json
 {
   "episodeNumber": 3,
   "title": "Tập 3: Đối mặt với thử thách (phiên bản mới)",
-  "description": "Mô tả nội dung tập phim đã được cập nhật",
-  "playlistUrl": "https://example.com/playlist3-updated.m3u8",
-  "thumbnailUrl": "https://example.com/thumbnail3-updated.jpg",
-  "duration": 2550
+  "description": "Mô tả nội dung tập phim đã được cập nhật"
 }
 ```
 
@@ -199,13 +192,13 @@ Content-Type: application/json
     "episodeNumber": 3,
     "title": "Tập 3: Đối mặt với thử thách (phiên bản mới)",
     "description": "Mô tả nội dung tập phim đã được cập nhật",
-    "playlistUrl": "https://example.com/playlist3-updated.m3u8",
-    "thumbnailUrl": "https://example.com/thumbnail3-updated.jpg",
-    "duration": 2550,
-    "isProcessed": false,
+    "playlistUrl": null,
+    "thumbnailUrl": null,
+    "duration": 0,
+    "processingStatus": "pending",
     "views": 0,
-    "createdAt": "2023-05-15T10:30:00.000Z",
-    "updatedAt": "2023-05-15T11:45:00.000Z"
+    "createdAt": "2024-01-15T12:30:00.000Z",
+    "updatedAt": "2024-01-15T13:45:00.000Z"
   }
 }
 ```
@@ -250,6 +243,33 @@ Authorization: Bearer {accessToken}
 - 403: Không có quyền truy cập
 - 404: Không tìm thấy tập phim
 - 500: Lỗi khi xóa tập phim
+
+## Trạng thái xử lý video
+
+### Các trạng thái có thể:
+
+- `pending`: Video đang chờ xử lý
+- `processing`: Video đang được xử lý
+- `completed`: Video đã xử lý xong
+- `failed`: Xử lý video thất bại
+- `unknown`: Không xác định được trạng thái
+
+### Các trường liên quan:
+
+- `playlistUrl`: URL của file playlist HLS (null nếu chưa xử lý xong)
+- `thumbnailUrl`: URL của thumbnail (null nếu chưa xử lý xong)
+- `duration`: Thời lượng video (0 nếu chưa xử lý xong)
+- `processingStatus`: Trạng thái xử lý video
+
+### Lưu ý:
+
+1. Khi tạo tập phim mới, `processingStatus` sẽ là `pending` và các trường `playlistUrl`, `thumbnailUrl`, `duration` sẽ là null hoặc 0.
+
+2. Sau khi upload video, `processingStatus` sẽ chuyển sang `processing` và sẽ được cập nhật thành `completed` khi xử lý xong.
+
+3. Nếu xử lý thất bại, `processingStatus` sẽ là `failed` và có thể upload lại video.
+
+4. Để theo dõi tiến độ xử lý video, sử dụng API `/api/media/episodes/:episodeId/processing-status`.
 
 ## API Lượt Xem
 

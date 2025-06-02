@@ -33,9 +33,10 @@ export const viewService = {
     
     // Throttling: chỉ cho phép increment mỗi 30 giây
     if (lastIncrement && now - lastIncrement < THROTTLE_DURATION) {
+      const waitTime = Math.ceil((THROTTLE_DURATION - (now - lastIncrement)) / 1000)
       return {
         success: false,
-        message: `Vui lòng đợi ${Math.ceil((THROTTLE_DURATION - (now - lastIncrement)) / 1000)} giây trước khi tăng lượt xem`,
+        message: `Vui lòng đợi ${waitTime} giây trước khi tăng lượt xem`,
       };
     }
 
@@ -50,7 +51,6 @@ export const viewService = {
       
       return response;
     } catch (error) {
-      console.error('Lỗi khi tăng lượt xem phim:', error);
       throw error;
     }
   },
@@ -74,9 +74,10 @@ export const viewService = {
     
     // Throttling: chỉ cho phép increment mỗi 30 giây
     if (lastIncrement && now - lastIncrement < THROTTLE_DURATION) {
+      const waitTime = Math.ceil((THROTTLE_DURATION - (now - lastIncrement)) / 1000)
       return {
         success: false,
-        message: `Vui lòng đợi ${Math.ceil((THROTTLE_DURATION - (now - lastIncrement)) / 1000)} giây trước khi tăng lượt xem`,
+        message: `Vui lòng đợi ${waitTime} giây trước khi tăng lượt xem`,
       };
     }
 
@@ -91,37 +92,6 @@ export const viewService = {
       
       return response;
     } catch (error) {
-      console.error('Lỗi khi tăng lượt xem tập phim:', error);
-      throw error;
-    }
-  },
-
-  /**
-   * Lấy tổng lượt xem của phim từ database
-   * @param movieId ID của phim
-   */
-  async getMovieViews(movieId: string | number): Promise<ViewStats> {
-    try {
-      return await apiClient.get<ViewStats>(
-        API_ENDPOINTS.VIEWS.GET_MOVIE_VIEWS(movieId)
-      );
-    } catch (error) {
-      console.error('Lỗi khi lấy lượt xem phim:', error);
-      throw error;
-    }
-  },
-
-  /**
-   * Lấy tổng lượt xem của tập phim từ database
-   * @param episodeId ID của tập phim
-   */
-  async getEpisodeViews(episodeId: string | number): Promise<ViewStats> {
-    try {
-      return await apiClient.get<ViewStats>(
-        API_ENDPOINTS.VIEWS.GET_EPISODE_VIEWS(episodeId)
-      );
-    } catch (error) {
-      console.error('Lỗi khi lấy lượt xem tập phim:', error);
       throw error;
     }
   },

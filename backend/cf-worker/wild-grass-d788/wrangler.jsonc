@@ -11,8 +11,8 @@
 	"r2_buckets": [
 		{
 			"binding": "MEDIA_BUCKET",
-			"bucket_name": "alldrama-storage",
-			"preview_bucket_name": "alldrama-storage-dev"
+			"bucket_name": "movie-web-vn",
+			"preview_bucket_name": "movie-web-vn-dev"
 		}
 	],
 	"observability": {
@@ -38,8 +38,10 @@
 	"vars": { 
 		"CLOUDFLARE_DOMAIN": "alldrama.tech",
 		"WORKER_DOMAIN": "media.alldrama.tech",
-		"BACKEND_URL": "https://alldramaz.com"
+		"BACKEND_URL": "https://alldramaz.com",
+		"WORKER_SECRET": "alldrama-worker-secret"
 	},
+
 	/**
 	 * Note: Use secrets to store sensitive data.
 	 * https://developers.cloudflare.com/workers/configuration/secrets/

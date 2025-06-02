@@ -17,8 +17,11 @@ FROM node:18-slim
 
 WORKDIR /app
 
-# Cài đặt ffmpeg cho xử lý video
-RUN apt-get update && apt-get install -y --no-install-recommends ffmpeg curl \
+# Cài đặt ffmpeg cho xử lý video và docker CLI để chạy container con
+RUN apt-get update && apt-get install -y --no-install-recommends ffmpeg curl apt-transport-https ca-certificates gnupg lsb-release \
+    && curl -fsSL https://download.docker.com/linux/debian/gpg | gpg --dearmor -o /usr/share/keyrings/docker-archive-keyring.gpg \
+    && echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/docker-archive-keyring.gpg] https://download.docker.com/linux/debian $(lsb_release -cs) stable" | tee /etc/apt/sources.list.d/docker.list > /dev/null \
+    && apt-get update && apt-get install -y docker-ce-cli \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
@@ -34,13 +37,14 @@ COPY --from=builder /app/scripts ./scripts
 COPY .env.production ./.env
 COPY tsconfig.json ./
 
+# Copy entrypoint script
+COPY entrypoint.sh /app/entrypoint.sh
+RUN chmod +x /app/entrypoint.sh
+
 # Tạo thư mục uploads và đảm bảo quyền truy cập đúng
 RUN mkdir -p uploads/temp && chmod -R 777 uploads
 RUN mkdir -p logs && chmod -R 777 logs
 RUN chmod -R 777 /app/logs
-
-# Cấp quyền sở hữu toàn bộ thư mục /app cho user node (quan trọng)
-RUN chown -R node:node /app
 
 # Mở cổng ứng dụng
 EXPOSE 5000
@@ -49,10 +53,11 @@ EXPOSE 5000
 ENV NODE_ENV=production
 ENV NODE_OPTIONS="--max-old-space-size=4096 --enable-source-maps"
 
-# Người dùng không đặc quyền
-USER node
+# Sử dụng entrypoint script thay vì chạy trực tiếp node
+ENTRYPOINT ["/app/entrypoint.sh"]
 
-# Lệnh khởi động ứng dụng
+# Xóa dòng USER node vì entrypoint sẽ xử lý việc này
+# Lệnh mặc định nếu không có lệnh nào được cung cấp
 CMD ["node", "dist/index.js"]
 
 # Đảm bảo docker logs hiển thị đầy đủ

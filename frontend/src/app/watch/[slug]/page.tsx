@@ -14,6 +14,7 @@ import RelatedMovies from '@/components/features/watch/RelatedMovies'
 import { generateWatchUrl } from '@/utils/url'
 import { useWatchHistory } from '@/hooks/api/useWatchHistory'
 import { useAuth } from '@/hooks/api/useAuth'
+import { useViews } from '@/hooks/api/useViews'
 import { Movie, Episode } from '@/types'
 import { movieService, episodeService } from '@/lib/api'
 import { cacheManager } from '@/lib/cache/cacheManager'
@@ -62,11 +63,17 @@ export default function WatchPage() {
   const [nextEp, setNextEp] = useState<EpisodeWithSubtitles | null>(null)
   const [prevEp, setPrevEp] = useState<EpisodeWithSubtitles | null>(null)
   const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid')
+  const [hasTrackedView, setHasTrackedView] = useState(false) // Track if we've already incremented the view
   const videoRef = useRef<HTMLVideoElement | null>(null)
   
   /* ----------------- Auth & Watch History ----------------- */
   const { isAuthenticated } = useAuth()
   const { updateProgress } = useWatchHistory()
+  
+  /* ----------------- View tracking hooks ----------------- */
+  const { useMovieViewIncrement, useEpisodeViewIncrement } = useViews()
+  const { incrementView: incrementMovieView } = useMovieViewIncrement()
+  const { incrementView: incrementEpisodeView } = useEpisodeViewIncrement()
   
   /* ----------------- Fetch movie data with SWR and cache ----------------- */
   const { data: movie, error: movieError, isLoading: movieLoading } = useSWR(
@@ -168,40 +175,60 @@ export default function WatchPage() {
     debounce((time: number, duration: number) => {
       if (!isAuthenticated || !movie) return
       
-      // Kiểm tra đầu vào
       try {
-        // Chuyển đổi các giá trị thành số
         const movieIdNumber = Number(movie.id)
-        
-        // Xác định episodeId
         let episodeIdNumber: number
+        
         if (activeEpisode) {
           episodeIdNumber = Number(activeEpisode.id)
         } else {
-          // Đối với phim lẻ, sử dụng movieId làm episodeId
           episodeIdNumber = movieIdNumber
         }
         
-        // Kiểm tra tính hợp lệ của thời gian xem và thời lượng
         const validTime = isFinite(time) ? Math.floor(time) : 0
         const validDuration = isFinite(duration) ? Math.floor(duration) : 0
         
-        // Kiểm tra tính hợp lệ của ID
         if (isNaN(movieIdNumber) || isNaN(episodeIdNumber) || movieIdNumber <= 0 || episodeIdNumber <= 0) {
-          console.error('ID không hợp lệ', { movieId: movieIdNumber, episodeId: episodeIdNumber })
           return
         }
         
-        // Chỉ gửi yêu cầu nếu thời lượng hợp lệ
         if (validDuration >= 5) {
           updateProgress(movieIdNumber, episodeIdNumber, validTime, validDuration)
         }
       } catch (err) {
-        console.error('Lỗi khi xử lý tiến trình xem:', err)
+        // Silent error handling
       }
-    }, 5000), // Update at most every 5 seconds
+    }, 5000),
     [isAuthenticated, movie, activeEpisode, updateProgress]
   )
+
+  // Function to track view count (called when user watches enough content)
+  const trackViewCount = useCallback(async (time: number, duration: number) => {
+    if (hasTrackedView || !movie) return
+    
+    const shouldTrackView = time > 45 || (duration > 0 && time / duration > 0.15)
+    if (!shouldTrackView) return
+    
+    try {
+      const movieIdNumber = Number(movie.id)
+      
+      if (activeEpisode) {
+        const episodeIdNumber = Number(activeEpisode.id)
+        await incrementEpisodeView(episodeIdNumber, movieIdNumber, Math.floor(time), Math.floor(duration))
+      } else {
+        await incrementMovieView(movieIdNumber, Math.floor(time), Math.floor(duration))
+      }
+      
+      setHasTrackedView(true)
+    } catch (error) {
+      // Silent error handling
+    }
+  }, [hasTrackedView, movie, activeEpisode, incrementMovieView, incrementEpisodeView])
+
+  // Reset view tracking when episode changes
+  useEffect(() => {
+    setHasTrackedView(false)
+  }, [activeEpisode?.id, movie?.id])
 
   /* ----------------- derived values ----------------- */
   const isLoading = movieLoading || episodesLoading;
@@ -351,24 +378,22 @@ export default function WatchPage() {
             isHLS={true}
             onTimeUpdate={(time) => {
               try {
-                // Lấy duration từ video player
                 const videoElement = document.querySelector('video')
                 if (!videoElement) return
                 
                 const duration = videoElement.duration || 0
+                trackViewCount(time, duration)
                 
-                // Nếu đã xác thực, cập nhật tiến trình xem
                 if (isAuthenticated) {
                   debouncedUpdateProgress(time, duration)
                 }
               } catch (error) {
-                console.error('Lỗi onTimeUpdate:', error)
+                // Silent error handling
               }
             }}
             onEnded={() => {
               try {
-                // Khi video kết thúc, cũng cập nhật progress để đánh dấu đã xem xong
-                if (isAuthenticated && movie) {
+                if (movie) {
                   const videoElement = document.querySelector('video')
                   const duration = videoElement?.duration || 0
                   
@@ -381,15 +406,21 @@ export default function WatchPage() {
                     episodeIdNumber = movieIdNumber
                   }
                   
-                  // Kiểm tra tính hợp lệ của dữ liệu
                   if (!isNaN(movieIdNumber) && !isNaN(episodeIdNumber) && 
                       movieIdNumber > 0 && episodeIdNumber > 0 && 
                       isFinite(duration) && duration > 0) {
-                    updateProgress(movieIdNumber, episodeIdNumber, duration, duration)
+                    
+                    if (!hasTrackedView) {
+                      trackViewCount(duration, duration)
+                    }
+                    
+                    if (isAuthenticated) {
+                      updateProgress(movieIdNumber, episodeIdNumber, duration, duration)
+                    }
                   }
                 }
               } catch (error) {
-                console.error('Lỗi onEnded:', error)
+                // Silent error handling
               }
             }}
           />

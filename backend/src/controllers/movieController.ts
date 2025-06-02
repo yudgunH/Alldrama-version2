@@ -5,6 +5,7 @@ import { Genre } from '../models/Genre';
 import { Op } from 'sequelize';
 import { cacheMovieData, getCachedMovieData, cacheSearchResults, getCachedSearchResults } from '../services/redisService';
 import { getMovieService } from '../services';
+import { deleteMovieMedia as deleteMovieMediaFromR2, deleteAllMovieFiles } from '../services/media/r2Service';
 
 const logger = Logger.getLogger('movieController');
 
@@ -195,5 +196,73 @@ export const searchMovies = async (req: Request, res: Response) => {
   } catch (error) {
     logger.error('Error searching movies:', error);
     return res.status(500).json({ message: 'Lỗi khi tìm kiếm phim' });
+  }
+};
+
+// Xóa media cụ thể của phim (poster, backdrop, trailer)
+export const deleteMovieMedia = async (req: Request, res: Response) => {
+  try {
+    const { id, mediaType } = req.params;
+    
+    // Kiểm tra mediaType hợp lệ
+    if (!['poster', 'backdrop', 'trailer'].includes(mediaType)) {
+      return res.status(400).json({ 
+        message: 'Loại media không hợp lệ. Chỉ chấp nhận: poster, backdrop, trailer' 
+      });
+    }
+    
+    // Kiểm tra phim có tồn tại không
+    const movie = await Movie.findByPk(Number(id));
+    if (!movie) {
+      return res.status(404).json({ message: 'Không tìm thấy phim' });
+    }
+    
+    // Xóa file từ R2
+    await deleteMovieMediaFromR2(Number(id), mediaType as 'poster' | 'backdrop' | 'trailer');
+    
+    // Cập nhật database để xóa URL
+    const updateField = mediaType === 'poster' ? 'posterUrl' : 
+                       mediaType === 'backdrop' ? 'backdropUrl' : 'trailerUrl';
+    await movie.update({ [updateField]: null });
+    
+    res.status(200).json({ 
+      message: `Đã xóa ${mediaType} thành công`,
+      movieId: Number(id),
+      mediaType 
+    });
+  } catch (error) {
+    logger.error(`Error deleting movie media:`, error);
+    res.status(500).json({ message: 'Lỗi khi xóa media của phim' });
+  }
+};
+
+// Xóa tất cả file R2 của phim (không xóa record database)
+export const deleteMovieFiles = async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    
+    // Kiểm tra phim có tồn tại không
+    const movie = await Movie.findByPk(Number(id));
+    if (!movie) {
+      return res.status(404).json({ message: 'Không tìm thấy phim' });
+    }
+    
+    // Xóa tất cả file từ R2
+    await deleteAllMovieFiles(Number(id));
+    
+    // Cập nhật database để xóa tất cả URL media
+    await movie.update({ 
+      posterUrl: null,
+      backdropUrl: null,
+      trailerUrl: null
+    });
+    
+    res.status(200).json({ 
+      message: 'Đã xóa tất cả file của phim thành công',
+      movieId: Number(id)
+    });
+  } catch (error) {
+    logger.error(`Error deleting movie files:`, error);
+    res.status(500).json({ message: 'Lỗi khi xóa tất cả file của phim' });
   }
 }; 

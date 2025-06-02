@@ -17,6 +17,7 @@ import {
   X,
   Upload,
   FileVideo,
+  Save,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -49,6 +50,7 @@ import {
 } from "@/components/ui/dialog"
 import { Badge } from "@/components/ui/badge"
 import { Progress } from "@/components/ui/progress"
+import { UploadProgressManager, UploadProgressData } from "@/components/ui/upload-progress-manager"
 import Link from "next/link"
 
 interface EpisodeManagerProps {
@@ -67,6 +69,15 @@ export function EpisodeManager({ movieId, movieTitle }: EpisodeManagerProps) {
   const [isProcessingDialogOpen, setIsProcessingDialogOpen] = useState(false)
   const [selectedEpisode, setSelectedEpisode] = useState<Episode | null>(null)
   
+  // Edit episode state
+  const [editingEpisodeId, setEditingEpisodeId] = useState<number | null>(null)
+  const [editFormData, setEditFormData] = useState({
+    title: "",
+    description: "",
+    episodeNumber: 1,
+  })
+  const [isUpdating, setIsUpdating] = useState(false)
+  
   const [formData, setFormData] = useState({
     episodeNumber: 1,
     title: "",
@@ -80,6 +91,118 @@ export function EpisodeManager({ movieId, movieTitle }: EpisodeManagerProps) {
   
   // Polling for processing status
   const [processingPollingIds, setProcessingPollingIds] = useState<number[]>([])
+  const [hlsJobIds, setHlsJobIds] = useState<{[episodeId: number]: string}>({})
+
+  // Upload Progress Toast
+  const [showProgressToast, setShowProgressToast] = useState(false)
+  const [progressToastData, setProgressToastData] = useState({
+    title: "",
+    currentStep: "",
+    progress: 0,
+    steps: [] as Array<{
+      id: string
+      name: string
+      status: "pending" | "processing" | "completed" | "error"
+      progress?: number
+      startTime?: number
+      endTime?: number
+    }>,
+    estimatedTimeRemaining: ""
+  })
+
+  // Upload Progress Management
+  const [uploads, setUploads] = useState<UploadProgressData[]>([])
+
+  // Update progress toast
+  const updateProgressToast = (updates: Partial<typeof progressToastData>) => {
+    setProgressToastData(prev => ({ ...prev, ...updates }))
+  }
+
+  const updateProgressStep = (stepId: string, updates: Partial<{
+    status: "pending" | "processing" | "completed" | "error"
+    progress?: number
+    startTime?: number
+    endTime?: number
+  }>) => {
+    setProgressToastData(prev => ({
+      ...prev,
+      steps: prev.steps.map(step => 
+        step.id === stepId ? { ...step, ...updates } : step
+      )
+    }))
+  }
+
+  const initializeProgressToast = (title: string) => {
+    const steps = [
+      { id: "create", name: "Tạo tập phim", status: "pending" as const, startTime: Date.now() },
+      { id: "upload", name: "Upload video", status: "pending" as const },
+      { id: "hls", name: "Xử lý HLS", status: "pending" as const },
+      { id: "complete", name: "Hoàn thành", status: "pending" as const }
+    ]
+    
+    setProgressToastData({
+      title,
+      currentStep: "Bắt đầu tạo tập phim...",
+      progress: 0,
+      steps,
+      estimatedTimeRemaining: "Đang tính..."
+    })
+    setShowProgressToast(true)
+  }
+
+  // Update upload progress
+  const addUpload = (upload: UploadProgressData) => {
+    setUploads(prev => [...prev, upload])
+  }
+
+  const updateUpload = (id: string, updates: Partial<UploadProgressData>) => {
+    setUploads(prev => prev.map(upload => 
+      upload.id === id ? { ...upload, ...updates } : upload
+    ))
+  }
+
+  const updateUploadStep = (uploadId: string, stepId: string, updates: Partial<{
+    status: "pending" | "processing" | "completed" | "error"
+    progress?: number
+    startTime?: number
+    endTime?: number
+  }>) => {
+    setUploads(prev => prev.map(upload => 
+      upload.id === uploadId ? {
+        ...upload,
+        steps: upload.steps.map(step => 
+          step.id === stepId ? { ...step, ...updates } : step
+        )
+      } : upload
+    ))
+  }
+
+  const removeUpload = (id: string) => {
+    setUploads(prev => prev.filter(upload => upload.id !== id))
+  }
+
+  const clearCompletedUploads = () => {
+    setUploads(prev => prev.filter(upload => !upload.isCompleted))
+  }
+
+  const createUploadProgress = (episodeId: number, title: string): UploadProgressData => {
+    const id = `upload-${episodeId}-${Date.now()}`
+    return {
+      id,
+      title,
+      currentStep: "Bắt đầu tạo tập phim...",
+      progress: 0,
+      steps: [
+        { id: "create", name: "Tạo tập phim", status: "pending", startTime: Date.now() },
+        { id: "upload", name: "Upload video", status: "pending" },
+        { id: "hls", name: "Xử lý HLS", status: "pending" },
+        { id: "complete", name: "Hoàn thành", status: "pending" }
+      ],
+      estimatedTimeRemaining: "Đang tính...",
+      isCompleted: false,
+      hasError: false
+    }
+  }
 
   // Fetch episodes
   const fetchEpisodes = useCallback(async () => {
@@ -135,41 +258,114 @@ export function EpisodeManager({ movieId, movieTitle }: EpisodeManagerProps) {
     const pollingInterval = setInterval(async () => {
       for (const episodeId of processingPollingIds) {
         try {
-          const response = await episodeApi.getProcessingStatus(episodeId)
-          
-          const { isProcessed, progress, playlistUrl, thumbnailUrl, estimatedTimeRemaining, steps } = response.data
-          
-          if (isProcessed) {
-            // Xóa khỏi danh sách polling
-            setProcessingPollingIds(prev => prev.filter(id => id !== episodeId))
-            toast.success(`Tập phim đã xử lý xong`)
+          // Nếu có jobId, sử dụng API mới để kiểm tra trạng thái
+          if (hlsJobIds[episodeId]) {
+            const jobId = hlsJobIds[episodeId];
+            console.log(`Kiểm tra trạng thái HLS theo jobId: ${jobId} cho episodeId: ${episodeId}`);
             
-            // Cập nhật danh sách tập phim
-            fetchEpisodes()
-          } else if (selectedEpisode?.id === episodeId) {
-            // Cập nhật trạng thái xử lý nếu đang xem chi tiết
-            setProcessingStatus({
-              isProcessed,
-              progress: progress || 0,
-              playlistUrl,
-              thumbnailUrl,
-              estimatedTimeRemaining: estimatedTimeRemaining || "Đang tính...",
-              steps: steps || [
-                { name: "Tải lên video gốc", status: "completed", completedAt: new Date().toISOString() },
-                { name: "Tạo thumbnail", status: "processing", progress: progress || 30 },
-                { name: "Chuyển đổi sang HLS", status: "pending" },
-                { name: "Tạo playlist", status: "pending" }
-              ]
-            })
+            const response = await mediaApi.checkHLSStatus(jobId, movieId, episodeId);
+            
+            if (response.data && response.data.success) {
+              const { status, hlsUrl, hlsPath, createdAt, updatedAt } = response.data;
+              
+              if (status === 'completed') {
+                // Xử lý hoàn thành
+                setProcessingPollingIds(prev => prev.filter(id => id !== episodeId));
+                toast.success(`Tập phim đã xử lý HLS thành công`);
+                
+                // Cập nhật progress toast nếu đang hiển thị cho episode này
+                if (showProgressToast && progressToastData.title.includes(`Tập ${episodeId}`)) {
+                  updateProgressStep("hls", { status: "completed", endTime: Date.now() })
+                  updateProgressStep("complete", { status: "completed", startTime: Date.now(), endTime: Date.now() })
+                  updateProgressToast({
+                    currentStep: "Upload và xử lý hoàn thành!",
+                    progress: 100,
+                    estimatedTimeRemaining: ""
+                  })
+                  
+                  // Tự động đóng toast sau 3 giây
+                  setTimeout(() => setShowProgressToast(false), 3000)
+                }
+                
+                // Cập nhật danh sách tập phim
+                fetchEpisodes();
+                
+                if (selectedEpisode?.id === episodeId) {
+                  // Cập nhật trạng thái hiển thị nếu đang xem chi tiết tập này
+                  setProcessingStatus({
+                    isProcessed: true,
+                    progress: 100,
+                    playlistUrl: hlsUrl,
+                    completedAt: updatedAt
+                  });
+                }
+                
+                // Xóa jobId đã hoàn thành
+                const newHlsJobIds = {...hlsJobIds};
+                delete newHlsJobIds[episodeId];
+                setHlsJobIds(newHlsJobIds);
+              } else {
+                // Đang xử lý
+                const progress = 50; // Không có thông tin progress chi tiết từ API
+                
+                if (selectedEpisode?.id === episodeId) {
+                  // Cập nhật trạng thái hiển thị nếu đang xem chi tiết
+                  setProcessingStatus({
+                    isProcessed: false,
+                    progress: progress,
+                    status: status,
+                    playlistUrl: hlsUrl,
+                    createdAt: createdAt,
+                    updatedAt: updatedAt,
+                    estimatedTimeRemaining: "Đang xử lý...",
+                    steps: [
+                      { name: "Tải lên video gốc", status: "completed", completedAt: new Date().toISOString() },
+                      { name: "Tạo thumbnail", status: "processing", progress: progress },
+                      { name: "Chuyển đổi sang HLS", status: "pending" },
+                      { name: "Tạo playlist", status: "pending" }
+                    ]
+                  });
+                }
+              }
+            }
+          } else {
+            // Sử dụng API chi tiết nếu không có jobId
+            const response = await episodeApi.getDetailedProcessingStatus(movieId, episodeId);
+            
+            const { isProcessed, progress, playlistUrl, thumbnailUrl, estimatedTimeRemaining, steps } = response.data;
+            
+            if (isProcessed) {
+              // Xóa khỏi danh sách polling
+              setProcessingPollingIds(prev => prev.filter(id => id !== episodeId));
+              toast.success(`Tập phim đã xử lý xong`);
+              
+              // Cập nhật danh sách tập phim
+              fetchEpisodes();
+            } else if (selectedEpisode?.id === episodeId) {
+              // Cập nhật trạng thái xử lý nếu đang xem chi tiết
+              setProcessingStatus({
+                isProcessed,
+                progress: progress || 0,
+                playlistUrl,
+                thumbnailUrl,
+                estimatedTimeRemaining: estimatedTimeRemaining || "Đang tính...",
+                steps: steps || [
+                  { name: "Tải lên video gốc", status: "completed", completedAt: new Date().toISOString() },
+                  { name: "Tạo thumbnail", status: "processing", progress: progress || 30 },
+                  { name: "Chuyển đổi sang HLS", status: "pending" },
+                  { name: "Tạo playlist", status: "pending" }
+                ]
+              });
+            }
           }
         } catch (error) {
-          console.error(`Error checking processing status for episode ${episodeId}:`, error)
+          console.error(`Error checking processing status for episode ${episodeId}:`, error);
         }
       }
     }, 5000) // Kiểm tra mỗi 5 giây
     
     return () => clearInterval(pollingInterval)
-  }, [processingPollingIds, selectedEpisode, fetchEpisodes])
+  }, [processingPollingIds, selectedEpisode, fetchEpisodes, movieId, hlsJobIds])
 
   // Handle input change
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
@@ -200,6 +396,7 @@ export function EpisodeManager({ movieId, movieTitle }: EpisodeManagerProps) {
   const uploadWithPresignedUrl = async (
     episodeId: number,
     file: File,
+    uploadId?: string
   ): Promise<string | null> => {
     try {
       console.log("uploadWithPresignedUrl: Bắt đầu với", { movieId, episodeId, file: file.name });
@@ -252,6 +449,14 @@ export function EpisodeManager({ movieId, movieTitle }: EpisodeManagerProps) {
             if (uploadProgress) {
               setUploadProgress(prev => prev ? { ...prev, progress } : null)
             }
+            // Cập nhật progress toast - upload từ 20% đến 50%
+            if (uploadId) {
+              const toastProgress = 20 + (progress * 0.3); // 20% + 30% of upload progress
+              updateUpload(uploadId, { 
+                currentStep: `Đang upload video... ${progress}%`,
+                progress: toastProgress 
+              })
+            }
           }
         )
         console.log("uploadWithPresignedUrl: Upload thành công!");
@@ -260,52 +465,56 @@ export function EpisodeManager({ movieId, movieTitle }: EpisodeManagerProps) {
         throw uploadError;
       }
       
-      console.log("uploadWithPresignedUrl: Đã tải video lên R2 storage thành công, đang thông báo cho backend...");
+      console.log("uploadWithPresignedUrl: Đã tải video lên R2 storage thành công, đang kích hoạt xử lý HLS...");
       
-      // Bước 2: Thông báo cho backend rằng file đã được upload thành công
-      let notificationSuccess = false;
-      
-      // Phương pháp 1: Thông báo video đã upload
+      // Xử lý HLS theo quy trình chuẩn
       try {
-        console.log("uploadWithPresignedUrl: Gọi notifyVideoUploaded", { movieId, episodeId });
-        await mediaApi.notifyVideoUploaded(movieId, episodeId);
-        notificationSuccess = true;
-        console.log("uploadWithPresignedUrl: Đã thông báo backend bằng phương thức notifyVideoUploaded");
-      } catch (notifyError) {
-        console.warn("uploadWithPresignedUrl: Không thể gọi API thông báo upload", notifyError);
-      }
-      
-      // Phương pháp 2: Kích hoạt xử lý HLS trực tiếp
-      if (!notificationSuccess) {
-        try {
-          console.log("uploadWithPresignedUrl: Gọi startHLSProcessing", { movieId, episodeId });
-          await mediaApi.startHLSProcessing(movieId, episodeId);
-          notificationSuccess = true;
-          console.log("uploadWithPresignedUrl: Đã thông báo backend bằng phương thức startHLSProcessing");
-        } catch (processError) {
-          console.warn("uploadWithPresignedUrl: Không thể gọi API kích hoạt xử lý HLS", processError);
+        // Tạo videoKey theo cấu trúc chuẩn R2
+        const videoKey = `episodes/${movieId}/${episodeId}/original.mp4`;
+        
+        console.log("uploadWithPresignedUrl: Gọi API convert-hls", { movieId, episodeId, videoKey });
+        const response = await mediaApi.convertToHLS(
+          movieId,
+          episodeId,
+          videoKey
+        );
+        
+        if (response.data && response.data.success) {
+          const jobId = response.data.jobId;
+          console.log(`uploadWithPresignedUrl: Yêu cầu xử lý HLS thành công, jobId: ${jobId}`);
+          
+          // Lưu jobId vào state để theo dõi tiến trình
+          setHlsJobIds(prev => ({...prev, [episodeId]: jobId}));
+          
+          // Thêm episodeId vào danh sách theo dõi tiến trình
+          if (!processingPollingIds.includes(episodeId)) {
+            setProcessingPollingIds(prev => [...prev, episodeId]);
+          }
+        } else {
+          console.warn("uploadWithPresignedUrl: Phản hồi không mong đợi từ API convert-hls", response.data);
         }
-      }
-      
-      // Phương pháp 3: Sử dụng API cũ
-      if (!notificationSuccess) {
+      } catch (convertError) {
+        console.error("uploadWithPresignedUrl: Lỗi khi gọi API convert-hls", convertError);
+        
+        // Thử phương pháp dự phòng nếu không thể gọi API convert-hls trực tiếp
         try {
-          console.log("uploadWithPresignedUrl: Gọi uploadEpisodeVideo với file rỗng", { movieId, episodeId });
-          await mediaApi.uploadEpisodeVideo(
-            movieId, 
-            episodeId, 
-            new File([new Uint8Array(0)], "uploaded-via-presigned-url.txt", { type: "text/plain" })
-          );
-          notificationSuccess = true;
-          console.log("uploadWithPresignedUrl: Đã thông báo backend bằng phương thức uploadEpisodeVideo");
-        } catch (uploadError) {
-          console.error("uploadWithPresignedUrl: Tất cả các phương thức thông báo đều thất bại", uploadError);
-          throw new Error("Không thể thông báo cho backend về việc đã upload video");
+          console.log("uploadWithPresignedUrl: Thử phương pháp dự phòng - gọi notifyVideoUploaded");
+          await mediaApi.notifyVideoUploaded(movieId, episodeId);
+          console.log("uploadWithPresignedUrl: Đã thông báo backend bằng phương thức dự phòng");
+          
+          // Thêm vào polling để theo dõi dù không có jobId
+          if (!processingPollingIds.includes(episodeId)) {
+            setProcessingPollingIds(prev => [...prev, episodeId]);
+          }
+        } catch (backupError) {
+          console.error("uploadWithPresignedUrl: Cả hai phương pháp đều thất bại", backupError);
+          
+          // Vẫn thêm vào polling để theo dõi trạng thái
+          console.log("uploadWithPresignedUrl: Vẫn thêm vào polling để theo dõi");
+          if (!processingPollingIds.includes(episodeId)) {
+            setProcessingPollingIds(prev => [...prev, episodeId]);
+          }
         }
-      }
-      
-      if (notificationSuccess) {
-        console.log(`uploadWithPresignedUrl: Video đã được tải lên thành công và thông báo xử lý cho tập phim ${episodeId}`);
       }
       
       return `${cdnUrl}episodes/${movieId}/${episodeId}/hls/master.m3u8`
@@ -341,28 +550,36 @@ export function EpisodeManager({ movieId, movieTitle }: EpisodeManagerProps) {
       }
     });
     
+    let uploadProgress: UploadProgressData | null = null
+    
     try {
+      // Initialize upload progress
+      const episodeTitle = `${movieTitle} - Tập ${formData.episodeNumber}: ${formData.title}`
+      uploadProgress = createUploadProgress(formData.episodeNumber, episodeTitle)
+      addUpload(uploadProgress)
+      
       // Step 1: Create new episode (without media URL)
       console.log("Bắt đầu tạo tập phim...")
+      updateUploadStep(uploadProgress.id, "create", { status: "processing", startTime: Date.now() })
+      updateUpload(uploadProgress.id, { currentStep: "Đang tạo tập phim...", progress: 10 })
+      
       const episodeResponse = await episodeApi.create(movieId, {
         episodeNumber: formData.episodeNumber,
         title: formData.title,
         description: formData.description,
       })
       
-      const episodeId = episodeResponse.data.id
+      const episodeId = episodeResponse.data.episode.id
       console.log("Đã tạo tập phim với ID:", episodeId)
       
       if (!episodeId) {
+        updateUploadStep(uploadProgress.id, "create", { status: "error", endTime: Date.now() })
         throw new Error("Không thể lấy ID tập phim sau khi tạo")
       }
       
-      // Set upload progress
-      setUploadProgress({
-        id: `new-episode-${Date.now()}`,
-        title: `${movieTitle} - Tập ${formData.episodeNumber}: ${formData.title}`,
-        progress: 0
-      })
+      updateUploadStep(uploadProgress.id, "create", { status: "completed", endTime: Date.now() })
+      updateUploadStep(uploadProgress.id, "upload", { status: "processing", startTime: Date.now() })
+      updateUpload(uploadProgress.id, { currentStep: "Đang upload video...", progress: 20 })
       
       // Step 2: Upload video
       console.log("Bắt đầu upload video:", { 
@@ -377,13 +594,16 @@ export function EpisodeManager({ movieId, movieTitle }: EpisodeManagerProps) {
       
       const uploadResult = await uploadWithPresignedUrl(
         episodeId,
-        videoFile
+        videoFile,
+        uploadProgress.id
       )
       
       console.log("Kết quả upload:", uploadResult)
       
       if (!uploadResult) {
         // Upload thất bại
+        updateUploadStep(uploadProgress.id, "upload", { status: "error", endTime: Date.now() })
+        updateUpload(uploadProgress.id, { currentStep: "Upload video thất bại", progress: 30 })
         toast.error("Upload video thất bại, nhưng tập phim đã được tạo")
         setUploadProgress(prev => prev ? { ...prev, progress: 0 } : null)
         
@@ -397,6 +617,11 @@ export function EpisodeManager({ movieId, movieTitle }: EpisodeManagerProps) {
         fetchEpisodes()
         return
       }
+      
+      // Upload thành công
+      updateUploadStep(uploadProgress.id, "upload", { status: "completed", endTime: Date.now() })
+      updateUploadStep(uploadProgress.id, "hls", { status: "processing", startTime: Date.now() })
+      updateUpload(uploadProgress.id, { currentStep: "Đang xử lý HLS...", progress: 60 })
       
       setUploadProgress(prev => prev ? { ...prev, progress: 100 } : null)
       toast.success("Đã thêm tập phim thành công!")
@@ -419,6 +644,22 @@ export function EpisodeManager({ movieId, movieTitle }: EpisodeManagerProps) {
     } catch (error: any) {
       console.error("Error creating episode:", error)
       const errorMessage = error.response?.data?.message || error.message || "Không thể tạo tập phim mới"
+      
+      // Cập nhật upload progress với lỗi nếu có uploadProgress
+      if (uploadProgress) {
+        const uploadId = uploadProgress.id
+        updateUpload(uploadId, { 
+          currentStep: `Lỗi: ${errorMessage}`, 
+          progress: 0,
+          hasError: true
+        })
+        // Đánh dấu step hiện tại là lỗi
+        const currentStep = uploads.find(u => u.id === uploadId)?.steps.find(s => s.status === "processing")
+        if (currentStep) {
+          updateUploadStep(uploadId, currentStep.id, { status: "error", endTime: Date.now() })
+        }
+      }
+      
       toast.error(`Lỗi: ${errorMessage}`)
       setUploadProgress(null)
     }
@@ -426,16 +667,83 @@ export function EpisodeManager({ movieId, movieTitle }: EpisodeManagerProps) {
 
   // Handle delete episode
   const handleDeleteEpisode = async (id: number) => {
-    if (!confirm("Bạn có chắc chắn muốn xóa tập phim này?")) {
+    if (!confirm("Bạn có chắc chắn muốn xóa tập phim này? Tất cả video và media sẽ bị xóa vĩnh viễn.")) {
       return
     }
     
     try {
-      await episodeApi.delete(id)
-      toast.success("Đã xóa tập phim thành công")
+      // Tìm episode để lấy thông tin
+      const episode = episodes.find(ep => ep.id === id)
+      if (!episode) {
+        toast.error("Không tìm thấy tập phim")
+        return
+      }
       
-      // Xóa khỏi danh sách polling
+      console.log(`🗑️ Bắt đầu xóa episode ${id} với improved API...`)
+      
+      try {
+        // Sử dụng improved delete API - xóa hoàn toàn (R2 + database)
+        console.log(`🚀 Gọi improved delete API cho episode ${id}...`)
+        await episodeApi.deleteCompletely(id)
+        console.log(`✅ Improved API đã xóa hoàn toàn episode ${id}`)
+        
+        toast.success("Đã xóa tập phim và tất cả media liên quan thành công")
+        
+      } catch (improvedError: any) {
+        console.error(`❌ Improved API thất bại cho episode ${id}:`, improvedError)
+        
+        // Fallback to legacy method
+        console.log(`🔄 Fallback to legacy method cho episode ${id}...`)
+        
+        // Bước 1: Xóa database trước (để tránh trạng thái inconsistent)
+        await episodeApi.delete(id)
+        
+        // Bước 2: Xóa toàn bộ folder của episode trên R2
+        try {
+          // Thử direct API trước với improved error handling
+          const result = await mediaApi.handleR2ApiCall(
+            () => mediaApi.deleteEpisodeR2Folder(movieId, id),
+            `xóa folder episode ${id}`
+          )
+          console.log(`Đã xóa folder R2 của episode ${id} qua ${result.method}`)
+        } catch (directError) {
+          console.warn(`Direct API thất bại cho episode ${id}:`, directError)
+          
+          // Fallback: Xóa từng file riêng lẻ với improved handling
+          try {
+            const cleanupResults = await Promise.allSettled([
+              // HLS folder
+              mediaApi.handleR2ApiCall(
+                () => mediaApi.deleteEpisodeHLSFolder(movieId, id),
+                `xóa HLS folder episode ${id}`
+              ).catch(() => api.delete(`/api/media/episodes/${movieId}/${id}/hls`)),
+              
+              // Original video
+              mediaApi.handleR2ApiCall(
+                () => mediaApi.deleteEpisodeOriginalVideo(movieId, id),
+                `xóa video gốc episode ${id}`
+              ).catch(() => api.delete(`/api/media/episodes/${movieId}/${id}/video`)),
+              
+              // Thumbnail
+              mediaApi.handleR2ApiCall(
+                () => mediaApi.deleteEpisodeThumbnail(movieId, id),
+                `xóa thumbnail episode ${id}`
+              ).catch(() => api.delete(`/api/media/episodes/${movieId}/${id}/thumbnail`)),
+            ])
+            
+            const successful = cleanupResults.filter(r => r.status === 'fulfilled').length
+            console.log(`Đã xóa ${successful}/3 file media của episode ${id}`)
+          } catch (individualError) {
+            console.warn(`Không thể xóa các file riêng lẻ của episode ${id}:`, individualError)
+          }
+        }
+        
+        toast.success("Đã xóa tập phim và tất cả media liên quan thành công (fallback)")
+      }
+      
+      // Cleanup UI states
       setProcessingPollingIds(prev => prev.filter(episodeId => episodeId !== id))
+      setUploads(prev => prev.filter(upload => !upload.id.includes(`-${id}-`)))
       
       // Cập nhật danh sách tập phim
       fetchEpisodes()
@@ -466,7 +774,7 @@ export function EpisodeManager({ movieId, movieTitle }: EpisodeManagerProps) {
     })
     
     // Fetch current processing status
-    episodeApi.getProcessingStatus(episode.id)
+    episodeApi.getDetailedProcessingStatus(movieId, episode.id)
       .then(response => {
         const { isProcessed, progress, playlistUrl, thumbnailUrl, estimatedTimeRemaining, steps } = response.data
         
@@ -488,6 +796,69 @@ export function EpisodeManager({ movieId, movieTitle }: EpisodeManagerProps) {
         console.error("Error fetching processing status:", error)
         toast.error("Không thể lấy trạng thái xử lý")
       })
+  }
+
+  // Edit episode handlers
+  const startEditingEpisode = (episode: Episode) => {
+    setEditingEpisodeId(episode.id)
+    setEditFormData({
+      title: episode.title,
+      description: episode.description || "",
+      episodeNumber: episode.episodeNumber,
+    })
+  }
+
+  const cancelEditingEpisode = () => {
+    setEditingEpisodeId(null)
+    setEditFormData({
+      title: "",
+      description: "",
+      episodeNumber: 1,
+    })
+  }
+
+  const handleEditFormChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
+    const { name, value } = e.target
+    setEditFormData((prev) => ({ ...prev, [name]: value }))
+  }
+
+  const handleEditFormNumberChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const { name, value } = e.target
+    setEditFormData((prev) => ({ ...prev, [name]: Number(value) }))
+  }
+
+  const handleUpdateEpisode = async (episodeId: number) => {
+    if (!editFormData.title) {
+      toast.error("Vui lòng nhập tiêu đề tập phim")
+      return
+    }
+
+    if (editFormData.episodeNumber < 1) {
+      toast.error("Số tập phải lớn hơn 0")
+      return
+    }
+
+    setIsUpdating(true)
+
+    try {
+      await episodeApi.update(episodeId, editFormData)
+      toast.success("Cập nhật tập phim thành công!")
+      
+      // Update episode in local state
+      setEpisodes(prev => prev.map(ep => 
+        ep.id === episodeId 
+          ? { ...ep, ...editFormData }
+          : ep
+      ))
+      
+      cancelEditingEpisode()
+    } catch (error: any) {
+      console.error("Error updating episode:", error)
+      const errorMessage = error.response?.data?.message || error.message || "Không thể cập nhật tập phim"
+      toast.error(`Lỗi: ${errorMessage}`)
+    } finally {
+      setIsUpdating(false)
+    }
   }
 
   // Render status badge
@@ -709,10 +1080,46 @@ export function EpisodeManager({ movieId, movieTitle }: EpisodeManagerProps) {
                       )}
                     </TableCell>
                     <TableCell className="font-medium text-center">
-                      {episode.episodeNumber}
+                      {editingEpisodeId === episode.id ? (
+                        <Input
+                          type="number"
+                          value={editFormData.episodeNumber}
+                          onChange={handleEditFormNumberChange}
+                          name="episodeNumber"
+                          min={1}
+                          className="w-16"
+                        />
+                      ) : (
+                        episode.episodeNumber
+                      )}
                     </TableCell>
                     <TableCell className="font-medium">
-                      {episode.title}
+                      {editingEpisodeId === episode.id ? (
+                        <div className="space-y-2">
+                          <Input
+                            value={editFormData.title}
+                            onChange={handleEditFormChange}
+                            name="title"
+                            placeholder="Tên tập phim"
+                          />
+                          <Textarea
+                            value={editFormData.description}
+                            onChange={handleEditFormChange}
+                            name="description"
+                            placeholder="Mô tả tập phim"
+                            rows={2}
+                          />
+                        </div>
+                      ) : (
+                        <div>
+                          <div className="font-medium">{episode.title}</div>
+                          {episode.description && (
+                            <div className="text-sm text-gray-500 mt-1 line-clamp-2">
+                              {episode.description}
+                            </div>
+                          )}
+                        </div>
+                      )}
                     </TableCell>
                     <TableCell className="hidden md:table-cell">
                       {episode.duration ? `${Math.floor(episode.duration / 60)}:${(episode.duration % 60).toString().padStart(2, '0')}` : "--:--"}
@@ -741,7 +1148,28 @@ export function EpisodeManager({ movieId, movieTitle }: EpisodeManagerProps) {
                     </TableCell>
                     <TableCell className="text-right">
                       <div className="flex justify-end space-x-2">
-                        {episode.isProcessed === false ? (
+                        {editingEpisodeId === episode.id ? (
+                          <>
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() => handleUpdateEpisode(episode.id)}
+                              disabled={isUpdating}
+                            >
+                              <Save className="mr-2 h-4 w-4" />
+                              {isUpdating ? "Đang lưu..." : "Lưu"}
+                            </Button>
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={cancelEditingEpisode}
+                              disabled={isUpdating}
+                            >
+                              <X className="mr-2 h-4 w-4" />
+                              Hủy
+                            </Button>
+                          </>
+                        ) : episode.isProcessed === false ? (
                           <>
                             <Button
                               variant="outline"
@@ -765,11 +1193,19 @@ export function EpisodeManager({ movieId, movieTitle }: EpisodeManagerProps) {
                             <Button
                               variant="outline"
                               size="sm"
+                              onClick={() => startEditingEpisode(episode)}
+                            >
+                              <Edit className="mr-2 h-4 w-4" />
+                              Sửa nhanh
+                            </Button>
+                            <Button
+                              variant="outline"
+                              size="sm"
                               asChild
                             >
                               <Link href={`/movies/${movieId}/episodes/${episode.id}/edit`}>
                                 <Edit className="mr-2 h-4 w-4" />
-                                Sửa
+                                Sửa chi tiết
                               </Link>
                             </Button>
                             <Button
@@ -867,6 +1303,13 @@ export function EpisodeManager({ movieId, movieTitle }: EpisodeManagerProps) {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+      
+      {/* Upload Progress Manager */}
+      <UploadProgressManager
+        uploads={uploads}
+        onRemoveUpload={removeUpload}
+        onClearCompleted={clearCompletedUploads}
+      />
     </div>
   )
 } 

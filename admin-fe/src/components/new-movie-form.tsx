@@ -148,11 +148,11 @@ export function NewMovieForm() {
       
       // Trả về URL từ response
       if (fileType === "poster") {
-        return result.data.url || `https://cdn.alldramaz.com/movies/${movieId}/poster.jpg`;
+        return result.data.url || `https://alldrama.tech/movies/${movieId}/poster.jpg`;
       } else if (fileType === "backdrop") {
-        return result.data.url || `https://cdn.alldramaz.com/movies/${movieId}/backdrop.jpg`;
+        return result.data.url || `https://alldrama.tech/movies/${movieId}/backdrop.jpg`;
       } else if (fileType === "trailer") {
-        return result.data.trailerUrl || `https://cdn.alldramaz.com/movies/${movieId}/trailer.mp4`;
+        return result.data.trailerUrl || `https://alldrama.tech/movies/${movieId}/trailer.mp4`;
       }
       
       return null;

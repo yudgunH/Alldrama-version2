@@ -1,0 +1,13 @@
+{
+  "name": "alldrama-hls-processor",
+  "version": "1.0.0",
+  "description": "HLS video processor for Alldrama",
+  "main": "processor.js",
+  "scripts": {
+    "start": "node processor.js"
+  },
+  "dependencies": {
+    "aws-sdk": "^2.1354.0",
+    "node-fetch": "^2.6.9"
+  }
+} 
