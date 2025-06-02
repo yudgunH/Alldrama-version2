@@ -154,6 +154,7 @@ export default function VideoPlayer({
   const [fatalErr,setFatalErr]  = useState(false)
   const [playbackRate, setPlaybackRate] = useState(1)
   const [isPiP, setIsPiP] = useState(false)
+  const [isDropdownOpen, setIsDropdownOpen] = useState(false)
 
   /* ----------------------------------------------------------------
    * progress callback (throttled)
@@ -332,6 +333,65 @@ export default function VideoPlayer({
     }
   }, [])
 
+  // Add keyboard shortcuts
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      // Only handle keyboard shortcuts when video player is focused or no input is focused
+      const activeElement = document.activeElement as HTMLElement
+      if (activeElement && (
+        activeElement.tagName === 'INPUT' || 
+        activeElement.tagName === 'TEXTAREA' || 
+        activeElement.contentEditable === 'true'
+      )) {
+        return
+      }
+
+      switch (e.code) {
+        case 'Space':
+          e.preventDefault()
+          togglePlay()
+          break
+        case 'ArrowLeft':
+          e.preventDefault()
+          jump(-10)
+          break
+        case 'ArrowRight':
+          e.preventDefault()
+          jump(10)
+          break
+        case 'ArrowUp':
+          e.preventDefault()
+          const v = vRef.current
+          if (v) {
+            const newVolume = Math.min(1, v.volume + 0.1)
+            v.volume = newVolume
+          }
+          break
+        case 'ArrowDown':
+          e.preventDefault()
+          const video = vRef.current
+          if (video) {
+            const newVolume = Math.max(0, video.volume - 0.1)
+            video.volume = newVolume
+          }
+          break
+        case 'KeyM':
+          e.preventDefault()
+          toggleMute()
+          break
+        case 'KeyF':
+          e.preventDefault()
+          fullScreen()
+          break
+      }
+    }
+
+    document.addEventListener('keydown', handleKeyDown)
+    return () => {
+      document.removeEventListener('keydown', handleKeyDown)
+    }
+  }, [togglePlay, jump, toggleMute, fullScreen])
+
   /* ----------------------------------------------------------------
    * JSX
    * --------------------------------------------------------------*/
@@ -394,10 +454,14 @@ export default function VideoPlayer({
           )}
 
           {/* bottom bar */}
-          <div className="absolute bottom-0 left-0 right-0 px-4 py-3 bg-gradient-to-t from-black/90 via-black/60 to-transparent opacity-0 group-hover:opacity-100 transition-all duration-300 backdrop-blur-sm border-t border-white/10">
+          <div className={cn(
+            "absolute bottom-0 left-0 right-0 px-2 sm:px-4 py-2 sm:py-3 bg-gradient-to-t from-black/90 via-black/60 to-transparent transition-all duration-300 backdrop-blur-sm border-t border-white/10",
+            "opacity-0 group-hover:opacity-100",
+            isDropdownOpen && "opacity-100"
+          )}>
             {/* progress bar container */}
             <div 
-              className="relative mb-1 h-4 flex items-center group/progress cursor-pointer"
+              className="relative mb-2 sm:mb-1 h-6 sm:h-4 flex items-center group/progress cursor-pointer"
               onClick={(e) => {
                 e.stopPropagation()
                 const rect = e.currentTarget.getBoundingClientRect()
@@ -408,7 +472,7 @@ export default function VideoPlayer({
               }}
             >
               {/* Progress background */}
-              <div className="absolute w-full h-2 bg-black/40 rounded-full overflow-hidden backdrop-blur-sm">
+              <div className="absolute w-full h-3 sm:h-2 bg-black/40 rounded-full overflow-hidden backdrop-blur-sm">
                 {/* Buffer progress */}
                 <div 
                   className="absolute h-full bg-white/20 rounded-full transition-all duration-300" 
@@ -423,8 +487,8 @@ export default function VideoPlayer({
               
               {/* Progress handle (logo con chạy theo) */}
               <div 
-                className="absolute h-4 w-4 -translate-y-1/2 top-1/2 transition-all duration-150 group-hover/progress:scale-125"
-                style={{left: `calc(${(time/(dur||1))*100}% - 8px)`}}
+                className="absolute h-5 w-5 sm:h-4 sm:w-4 -translate-y-1/2 top-1/2 transition-all duration-150 group-hover/progress:scale-125"
+                style={{left: `calc(${(time/(dur||1))*100}% - 10px)`}}
               >
                 <div className="relative h-full w-full">
                   {/* Outer glow */}
@@ -438,7 +502,7 @@ export default function VideoPlayer({
               
               {/* Hover tooltip */}
               <div 
-                className="absolute -top-10 px-2 py-1 bg-black/80 text-white text-xs rounded pointer-events-none opacity-0 group-hover/progress:opacity-100 transition-opacity duration-200 backdrop-blur-sm"
+                className="absolute -top-12 sm:-top-10 px-2 py-1 bg-black/80 text-white text-xs rounded pointer-events-none opacity-0 group-hover/progress:opacity-100 transition-opacity duration-200 backdrop-blur-sm"
                 style={{left: `calc(${(time/(dur||1))*100}% - 20px)`}}
               >
                 {fmt(time)}
@@ -451,46 +515,47 @@ export default function VideoPlayer({
             {/* control row */}
             <div className="flex justify-between items-center mt-1 text-white select-none">
               {/* left cluster */}
-              <div className="flex items-center gap-3">
+              <div className="flex items-center gap-1 sm:gap-3">
                 <Button 
                   size="icon" 
                   variant="ghost" 
-                  className="text-white hover:text-amber-400 hover:bg-amber-400/10 transition-all duration-200 hover:scale-110" 
+                  className="h-8 w-8 sm:h-10 sm:w-10 text-white hover:text-amber-400 hover:bg-amber-400/10 transition-all duration-200 hover:scale-110" 
                   aria-label="play" 
                   onClick={(e) => {
                     e.stopPropagation();
                     togglePlay();
                   }}
                 >
-                  {playing? <Pause className="h-6 w-6"/> : <Play className="h-6 w-6"/>}
+                  {playing? <Pause className="h-4 w-4 sm:h-6 sm:w-6"/> : <Play className="h-4 w-4 sm:h-6 sm:w-6"/>}
                 </Button>
                 <Button 
                   size="icon" 
                   variant="ghost" 
-                  className="text-white hover:text-amber-400 hover:bg-amber-400/10 transition-all duration-200 hover:scale-110" 
+                  className="h-8 w-8 sm:h-10 sm:w-10 text-white hover:text-amber-400 hover:bg-amber-400/10 transition-all duration-200 hover:scale-110" 
                   onClick={(e) => {
                     e.stopPropagation();
                     jump(-10);
                   }} 
                   aria-label="-10s"
                 >
-                  <SkipBack className="h-5 w-5"/>
+                  <SkipBack className="h-4 w-4 sm:h-5 sm:w-5"/>
                 </Button>
                 <Button 
                   size="icon" 
                   variant="ghost" 
-                  className="text-white hover:text-amber-400 hover:bg-amber-400/10 transition-all duration-200 hover:scale-110" 
+                  className="h-8 w-8 sm:h-10 sm:w-10 text-white hover:text-amber-400 hover:bg-amber-400/10 transition-all duration-200 hover:scale-110" 
                   onClick={(e) => {
                     e.stopPropagation();
                     jump(10);
                   }} 
                   aria-label="+10s"
                 >
-                  <SkipForward className="h-5 w-5"/>
+                  <SkipForward className="h-4 w-4 sm:h-5 sm:w-5"/>
                 </Button>
-                {/* volume */}
+                
+                {/* Volume section - hidden on mobile, shown on desktop */}
                 <div 
-                  className="flex items-center gap-2 group/volume"
+                  className="hidden sm:flex items-center gap-2 group/volume"
                   onClick={(e) => e.stopPropagation()}
                 >
                   <Button 
@@ -553,20 +618,24 @@ export default function VideoPlayer({
                       {Math.round((muted ? 0 : vol) * 100)}%
                     </div>
                   </div>
-                  
-                  <span className="text-xs tabular-nums ml-2">{fmt(time)} / {fmt(dur)}</span>
                 </div>
+                
+                {/* Time display - smaller on mobile */}
+                <span className="text-xs sm:text-sm tabular-nums ml-1 sm:ml-2 hidden sm:inline">{fmt(time)} / {fmt(dur)}</span>
               </div>
 
               {/* right cluster */}
-              <div className="flex items-center gap-3">
-                {/* Playback Speed */}
-                <DropdownMenu>
+              <div className="flex items-center gap-1 sm:gap-3">
+                {/* Time display for mobile */}
+                <span className="text-xs tabular-nums sm:hidden">{fmt(time)}</span>
+
+                {/* Playback Speed - hidden on small mobile */}
+                <DropdownMenu onOpenChange={setIsDropdownOpen}>
                   <DropdownMenuTrigger asChild>
                     <Button 
                       variant="ghost" 
                       size="sm" 
-                      className="text-xs flex items-center gap-1 hover:text-amber-400"
+                      className="text-xs hidden sm:flex items-center gap-1 hover:text-amber-400 h-8 px-2"
                       onClick={(e) => e.stopPropagation()}
                     >
                       {playbackRate}x
@@ -592,17 +661,18 @@ export default function VideoPlayer({
                   </DropdownMenuContent>
                 </DropdownMenu>
 
-                {/* quality */}
+                {/* quality - simplified for mobile */}
                 {levels.length > 0 && (
-                  <DropdownMenu>
+                  <DropdownMenu onOpenChange={(open) => setIsDropdownOpen(open)}>
                     <DropdownMenuTrigger asChild>
                       <Button 
                         variant="ghost" 
                         size="sm" 
-                        className="text-xs flex items-center gap-1 hover:text-amber-400"
+                        className="text-xs flex items-center gap-1 hover:text-amber-400 h-8 px-2"
                         onClick={(e) => e.stopPropagation()}
                       >
-                        {level === -1 ? 'Auto' : formatQualityLabel(levels[level], level, videoSrc)} <Settings className="h-4 w-4"/>
+                        <span className="hidden sm:inline">{level === -1 ? 'Auto' : formatQualityLabel(levels[level], level, videoSrc)}</span>
+                        <Settings className="h-3 w-3 sm:h-4 sm:w-4"/>
                       </Button>
                     </DropdownMenuTrigger>
                     <DropdownMenuContent 
@@ -635,31 +705,31 @@ export default function VideoPlayer({
                   </DropdownMenu>
                 )}
 
-                {/* PiP Button */}
+                {/* PiP Button - hidden on mobile */}
                 <Button 
                   size="icon" 
                   variant="ghost" 
-                  className="text-white hover:text-purple-400 hover:bg-purple-400/10 transition-all duration-200 hover:scale-110" 
+                  className="hidden sm:flex h-8 w-8 sm:h-10 sm:w-10 text-white hover:text-purple-400 hover:bg-purple-400/10 transition-all duration-200 hover:scale-110" 
                   onClick={(e) => {
                     e.stopPropagation()
                     togglePiP()
                   }}
                   disabled={!document.pictureInPictureEnabled}
                 >
-                  <PictureInPicture className="h-5 w-5" />
+                  <PictureInPicture className="h-4 w-4 sm:h-5 sm:w-5" />
                 </Button>
 
                 {/* fullscreen */}
                 <Button 
                   size="icon" 
                   variant="ghost" 
-                  className="text-white hover:text-green-400 hover:bg-green-400/10 transition-all duration-200 hover:scale-110" 
+                  className="h-8 w-8 sm:h-10 sm:w-10 text-white hover:text-green-400 hover:bg-green-400/10 transition-all duration-200 hover:scale-110" 
                   onClick={(e) => {
                     e.stopPropagation()
                     fullScreen()
                   }}
                 >
-                  {full? <Minimize className="h-5 w-5"/> : <Maximize className="h-5 w-5"/>}
+                  {full? <Minimize className="h-4 w-4 sm:h-5 sm:w-5"/> : <Maximize className="h-4 w-4 sm:h-5 sm:w-5"/>}
                 </Button>
               </div>
             </div>

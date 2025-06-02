@@ -33,10 +33,9 @@ export const viewService = {
     
     // Throttling: chỉ cho phép increment mỗi 30 giây
     if (lastIncrement && now - lastIncrement < THROTTLE_DURATION) {
-      const waitTime = Math.ceil((THROTTLE_DURATION - (now - lastIncrement)) / 1000)
       return {
         success: false,
-        message: `Vui lòng đợi ${waitTime} giây trước khi tăng lượt xem`,
+        message: '',
       };
     }
 
@@ -74,10 +73,9 @@ export const viewService = {
     
     // Throttling: chỉ cho phép increment mỗi 30 giây
     if (lastIncrement && now - lastIncrement < THROTTLE_DURATION) {
-      const waitTime = Math.ceil((THROTTLE_DURATION - (now - lastIncrement)) / 1000)
       return {
         success: false,
-        message: `Vui lòng đợi ${waitTime} giây trước khi tăng lượt xem`,
+        message: '',
       };
     }
 
