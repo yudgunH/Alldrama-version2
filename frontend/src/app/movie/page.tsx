@@ -12,6 +12,7 @@ import { useMoviesInfinite } from '@/hooks/useMoviesInfinite';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Button } from '@/components/ui/button';
 import { RefreshCw } from 'lucide-react';
+import { cacheManager } from '@/lib/cache/cacheManager';
 
 interface ProcessedMovie extends Movie {
   type: 'movie' | 'series';
@@ -25,6 +26,10 @@ export default function MovieListPage() {
     sort: 'views' as const,
     order: 'DESC' as const,
   });
+  
+  // Check cache first before using infinite scroll
+  const [cachedMovies, setCachedMovies] = useState<Movie[]>([]);
+  const [showingCachedResults, setShowingCachedResults] = useState(false);
   
   // Use infinite scroll hook for movies
   const {
@@ -48,7 +53,7 @@ export default function MovieListPage() {
     hasMore,
     {
       threshold: 200, // Trigger when 200px from bottom
-      enabled: !isLoading && hasMore,
+      enabled: !isLoading && hasMore && !showingCachedResults,
     }
   );
 
@@ -56,14 +61,43 @@ export default function MovieListPage() {
   const [genres, setGenres] = useState<Genre[]>([]);
   const [genresLoading, setGenresLoading] = useState(true);
 
-  // Fetch genres when component mounts - only once
+  // Check cache on component mount
+  useEffect(() => {
+    const checkCache = () => {
+      // Get cached movies first
+      const allCachedMovies = cacheManager.getAllCachedMovies();
+      if (allCachedMovies.length > 0) {
+        setCachedMovies(allCachedMovies);
+        setShowingCachedResults(true);
+        
+        // Also add them to the cacheManager for consistency
+        cacheManager.addDiscoveredMovies(allCachedMovies);
+      }
+    };
+    
+    checkCache();
+  }, []);
+
+  // Fetch genres when component mounts - check cache first
   useEffect(() => {
     const fetchGenres = async () => {
       try {
         setGenresLoading(true);
+        
+        // Check cache first
+        const cachedGenres = cacheManager.getGenres();
+        if (cachedGenres) {
+          setGenres(cachedGenres);
+          setGenresLoading(false);
+          return;
+        }
+        
+        // Fetch from API if not cached
         const genreData = await getAllGenres();
         if (genreData) {
           setGenres(genreData);
+          // Cache the genres
+          cacheManager.setGenres(genreData, 60 * 60 * 1000); // 1 hour
         }
       } catch (error) {
         console.error('Error fetching genres:', error);
@@ -75,12 +109,38 @@ export default function MovieListPage() {
     fetchGenres();
   }, [getAllGenres]);
 
-  // Handle genre change
+  // Handle genre change with cache priority
   const handleGenreChange = useCallback((genre: string) => {
     if (genre === activeGenre) return;
     
     setActiveGenre(genre);
     
+    // Check cache first for genre filtering
+    if (genre !== 'all') {
+      const genreObj = genres.find(g => g.name === genre);
+      const cachedForGenre = cacheManager.searchCachedMovies('', genre, '');
+      
+      if (cachedForGenre.length > 0) {
+        // Use cached results
+        setCachedMovies(cachedForGenre);
+        setShowingCachedResults(true);
+        
+        // Navigate to search page for better UX
+        router.push(`/search?genre=${encodeURIComponent(genre)}`);
+        return;
+      }
+    } else {
+      // Show all cached movies
+      const allCached = cacheManager.getAllCachedMovies();
+      if (allCached.length > 0) {
+        setCachedMovies(allCached);
+        setShowingCachedResults(true);
+        return;
+      }
+    }
+    
+    // If no cache, proceed with API call
+    setShowingCachedResults(false);
     const newParams = {
       genre: genre !== 'all' ? Number(genre) : undefined,
       sort: 'views' as const,
@@ -92,19 +152,22 @@ export default function MovieListPage() {
     
     // Navigate to search page for better UX
     if (genre !== 'all') {
-    router.push(`/search?genre=${encodeURIComponent(genre)}`);
+      router.push(`/search?genre=${encodeURIComponent(genre)}`);
     }
-  }, [activeGenre, searchMovies, router]);
+  }, [activeGenre, searchMovies, router, genres]);
   
   // Memoize processed movies to avoid unnecessary recalculations
   const allMovies = useMemo(() => {
-    if (!movies) return [];
+    // Use cached movies if showing cached results, otherwise use API movies
+    const sourceMovies = showingCachedResults ? cachedMovies : movies || [];
     
-    return movies.map((movie: Movie) => ({
+    if (!sourceMovies || sourceMovies.length === 0) return [];
+    
+    return sourceMovies.map((movie: Movie) => ({
         ...movie,
         type: movie.totalEpisodes > 0 ? 'series' : 'movie'
       })) as ProcessedMovie[];
-  }, [movies]);
+  }, [movies, cachedMovies, showingCachedResults]);
   
   // Loading skeleton component
   const LoadingSkeleton = () => (
@@ -206,35 +269,59 @@ export default function MovieListPage() {
         
         {/* Movie Grid */}
         <div className="grid grid-cols-1 gap-8">
-          {isLoading ? (
+          {isLoading && !showingCachedResults ? (
             <LoadingSkeleton />
           ) : (
             <>
-          <MovieGrid
+              <MovieGrid
                 isLoading={false}
-            movies={allMovies}
+                movies={allMovies}
                 showPagination={false} // Disable pagination for infinite scroll
                 totalPages={pagination?.totalPages || 1}
                 currentPage={pagination?.currentPage || 1}
                 onPageChange={() => {}} // Not used with infinite scroll
               />
               
-              {/* Infinite scroll trigger element */}
-              {hasMore && (
+              {/* Infinite scroll trigger element - only for API results */}
+              {hasMore && !showingCachedResults && (
                 <div ref={lastElementRef} className="w-full h-10 flex items-center justify-center">
                   {isFetching && <LoadMoreSkeleton />}
                 </div>
               )}
               
+              {/* Load more button for cached results */}
+              {showingCachedResults && allMovies.length > 0 && (
+                <div className="text-center py-8">
+                  <p className="text-gray-400 mb-4">
+                    Đang hiển thị {allMovies.length} phim
+                  </p>
+                  <Button 
+                    variant="outline" 
+                    onClick={() => {
+                      setShowingCachedResults(false);
+                      const newParams = {
+                        genre: activeGenre !== 'all' ? genres.find(g => g.name === activeGenre)?.id : undefined,
+                        sort: 'views' as const,
+                        order: 'DESC' as const,
+                      };
+                      setSearchParams(newParams);
+                      searchMovies(newParams);
+                    }}
+                  >
+                    Tải thêm từ server
+                  </Button>
+                </div>
+              )}
+              
               {/* End of results message */}
-              {!hasMore && allMovies.length > 0 && (
+              {!hasMore && !showingCachedResults && allMovies.length > 0 && (
                 <div className="text-center py-8">
                   <p className="text-gray-400">Đã hiển thị tất cả {allMovies.length} phim</p>
                 </div>
               )}
               
               {/* No results message */}
-              {!isLoading && allMovies.length === 0 && (
+              {!isLoading && allMovies.length === 0 && !showingCachedResults && (
                 <div className="text-center py-12">
                   <p className="text-gray-400 text-lg">Không tìm thấy phim nào</p>
                   <Button 
