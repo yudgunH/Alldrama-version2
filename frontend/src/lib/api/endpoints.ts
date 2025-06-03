@@ -96,8 +96,6 @@ export const API_ENDPOINTS = {
   VIEWS: {
     INCREMENT_MOVIE: (movieId: string | number) => `/api/views/movie/${movieId}`,
     INCREMENT_EPISODE: (episodeId: string | number) => `/api/views/episode/${episodeId}`,
-    GET_MOVIE_VIEWS: (movieId: string | number) => `/api/views/movie/${movieId}`,
-    GET_EPISODE_VIEWS: (episodeId: string | number) => `/api/views/episode/${episodeId}`,
   },
   
   // Stats

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo } from "react";
+import { useState, useMemo, useRef, useEffect } from "react";
 import Link from "next/link";
 import { generateWatchUrl, generateMovieUrl } from "@/utils/url";
 import { Button } from "@/components/ui/button";
@@ -60,10 +60,10 @@ export default function EpisodeList({
   error
 }: EpisodeListProps) {
   const [activeTab, setActiveTab] = useState("latest");
-  const [displayedMoviesCount, setDisplayedMoviesCount] = useState(5); // Start with 5 movies
+  const [displayedMoviesCount, setDisplayedMoviesCount] = useState(2); // Start with only 2 movies
 
   const handleLoadMoreMovies = () => {
-    setDisplayedMoviesCount(prev => Math.min(prev + 5, movies.length)); // Load 5 more, max = total movies
+    setDisplayedMoviesCount(prev => Math.min(prev + 2, movies.length)); // Load 2 more at a time
   };
 
   return (
@@ -260,11 +260,14 @@ function EpisodeGrid({
     );
   }
 
+  // Limit trending episodes to 18 (3 rows of 6)
+  const displayEpisodes = showRank ? episodes.slice(0, 18) : episodes;
+
   return (
     <div>
-      {/* Grid for episodes - Mobile optimized: max 3 per row */}
-      <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 xl:grid-cols-8 gap-3 sm:gap-4">
-        {episodes.map((ep, idx) => (
+      {/* Mobile: Horizontal scroll (3 per view), Desktop: Grid */}
+      <div className="flex gap-3 overflow-x-auto scrollbar-hide pb-2 md:grid md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 md:gap-4 md:overflow-visible">
+        {displayEpisodes.map((ep, idx) => (
           <Link
             key={`${ep.movieId}-${ep.id}`}
             href={generateWatchUrl(
@@ -273,6 +276,7 @@ function EpisodeGrid({
               ep.id,
               ep.episodeNumber
             )}
+            className="flex-shrink-0 w-[calc(33.333%-8px)] md:w-full"
           >
             <Card className="relative bg-gray-800/40 border-gray-700 hover:border-gray-500 transition-all overflow-hidden h-[200px] sm:h-[240px] md:h-[280px] group">
               {/* Poster */}
@@ -333,11 +337,24 @@ function EpisodeGrid({
         ))}
       </div>
 
+      {/* Scroll indicators for mobile */}
+      <div className="flex justify-center mt-2 md:hidden">
+        <div className="flex space-x-1">
+          {Array.from({ length: Math.ceil(displayEpisodes.length / 3) }).map((_, i) => (
+            <div key={i} className="w-1 h-1 bg-gray-600 rounded-full"></div>
+          ))}
+        </div>
+      </div>
+
       {/* Show count info */}
-      {episodes.length > 0 && (
+      {displayEpisodes.length > 0 && (
         <div className="mt-4 sm:mt-6 text-center">
           <p className="text-gray-500 text-xs sm:text-sm">
-            Hiển thị {episodes.length} tập phim
+            {showRank && episodes.length > 18 && (
+              <span className="block mt-1 text-gray-600 text-xs">
+                (Hiển thị top 18 tập thịnh hành nhất)
+              </span>
+            )}
           </p>
         </div>
       )}
@@ -360,6 +377,33 @@ function SeriesSection({
   onLoadMore: () => void;
   hasMore: boolean;
 }) {
+  const loadMoreRef = useRef<HTMLDivElement>(null);
+
+  // Intersection Observer for auto-loading when user scrolls near bottom
+  useEffect(() => {
+    const observer = new IntersectionObserver(
+      ([entry]) => {
+        if (entry.isIntersecting && hasMore && !isLoading) {
+          onLoadMore();
+        }
+      },
+      {
+        threshold: 0.1,
+        rootMargin: '200px' // Trigger when 200px away from viewport
+      }
+    );
+
+    if (loadMoreRef.current) {
+      observer.observe(loadMoreRef.current);
+    }
+
+    return () => {
+      if (loadMoreRef.current) {
+        observer.unobserve(loadMoreRef.current);
+      }
+    };
+  }, [hasMore, isLoading, onLoadMore]);
+
   if (isLoading) return <SkeletonSeries />;
   if (error)
     return (
@@ -375,9 +419,6 @@ function SeriesSection({
             Theo bộ phim
           </span>
         </h2>
-        <div className="text-xs sm:text-sm text-gray-400">
-          {displayedCount} / {movies.length} phim
-        </div>
       </div>
 
       {movies.slice(0, displayedCount).map((movie) => (
@@ -400,7 +441,7 @@ function SeriesSection({
             </Link>
           </div>
           
-          {/* Remove ScrollArea wrapper for better mobile experience */}
+          {/* MovieEpisodes with lazy loading */}
           <MovieEpisodes
             movieId={movie.id}
             movieTitle={movie.title}
@@ -411,7 +452,12 @@ function SeriesSection({
         </div>
       ))}
 
-      {/* Load More Button */}
+      {/* Auto-load trigger (invisible) */}
+      {hasMore && (
+        <div ref={loadMoreRef} className="w-full h-4" />
+      )}
+
+      {/* Manual Load More Button */}
       {hasMore && (
         <div className="text-center py-6 sm:py-8">
           <Button
@@ -421,14 +467,14 @@ function SeriesSection({
             className="bg-transparent border-gray-600 text-gray-400 hover:bg-gray-600 hover:text-white px-6 sm:px-8 text-sm sm:text-base"
           >
             <ListFilter size={14} className="mr-2 sm:w-4 sm:h-4" />
-            <span className="hidden sm:inline">Tải thêm bộ phim ({movies.length - displayedCount} còn lại)</span>
-            <span className="sm:hidden">Tải thêm ({movies.length - displayedCount})</span>
+            <span className="hidden sm:inline">Tải thêm 2 bộ phim ({movies.length - displayedCount} còn lại)</span>
+            <span className="sm:hidden">Tải thêm 2 phim ({movies.length - displayedCount})</span>
           </Button>
         </div>
       )}
 
       {/* All loaded message */}
-      {!hasMore && movies.length > 5 && (
+      {!hasMore && movies.length > 2 && (
         <div className="text-center py-6 sm:py-8">
           <p className="text-gray-500 text-xs sm:text-sm">
             Đã hiển thị tất cả {movies.length} bộ phim

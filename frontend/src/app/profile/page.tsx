@@ -11,7 +11,8 @@ import { Favorite, WatchHistory } from '@/types';
 import { favoriteService } from '@/lib/api/services/favoriteService';
 import { authService } from '@/lib/api/services/authService';
 import { generateMovieUrl } from '@/utils/url';
-import { getSafePosterUrl } from '@/utils/image';
+import { getSafePosterUrl, getImageInfo, getSafeBackdropUrl } from '@/utils/image';
+import { Skeleton } from '@/components/ui/skeleton';
 
 // Tabs
 type TabType = 'account' | 'history' | 'favorites' | 'settings';
@@ -319,74 +320,112 @@ const ProfileContent = () => {
         </div>
       ) : (
         <div className="space-y-3 sm:space-y-4">
-          {watchHistory?.map((item) => (
-            <div key={item.id} className="bg-gray-700 rounded-lg p-3 sm:p-4 flex flex-col sm:flex-row">
-              <div className="w-full sm:w-32 h-40 sm:h-44 mb-3 sm:mb-0 sm:mr-4 relative">
-                <Image 
-                  src={item.movie ? getSafePosterUrl(item.movie.posterUrl, item.movie.id) : '/placeholders/movie.png'} 
-                  alt={item.movie?.title || 'Movie'}
-                  fill
-                  className="rounded-md object-cover"
-                  sizes="(max-width: 640px) 100vw, 128px"
-                  onError={(e) => {
-                    const target = e.target as HTMLImageElement;
-                    target.src = '/placeholder.svg';
-                  }}
-                />
-              </div>
-              <div className="flex-1">
-                {item.movie && (
-                  <Link 
-                    href={generateMovieUrl(item.movie.id, item.movie.title)}
-                    className="text-lg sm:text-xl font-semibold text-white hover:text-red-500 transition-colors line-clamp-1"
-                  >
-                    {item.movie.title}
-                  </Link>
-                )}
-                {item.episode && (
-                  <p className="text-sm sm:text-base text-gray-400 mt-1">
-                    Tập {item.episode.episodeNumber}: {item.episode.title}
-                  </p>
-                )}
-                <div className="mt-2 flex items-center text-xs sm:text-sm text-gray-400">
-                  <svg className="w-3 h-3 sm:w-4 sm:h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
-                  </svg>
-                  Xem lúc: {formatDate(item.watchedAt)}
+          {watchHistory?.map((item) => {
+            // Get both poster and backdrop URLs for responsive display
+            const posterImageInfo = item.movie 
+              ? getImageInfo(item.movie.posterUrl, item.movie.id, 'poster')
+              : { url: '', shouldShowSkeleton: true };
+              
+            const backdropUrl = item.movie 
+              ? getSafeBackdropUrl(item.movie.backdropUrl, item.movie.posterUrl, item.movie.id)
+              : '';
+            const shouldShowBackdropSkeleton = !backdropUrl || backdropUrl === '/placeholder.svg';
+              
+            return (
+              <div key={item.id} className="bg-gray-700 rounded-lg p-3 sm:p-4 flex flex-col sm:flex-row">
+                <div className="w-full sm:w-32 h-40 sm:h-44 mb-3 sm:mb-0 sm:mr-4 relative">
+                  {/* Mobile: Show backdrop (landscape) */}
+                  <div className="block sm:hidden w-full h-full">
+                    {shouldShowBackdropSkeleton ? (
+                      <Skeleton className="w-full h-full rounded-md" />
+                    ) : (
+                      <Image 
+                        src={backdropUrl}
+                        alt={item.movie?.title || 'Movie'}
+                        fill
+                        className="rounded-md object-cover"
+                        sizes="100vw"
+                        onError={(e) => {
+                          const target = e.target as HTMLImageElement;
+                          target.src = '/placeholder.svg';
+                        }}
+                      />
+                    )}
+                  </div>
+                  
+                  {/* Desktop: Show poster (portrait) */}
+                  <div className="hidden sm:block w-full h-full">
+                    {posterImageInfo.shouldShowSkeleton ? (
+                      <Skeleton className="w-full h-full rounded-md" />
+                    ) : (
+                      <Image 
+                        src={posterImageInfo.url}
+                        alt={item.movie?.title || 'Movie'}
+                        fill
+                        className="rounded-md object-cover"
+                        sizes="128px"
+                        onError={(e) => {
+                          const target = e.target as HTMLImageElement;
+                          target.src = '/placeholder.svg';
+                        }}
+                      />
+                    )}
+                  </div>
                 </div>
-                <div className="mt-3 sm:mt-4">
-                  {item.isCompleted ? (
-                    <span className="inline-flex items-center px-2 sm:px-3 py-1 rounded-full text-xs font-medium bg-green-900 text-green-300">
-                      Đã xem xong
-                    </span>
-                  ) : (
-                    <>
-                      <div className="flex justify-between text-xs sm:text-sm text-gray-400 mb-1">
-                        <span>Tiến độ: {formatTime(item.progress)}</span>
-                        <span>Tổng thời gian: {formatTime(item.duration)}</span>
-                      </div>
-                      <div className="w-full bg-gray-600 rounded-full h-1.5 sm:h-2">
-                        <div 
-                          className="bg-red-600 h-1.5 sm:h-2 rounded-full" 
-                          style={{ width: `${(item.progress / item.duration) * 100}%` }}
-                        ></div>
-                      </div>
-                    </>
+                <div className="flex-1">
+                  {item.movie && (
+                    <Link 
+                      href={generateMovieUrl(item.movie.id, item.movie.title)}
+                      className="text-lg sm:text-xl font-semibold text-white hover:text-red-500 transition-colors line-clamp-1"
+                    >
+                      {item.movie.title}
+                    </Link>
+                  )}
+                  {item.episode && (
+                    <p className="text-sm sm:text-base text-gray-400 mt-1">
+                      Tập {item.episode.episodeNumber}: {item.episode.title}
+                    </p>
+                  )}
+                  <div className="mt-2 flex items-center text-xs sm:text-sm text-gray-400">
+                    <svg className="w-3 h-3 sm:w-4 sm:h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                    </svg>
+                    Xem lúc: {formatDate(item.watchedAt)}
+                  </div>
+                  <div className="mt-3 sm:mt-4">
+                    {item.isCompleted ? (
+                      <span className="inline-flex items-center px-2 sm:px-3 py-1 rounded-full text-xs font-medium bg-green-900 text-green-300">
+                        Đã xem xong
+                      </span>
+                    ) : (
+                      <>
+                        <div className="flex justify-between text-xs sm:text-sm text-gray-400 mb-1">
+                          <span>Tiến độ: {formatTime(item.progress)}</span>
+                          <span>Tổng thời gian: {formatTime(item.duration)}</span>
+                        </div>
+                        <div className="w-full bg-gray-600 rounded-full h-1.5 sm:h-2">
+                          <div 
+                            className="bg-red-600 h-1.5 sm:h-2 rounded-full" 
+                            style={{ width: `${(item.progress / item.duration) * 100}%` }}
+                          ></div>
+                        </div>
+                      </>
+                    )}
+                  </div>
+                  {item.movie && item.episode && (
+                    <div className="mt-3 sm:mt-4">
+                      <Link 
+                        href={`/watch/${generateMovieUrl(item.movie.id, item.movie.title).replace('/movie/', '')}?episode=${item.episode.id}&ep=${item.episode.episodeNumber}&progress=${item.progress}`}
+                        className="inline-block bg-red-600 hover:bg-red-700 text-white px-3 sm:px-4 py-1.5 sm:py-2 rounded-md text-xs sm:text-sm transition-colors"
+                      >
+                        {item.isCompleted ? 'Xem lại' : 'Tiếp tục xem'}
+                      </Link>
+                    </div>
                   )}
                 </div>
-                {item.movie && item.episode && (
-                  <div className="mt-3 sm:mt-4">
-                    <Link 
-                      href={`/watch/${generateMovieUrl(item.movie.id, item.movie.title).replace('/movie/', '')}?episode=${item.episode.id}&ep=${item.episode.episodeNumber}&progress=${item.progress}`}
-                      className="inline-block bg-red-600 hover:bg-red-700 text-white px-3 sm:px-4 py-1.5 sm:py-2 rounded-md text-xs sm:text-sm transition-colors"
-                    >
-                      {item.isCompleted ? 'Xem lại' : 'Tiếp tục xem'}
-                    </Link>
-                  </div>
-                )}
               </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
       )}
     </div>
@@ -418,23 +457,36 @@ const ProfileContent = () => {
             // Generate movie title and URL slug
             const movieTitle = favorite.movie?.title || `Phim ${favorite.movieId}`;
             const movieSlug = favorite.movie?.title?.toLowerCase().replace(/\s+/g, '-') || `movie-${favorite.movieId}`;
-            const posterUrl = getSafePosterUrl(favorite.movie?.posterUrl, favorite.movieId);
+            
+            // Use getSafeBackdropUrl for backdrop with fallback to poster
+            const backdropUrl = getSafeBackdropUrl(
+              favorite.movie?.backdropUrl,
+              favorite.movie?.posterUrl,
+              favorite.movieId
+            );
+            
+            // Check if we should show skeleton (when no valid image URL)
+            const shouldShowSkeleton = !backdropUrl || backdropUrl === '/placeholder.svg';
             
             return (
               <div key={favorite.id} className="bg-gray-700 rounded-lg overflow-hidden">
                 <div className="relative w-full h-40 sm:h-60">
-                  <Image 
-                    src={posterUrl}
-                    alt={movieTitle}
-                    fill
-                    className="object-cover"
-                    sizes="(max-width: 640px) 50vw, (max-width: 1024px) 50vw, 33vw"
-                    onError={(e) => {
-                      // Fallback to placeholder if image fails to load
-                      const target = e.target as HTMLImageElement;
-                      target.src = '/placeholder.svg';
-                    }}
-                  />
+                  {shouldShowSkeleton ? (
+                    <Skeleton className="w-full h-full" />
+                  ) : (
+                    <Image 
+                      src={backdropUrl}
+                      alt={movieTitle}
+                      fill
+                      className="object-cover"
+                      sizes="(max-width: 640px) 50vw, (max-width: 1024px) 50vw, 33vw"
+                      onError={(e) => {
+                        // Fallback to placeholder if image fails to load
+                        const target = e.target as HTMLImageElement;
+                        target.src = '/placeholder.svg';
+                      }}
+                    />
+                  )}
                   <div className="absolute top-2 right-2">
                     <button 
                       className="bg-gray-800/80 hover:bg-red-600/80 p-1.5 sm:p-2 rounded-full transition-colors"

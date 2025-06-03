@@ -13,6 +13,7 @@ interface CacheStore {
   comments: Map<string, CacheItem<{ comments: Comment[]; total: number }>>;
   genres: Map<string, CacheItem<any>>;
   stats: Map<string, CacheItem<any>>;
+  discoveredMovies: Map<string, CacheItem<Movie>>;
 }
 
 class CacheManager {
@@ -20,6 +21,7 @@ class CacheManager {
   private readonly DEFAULT_TTL = 5 * 60 * 1000; // 5 minutes
   private readonly LONG_TTL = 30 * 60 * 1000; // 30 minutes
   private readonly SHORT_TTL = 2 * 60 * 1000; // 2 minutes
+  private readonly MOVIE_CACHE_TTL = 60 * 60 * 1000; // 1 hour for discovered movies
 
   constructor() {
     this.cache = {
@@ -29,6 +31,7 @@ class CacheManager {
       comments: new Map(),
       genres: new Map(),
       stats: new Map(),
+      discoveredMovies: new Map(),
     };
 
     // Clean up expired cache every 5 minutes
@@ -72,6 +75,100 @@ class CacheManager {
 
   getMovieDetails(movieId: string | number): Movie | null {
     return this.get(this.cache.movieDetails, String(movieId));
+  }
+
+  // NEW: Discovered Movies Cache Methods
+  // Add movies to discovered cache when they are found through search
+  addDiscoveredMovies(movies: Movie[]): void {
+    movies.forEach(movie => {
+      const key = `movie-${movie.id}`;
+      this.set(this.cache.discoveredMovies, key, movie, this.MOVIE_CACHE_TTL);
+    });
+  }
+
+  // Search within cached movies before making API call
+  searchCachedMovies(query: string, genre?: string, year?: string): Movie[] {
+    const cachedMovies: Movie[] = [];
+    const normalizedQuery = query.toLowerCase().trim();
+    
+    // Get all cached movies that are not expired
+    for (const [key, item] of this.cache.discoveredMovies.entries()) {
+      if (!this.isExpired(item)) {
+        cachedMovies.push(item.data);
+      } else {
+        this.cache.discoveredMovies.delete(key);
+      }
+    }
+
+    if (cachedMovies.length === 0) {
+      return [];
+    }
+
+    // Filter movies based on search criteria
+    let filteredMovies = cachedMovies;
+
+    // Filter by query if provided
+    if (normalizedQuery) {
+      filteredMovies = filteredMovies.filter(movie => {
+        const titleMatch = movie.title?.toLowerCase().includes(normalizedQuery);
+        const summaryMatch = movie.summary?.toLowerCase().includes(normalizedQuery);
+        
+        return titleMatch || summaryMatch;
+      });
+    }
+
+    // Filter by genre if provided
+    if (genre) {
+      filteredMovies = filteredMovies.filter(movie => {
+        if (!movie.genres) return false;
+        return movie.genres.some((g: any) => {
+          const genreName = typeof g === 'string' ? g : g.name || '';
+          return genreName.toLowerCase() === genre.toLowerCase();
+        });
+      });
+    }
+
+    // Filter by year if provided
+    if (year) {
+      const yearNum = parseInt(year);
+      if (!isNaN(yearNum)) {
+        filteredMovies = filteredMovies.filter(movie => movie.releaseYear === yearNum);
+      }
+    }
+
+    return filteredMovies;
+  }
+
+  // Get cache statistics for monitoring
+  getCacheStats(): { totalCachedMovies: number; cacheHitRate: string } {
+    const totalCachedMovies = this.cache.discoveredMovies.size;
+    // Simple cache hit rate calculation (could be enhanced with actual hit/miss tracking)
+    const cacheHitRate = totalCachedMovies > 0 ? "Available" : "Empty";
+    
+    return {
+      totalCachedMovies,
+      cacheHitRate
+    };
+  }
+
+  // Get all cached movies (for year extraction)
+  getAllCachedMovies(): Movie[] {
+    const cachedMovies: Movie[] = [];
+    
+    for (const [key, item] of this.cache.discoveredMovies.entries()) {
+      if (!this.isExpired(item)) {
+        cachedMovies.push(item.data);
+      } else {
+        this.cache.discoveredMovies.delete(key);
+      }
+    }
+    
+    return cachedMovies;
+  }
+
+  // Clear discovered movies cache
+  clearDiscoveredMovies(): void {
+    this.cache.discoveredMovies.clear();
   }
 
   // Episode cache methods
@@ -212,6 +309,7 @@ class CacheManager {
       this.cache.comments,
       this.cache.genres,
       this.cache.stats,
+      this.cache.discoveredMovies,
     ];
 
     stores.forEach((store) => {
@@ -244,6 +342,7 @@ class CacheManager {
     this.cache.comments.clear();
     this.cache.genres.clear();
     this.cache.stats.clear();
+    this.cache.discoveredMovies.clear();
     console.log('All cache cleared');
   }
 }

@@ -1,7 +1,7 @@
 import { apiClient } from '../apiClient';
 import { API_ENDPOINTS } from '../endpoints';
 
-// Types based on the API documentation
+// Types based on the API documentation from view.md
 export interface TopMovie {
   id: number;
   title: string;
@@ -32,10 +32,6 @@ export interface MovieStats {
     views: number;
   }>;
   totalEpisodeViews: number;
-  dailyViews: Array<{
-    date: string;
-    count: string;
-  }>;
 }
 
 export interface EpisodeStats {
