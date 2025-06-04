@@ -70,16 +70,22 @@ export function useWatchData({ slug, episodeId }: UseWatchDataProps) {
 
   /* Fetch episodes data with SWR and cache */
   const { data: episodes, error: episodesError, isLoading: episodesLoading } = useSWR(
-    movieId && movie && movie.totalEpisodes > 0 ? `episodes-${movieId}` : null,
+    movieId ? `episodes-${movieId}` : null,
     async () => {
       if (!movieId) return [];
       
+      console.log(`🔍 Fetching episodes for movie ${movieId}`);
+      
       const cached = cacheManager.getEpisodes(movieId);
       if (cached) {
+        console.log(`💾 Using cached episodes for movie ${movieId}:`, cached.length, 'episodes');
         return cached;
       }
       
+      console.log(`🌐 Fetching episodes from API for movie ${movieId}`);
       const episodesData = await episodeService.getEpisodesByMovieId(movieId);
+      console.log(`📦 Received episodes data for movie ${movieId}:`, episodesData?.length || 0, 'episodes');
+      
       cacheManager.setEpisodes(movieId, episodesData, 10 * 60 * 1000);
       
       return episodesData;
@@ -93,6 +99,12 @@ export function useWatchData({ slug, episodeId }: UseWatchDataProps) {
 
   /* Set active episode and navigation */
   useEffect(() => {
+    console.log(`🎯 Setting active episode for movie ${movieId}:`, {
+      episodesCount: episodes?.length || 0,
+      episodeId,
+      hasEpisodes: !!(episodes && episodes.length > 0)
+    });
+
     if (!episodes || episodes.length === 0) {
       setActiveEpisode(null);
       setNextEp(null);
@@ -103,18 +115,36 @@ export function useWatchData({ slug, episodeId }: UseWatchDataProps) {
     let current = episodes[0];
     if (episodeId) {
       const found = episodes.find((e: EpisodeWithSubtitles) => String(e.id) === episodeId);
-      if (found) current = found;
+      if (found) {
+        current = found;
+        console.log(`✅ Found episode ${episodeId}:`, current);
+      } else {
+        console.warn(`❌ Episode ${episodeId} not found in episodes list`);
+      }
     }
     setActiveEpisode(current);
 
     const idx = episodes.findIndex((e: EpisodeWithSubtitles) => e.id === current.id);
     setPrevEp(idx > 0 ? episodes[idx - 1] : null);
     setNextEp(idx < episodes.length - 1 ? episodes[idx + 1] : null);
-  }, [episodes, episodeId]);
+  }, [episodes, episodeId, movieId]);
 
   const isLoading = movieLoading || episodesLoading;
   const error = movieError || episodesError;
-  const isSeries = Boolean(activeEpisode);
+  const isSeries = Boolean(
+    (movie && movie.totalEpisodes > 0) || 
+    (episodes && episodes.length > 0)
+  );
+
+  console.log(`🎬 useWatchData result for movie ${movieId}:`, {
+    hasMovie: !!movie,
+    totalEpisodes: movie?.totalEpisodes,
+    episodesCount: episodes?.length || 0,
+    activeEpisodeId: activeEpisode?.id,
+    isSeries,
+    isLoading,
+    error: !!error
+  });
 
   return {
     movie,
