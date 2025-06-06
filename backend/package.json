@@ -43,7 +43,7 @@
     "hls.js": "^1.5.20",
     "ioredis": "^5.6.0",
     "jsonwebtoken": "^9.0.2",
-    "multer": "^1.4.5-lts.1",
+    "multer": "^2.0.1",
     "node-cron": "^3.0.3",
     "pg": "^8.13.3",
     "pg-hstore": "^2.3.4",
