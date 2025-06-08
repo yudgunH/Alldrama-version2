@@ -18,7 +18,7 @@ export function useLocalStorage<T>(key: string, initialValue: T) {
       return item ? JSON.parse(item) : initialValue;
     } catch (error) {
       // Nếu có lỗi cũng trả về giá trị khởi tạo
-      console.error(`Error reading localStorage key "${key}":`, error);
+      // console.error(`Error reading localStorage key "${key}":`, error);
       return initialValue;
     }
   });

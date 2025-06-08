@@ -37,7 +37,7 @@ export const useWatchHistory = () => {
     async (data: WatchHistoryRequest) => {
       // Không thực hiện nếu chưa đăng nhập
       if (!isAuthenticated) {
-        console.log('Bỏ qua cập nhật lịch sử xem vì chưa đăng nhập');
+        // console.log('Bỏ qua cập nhật lịch sử xem vì chưa đăng nhập');
         return null;
       }
       
@@ -47,22 +47,22 @@ export const useWatchHistory = () => {
         
         // Đảm bảo các giá trị là số hợp lệ
         if (!movieId || isNaN(Number(movieId)) || Number(movieId) <= 0) {
-          console.error('movieId không hợp lệ:', movieId);
+          // console.error('movieId không hợp lệ:', movieId);
           return null;
         }
         
         if (!episodeId || isNaN(Number(episodeId)) || Number(episodeId) <= 0) {
-          console.error('episodeId không hợp lệ:', episodeId);
+          // console.error('episodeId không hợp lệ:', episodeId);
           return null;
         }
         
         if (progress < 0 || !isFinite(progress)) {
-          console.error('progress không hợp lệ:', progress);
+          // console.error('progress không hợp lệ:', progress);
           return null;
         }
         
         if (duration <= 0 || !isFinite(duration)) {
-          console.error('duration không hợp lệ:', duration);
+          // console.error('duration không hợp lệ:', duration);
           return null;
         }
         
@@ -82,11 +82,11 @@ export const useWatchHistory = () => {
       } catch (err: any) {
         // Hiển thị thông báo lỗi chi tiết hơn
         const errorMessage = err?.response?.data?.message || 'Không thể cập nhật lịch sử xem';
-        console.error('Không thể cập nhật lịch sử xem:', err);
+        // console.error('Không thể cập nhật lịch sử xem:', err);
         
         // Ghi nhật ký lỗi chi tiết
         if (err?.response?.status) {
-          console.error(`Lỗi HTTP ${err.response.status}: ${errorMessage}`);
+          // console.error(`Lỗi HTTP ${err.response.status}: ${errorMessage}`);
         }
         
         // Nếu đã đăng nhập, hiển thị thông báo lỗi

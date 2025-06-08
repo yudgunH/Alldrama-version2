@@ -102,7 +102,7 @@ const MoviePopover = ({
         toast.success('Đã thêm vào danh sách yêu thích')
       }
     } catch (error) {
-      console.error('Error toggling favorite:', error)
+      // console.error('Error toggling favorite:', error)
       toast.error('Có lỗi xảy ra, vui lòng thử lại')
     }
   }

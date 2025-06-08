@@ -13,6 +13,7 @@ import { authService } from '@/lib/api/services/authService';
 import { generateMovieUrl } from '@/utils/url';
 import { getSafePosterUrl, getImageInfo, getSafeBackdropUrl } from '@/utils/image';
 import { Skeleton } from '@/components/ui/skeleton';
+import { toast } from 'sonner';
 
 // Tabs
 type TabType = 'account' | 'history' | 'favorites' | 'settings';
@@ -81,11 +82,11 @@ const ProfileContent = () => {
       try {
         // Nếu chưa authenticated và chưa có user
       if (!isAuthenticated && !user) {
-          console.log("Checking authentication...");
+          // console.log("Checking authentication...");
         const currentUser = await fetchCurrentUser();
           
         if (!currentUser) {
-            console.log("No authenticated user found, redirecting to login");
+            // console.log("No authenticated user found, redirecting to login");
             setRedirecting(true);
               router.push('/login');
             return;
@@ -94,7 +95,7 @@ const ProfileContent = () => {
         
         setAuthChecked(true);
         } catch (error) {
-        console.error("Auth check error:", error);
+        // console.error("Auth check error:", error);
         setRedirecting(true);
           router.push('/login');
       }
@@ -218,7 +219,8 @@ const ProfileContent = () => {
     try {
       await removeFromFavorites(movieId);
     } catch (error) {
-      console.error('Lỗi khi xóa phim yêu thích:', error);
+      // console.error('Lỗi khi xóa phim yêu thích:', error);
+      toast.error('Có lỗi xảy ra khi xóa phim yêu thích. Vui lòng thử lại');
     }
   };
 

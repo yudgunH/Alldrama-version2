@@ -111,7 +111,7 @@ const MovieDetail = ({ movieId, initialData }: MovieDetailProps) => {
 
   // Handle toggle favorite
   const handleToggleFavorite = async () => {
-    console.log('Toggle favorite clicked, auth status:', isAuthenticated);
+    // console.log('Toggle favorite clicked, auth status:', isAuthenticated);
     
     if (!isAuthenticated) {
       toast.error("Vui lòng đăng nhập để thêm vào danh sách yêu thích");
@@ -120,12 +120,12 @@ const MovieDetail = ({ movieId, initialData }: MovieDetailProps) => {
     
     if (movie) {
       try {
-        console.log('Attempting to toggle favorite for movie:', movie.id);
+        // console.log('Attempting to toggle favorite for movie:', movie.id);
         // Optimistically update UI
         setIsLiked(!isLiked);
         
         const favorited = await toggleFavorite(movie.id);
-        console.log('Toggle favorite response:', favorited);
+        // console.log('Toggle favorite response:', favorited);
         
         if (favorited !== null) {
           setIsLiked(favorited);
@@ -135,7 +135,7 @@ const MovieDetail = ({ movieId, initialData }: MovieDetailProps) => {
           setIsLiked(!isLiked);
         }
       } catch (error) {
-        console.error("Error toggling favorite:", error);
+        // console.error("Error toggling favorite:", error);
         // Revert UI change on error
         setIsLiked(!isLiked);
         toast.error("Không thể thay đổi trạng thái yêu thích");
@@ -320,7 +320,8 @@ const MovieDetail = ({ movieId, initialData }: MovieDetailProps) => {
                 className="object-cover object-center"
                 quality={90}
                 onError={() => {
-                  console.log('MovieDetail - Backdrop image load error for movie:', movie.id);
+                  // console.log('MovieDetail - Backdrop image load error for movie:', movie.id);
+                  throw new Error('Backdrop image load error');
                 }}
               />
             );
@@ -381,7 +382,8 @@ const MovieDetail = ({ movieId, initialData }: MovieDetailProps) => {
                     priority
                     className="object-cover transform hover:scale-105 transition-transform duration-700" 
                     onError={() => {
-                      console.log('MovieDetail Mobile - Image load error for movie:', movie.id);
+                      // console.log('MovieDetail Mobile - Image load error for movie:', movie.id);
+                      throw new Error('Image load error');
                     }}
                   />
                 )
@@ -407,7 +409,8 @@ const MovieDetail = ({ movieId, initialData }: MovieDetailProps) => {
                           fill 
                           className="object-cover transform group-hover:scale-105 transition-transform duration-700" 
                           onError={() => {
-                            console.log('MovieDetail Desktop - Image load error for movie:', movie.id);
+                            // console.log('MovieDetail Desktop - Image load error for movie:', movie.id);
+                            throw new Error('Image load error');
                           }}
                         />
                       )

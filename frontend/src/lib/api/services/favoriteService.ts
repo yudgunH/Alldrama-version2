@@ -17,15 +17,15 @@ export const favoriteService = {
       const result = await apiClient.get<Favorite[]>(API_ENDPOINTS.FAVORITES.LIST);
       return result;
     } catch (error) {
-      console.error('API error in getFavorites:', error);
+      // console.error('API error in getFavorites:', error);
       
       // Check if it's a network error and provide more helpful information
       if (axios.isAxiosError(error) && !error.response) {
-        console.error('Network error detected in getFavorites. This might be due to:');
-        console.error('1. CORS issues: The API server might not be allowing requests from your origin');
-        console.error('2. Network connectivity: The API server might be down or unreachable');
-        console.error('3. SSL/Certificate issues: There might be issues with the SSL certificate');
-        console.error('4. Proxy configuration: The Next.js proxy might not be correctly configured');
+        // console.error('Network error detected in getFavorites. This might be due to:');
+        // console.error('1. CORS issues: The API server might not be allowing requests from your origin');
+        // console.error('2. Network connectivity: The API server might be down or unreachable');
+        // console.error('3. SSL/Certificate issues: There might be issues with the SSL certificate');
+        // console.error('4. Proxy configuration: The Next.js proxy might not be correctly configured');
         
         // Return empty array instead of throwing to avoid UI disruption
         return [];
@@ -47,7 +47,7 @@ export const favoriteService = {
       );
       return result;
     } catch (error) {
-      console.error('API error in addToFavorites:', error);
+      // console.error('API error in addToFavorites:', error);
       throw error;
     }
   },
@@ -63,7 +63,7 @@ export const favoriteService = {
       );
       return result;
     } catch (error) {
-      console.error('API error in removeFromFavorites:', error);
+      // console.error('API error in removeFromFavorites:', error);
       throw error;
     }
   },
@@ -80,7 +80,7 @@ export const favoriteService = {
       const isFav = favorites.some(fav => String(fav.movieId) === String(movieId));
       return isFav;
     } catch (error) {
-      console.error('Error in isFavorite:', error);
+      // console.error('Error in isFavorite:', error);
       // Return false in case of error to avoid UI breaking
       return false;
     }
@@ -110,7 +110,7 @@ export const favoriteService = {
         };
       }
     } catch (error) {
-      console.error('Error in toggleFavorite:', error);
+      // console.error('Error in toggleFavorite:', error);
       throw error;
     }
   }

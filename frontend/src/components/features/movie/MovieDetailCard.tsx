@@ -65,7 +65,8 @@ const MovieDetailCard = ({
               sizes="(max-width: 1200px) 50vw, 33vw"
               priority
               onError={(e) => {
-                console.log('MovieDetailCard - Backdrop image load error for URL:', backdropInfo.url);
+                // console.log('MovieDetailCard - Backdrop image load error for URL:', backdropInfo.url);
+                throw new Error('Backdrop image load error');
               }}
             />
           )}
@@ -96,7 +97,8 @@ const MovieDetailCard = ({
                   className="object-cover object-center"
                   sizes="96px"
                   onError={(e) => {
-                    console.log('MovieDetailCard - Poster image load error for URL:', posterInfo.url);
+                    // console.log('MovieDetailCard - Poster image load error for URL:', posterInfo.url);
+                    throw new Error('Poster image load error');
                   }}
                 />
               )}

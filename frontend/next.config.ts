@@ -3,6 +3,9 @@ import type { NextConfig } from "next";
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'https://alldramaz.com';
 
 const nextConfig: NextConfig = {
+  // Allow cross-origin requests in development
+  allowedDevOrigins: ['192.168.2.3', 'localhost', '127.0.0.1'],
+  
   images: {
     domains: [
       'localhost', 
@@ -18,6 +21,43 @@ const nextConfig: NextConfig = {
         protocol: 'https',
         hostname: 'media.alldrama.tech',
         pathname: '/movies/**',
+      },
+      {
+        protocol: 'https',
+        hostname: 'media.alldrama.tech',
+        pathname: '/episodes/**',
+      },
+      {
+        protocol: 'https',
+        hostname: 'alldramaz.com',
+        pathname: '/**',
+      },
+      {
+        protocol: 'https',
+        hostname: 'via.placeholder.com',
+        pathname: '/**',
+      },
+      {
+        protocol: 'https',
+        hostname: 'image.tmdb.org',
+        pathname: '/**',
+      },
+      {
+        protocol: 'https',
+        hostname: '0343230127aedb8187f76ba76d48332e.r2.cloudflarestorage.com',
+        pathname: '/**',
+      },
+      {
+        protocol: 'http',
+        hostname: 'localhost',
+        port: '3000',
+        pathname: '/**',
+      },
+      {
+        protocol: 'http',
+        hostname: '127.0.0.1',
+        port: '3000',
+        pathname: '/**',
       },
     ],
   },

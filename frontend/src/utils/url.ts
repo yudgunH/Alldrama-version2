@@ -17,7 +17,7 @@ export function getIdFromSlug(slug: string): string {
   const match = slug.match(numericIdRegex);
   
   if (match && match[1]) {
-    console.log("Found numeric ID at end of slug:", match[1]);
+    // console.log("Found numeric ID at end of slug:", match[1]);
     return match[1]; // Return just the numeric ID
   }
   
@@ -27,7 +27,7 @@ export function getIdFromSlug(slug: string): string {
   
   // Check if the last part is numeric
   if (lastPart && !isNaN(Number(lastPart))) {
-    console.log("Found numeric ID by splitting:", lastPart);
+    // console.log("Found numeric ID by splitting:", lastPart);
     return lastPart;
   }
   
@@ -36,11 +36,11 @@ export function getIdFromSlug(slug: string): string {
   const numberMatch = slug.match(anyNumberRegex);
   
   if (numberMatch && numberMatch[1]) {
-    console.log("Found any numeric part in slug:", numberMatch[1]);
+    // console.log("Found any numeric part in slug:", numberMatch[1]);
     return numberMatch[1];
   }
   
-  console.log("All extraction methods failed, returning original slug");
+  // console.log("All extraction methods failed, returning original slug");
   return slug; // Return the original slug as fallback
 }
 
@@ -55,23 +55,23 @@ export function getEpisodeIdFromSlug(slug: string): string {
     // Tìm vị trí của "tap" trong slug và lấy phần trước đó
     const tapIndex = slug.indexOf('-tap-');
     if (tapIndex > 0) {
-      console.log("Episode ID by tap index:", slug.substring(0, tapIndex));
+      // console.log("Episode ID by tap index:", slug.substring(0, tapIndex));
       return slug.substring(0, tapIndex);
     }
     
-    console.log("Episode regex match found:", match[1]);
+    // console.log("Episode regex match found:", match[1]);
     return match[1];
   }
   
-  console.log("Episode regex match not found, trying fallback");
+  // console.log("Episode regex match not found, trying fallback");
   // Fallback: lấy các phần đầu tiên của slug
   const parts = slug.split('-');
   if (parts.length >= 2) {
-    console.log("Episode fallback returning:", parts[0] + '-' + parts[1]);
+    // console.log("Episode fallback returning:", parts[0] + '-' + parts[1]);
     return parts[0] + '-' + parts[1];
   }
   
-  console.log("All episode extraction methods failed, returning original slug");
+  // console.log("All episode extraction methods failed, returning original slug");
   return slug;
 }
 
@@ -88,7 +88,7 @@ export function generateMovieUrl(movie: { id: string | number; title: string } |
   }
   
   // Fallback case
-  console.error('Invalid arguments for generateMovieUrl');
+  // console.error('Invalid arguments for generateMovieUrl');
   return '/';
 }
 
@@ -110,9 +110,9 @@ export function generateWatchUrl(
 
 // Add a utility function to debug URL generation
 export function debugUrlGeneration(id: string | number, title: string): void {
-  console.log(`Generating URL for movie: ID=${id}, Title=${title}`);
+  // console.log(`Generating URL for movie: ID=${id}, Title=${title}`);
   const slug = createSlug(title);
-  console.log(`Generated slug: ${slug}`);
+  // console.log(`Generated slug: ${slug}`);
   const fullUrl = `/movie/${slug}-${id}`;
-  console.log(`Final URL: ${fullUrl}`);
+  // console.log(`Final URL: ${fullUrl}`);
 }

@@ -88,7 +88,7 @@ export const useAuth = () => {
     setLoading(true);
     
     try {
-      console.log("Bắt đầu đăng xuất từ useAuth...");
+      // console.log("Bắt đầu đăng xuất từ useAuth...");
       
       // Đặt cờ đang đăng xuất để ngăn các API request mới
       if (typeof window !== 'undefined') {
@@ -105,9 +105,10 @@ export const useAuth = () => {
       // Chuyển hướng đến trang đăng nhập
       router.push('/login');
       
-      console.log("Đăng xuất thành công từ useAuth.");
+      // console.log("Đăng xuất thành công từ useAuth.");
     } catch (err) {
-      console.error("Lỗi khi đăng xuất từ useAuth:", err);
+      // console.error("Lỗi khi đăng xuất từ useAuth:", err);
+      toast.error('Có lỗi xảy ra khi đăng xuất. Vui lòng thử lại');
       
       // Fallback: vẫn chuyển hướng đến login page ngay cả khi có lỗi
       router.push('/login');
@@ -156,7 +157,8 @@ export const useAuth = () => {
                 return currentUser;
               }
             } catch (err) {
-              console.error("Lỗi khi tự động fetch user từ token cookie:", err);
+              // console.error("Lỗi khi tự động fetch user từ token cookie:", err);
+              toast.error('Có lỗi xảy ra khi. Vui lòng thử lại');
             } finally {
               setLoading(false);
             }
@@ -173,13 +175,15 @@ export const useAuth = () => {
         auth.setAuthenticated(true);
         return currentUser;
       } catch (err) {
-        console.error("Error fetching current user:", err);
+        // console.error("Error fetching current user:", err);
+        toast.error('Có lỗi xảy ra khi lấy thông tin người dùng. Vui lòng thử lại');
         return null;
       } finally {
         setLoading(false);
       }
     } catch (err) {
-      console.error("Unexpected error in fetchCurrentUser:", err);
+      // console.error("Unexpected error in fetchCurrentUser:", err);
+      toast.error('Có lỗi xảy ra khi lấy thông tin người dùng. Vui lòng thử lại');
       return null;
     }
   }, [token, user, auth]);

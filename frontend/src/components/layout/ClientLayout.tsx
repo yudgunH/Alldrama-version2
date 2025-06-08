@@ -34,7 +34,7 @@ export default function ClientLayout({
     
     // If user was authenticated but now is not (logged out), clear all cache
     if (previousAuthState === true && isAuthenticated === false) {
-      console.log('Authentication state changed: user logged out, clearing all cache and refreshing page data');
+      // console.log('Authentication state changed: user logged out, clearing all cache and refreshing page data');
       
       const clearCacheAndRefresh = async () => {
         try {
@@ -69,7 +69,7 @@ export default function ClientLayout({
           // 4. Force refresh of public data after a short delay
           setTimeout(async () => {
             try {
-              console.log('Refreshing public data after logout...');
+              // console.log('Refreshing public data after logout...');
               
               // Đặt flag để cho phép refresh requests
               if (typeof window !== 'undefined') {
@@ -88,7 +88,7 @@ export default function ClientLayout({
                 key.includes('newest')
               ));
               
-              console.log('Public data refreshed successfully after logout');
+              // console.log('Public data refreshed successfully after logout');
             } catch (refreshError) {
               console.error('Error refreshing public data after logout:', refreshError);
             } finally {
@@ -110,7 +110,7 @@ export default function ClientLayout({
     
     // If user was not authenticated but now is (logged in), revalidate user-specific data
     if (previousAuthState === false && isAuthenticated === true) {
-      console.log('Authentication state changed: user logged in, refreshing user-specific data');
+      // console.log('Authentication state changed: user logged in, refreshing user-specific data');
       
       const refreshUserData = async () => {
         try {
@@ -130,7 +130,7 @@ export default function ClientLayout({
           // Also refresh homepage to show personalized content
           await mutate('homepage_data');
           
-          console.log('User-specific data refreshed successfully after login');
+          // console.log('User-specific data refreshed successfully after login');
         } catch (error) {
           console.error('Error refreshing user data after login:', error);
         }
@@ -161,7 +161,7 @@ export default function ClientLayout({
           setIsRefreshing(false);
         }
       } catch (error) {
-        console.error('Token validation failed:', error);
+        // console.error('Token validation failed:', error);
         setIsRefreshing(false);
         router.push('/login');
       }

@@ -62,7 +62,8 @@ export async function middleware(request: NextRequest) {
       }
     } catch (error) {
       // Token không hợp lệ, không xác thực
-      console.error('Invalid token:', error);
+      // console.error('Invalid token:', error);
+      throw error;
     }
   }
   

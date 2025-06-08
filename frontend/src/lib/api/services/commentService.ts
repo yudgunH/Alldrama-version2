@@ -38,11 +38,11 @@ export const commentService = {
     const cached = cacheManager.getComments(movieId, page, limit);
     
     if (cached) {
-      console.log('commentService - Cache hit for:', cacheKey);
+      // console.log('commentService - Cache hit for:', cacheKey);
       return cached;
     }
 
-    console.log('commentService - Cache miss, fetching from API for:', cacheKey);
+    // console.log('commentService - Cache miss, fetching from API for:', cacheKey);
     
     const params = new URLSearchParams();
     params.append('page', String(page));
@@ -51,18 +51,18 @@ export const commentService = {
     params.append('order', order);
     
     const url = `${API_ENDPOINTS.COMMENTS.BY_MOVIE(movieId)}?${params.toString()}`;
-    console.log('commentService - API URL:', url);
+    // console.log('commentService - API URL:', url);
     
     try {
       const result = await apiClient.get<any>(url);
-      console.log('commentService - Raw API Response:', result);
+      // console.log('commentService - Raw API Response:', result);
       
       let formattedResult: { comments: Comment[]; total: number };
       
       // Handle different response formats from backend
       if (Array.isArray(result)) {
         // If backend returns direct array
-        console.log('commentService - Backend returned array format');
+        // console.log('commentService - Backend returned array format');
         formattedResult = {
           comments: result,
           total: result.length
@@ -70,20 +70,20 @@ export const commentService = {
       } else if (result && typeof result === 'object') {
         // If backend returns object with comments and total
         if (result.comments && Array.isArray(result.comments)) {
-          console.log('commentService - Backend returned object format with comments array');
+          // console.log('commentService - Backend returned object format with comments array');
           formattedResult = {
             comments: result.comments,
             total: result.total || result.comments.length
           };
         } else if (result.data && Array.isArray(result.data)) {
-          console.log('commentService - Backend returned object format with data array');
+          // console.log('commentService - Backend returned object format with data array');
           formattedResult = {
             comments: result.data,
             total: result.total || result.data.length
           };
         } else {
           // Fallback
-          console.log('commentService - Using fallback format');
+          // console.log('commentService - Using fallback format');
           formattedResult = {
             comments: [],
             total: 0
@@ -91,7 +91,7 @@ export const commentService = {
         }
       } else {
         // Fallback
-        console.log('commentService - Using fallback format');
+        // console.log('commentService - Using fallback format');
         formattedResult = {
           comments: [],
           total: 0
@@ -101,7 +101,7 @@ export const commentService = {
       // Cache the result with 5 minute TTL
       if (formattedResult.comments.length > 0 || page === 1) {
         cacheManager.setComments(movieId, page, limit, formattedResult, 5 * 60 * 1000);
-        console.log('commentService - Cached result for:', cacheKey);
+        // console.log('commentService - Cached result for:', cacheKey);
       }
       
       return formattedResult;
@@ -130,7 +130,7 @@ export const commentService = {
       // Optimistic cache update - add new comment to first page cache
       if (result.comment) {
         cacheManager.addCommentToCache(data.movieId, result.comment, 1, 10);
-        console.log('commentService - Added new comment to cache optimistically');
+        // console.log('commentService - Added new comment to cache optimistically');
       }
       
       return result;
@@ -155,12 +155,12 @@ export const commentService = {
       // Update individual comment cache
       if (result.comment) {
         cacheManager.setComment(result.comment);
-        console.log('commentService - Updated comment in cache');
+        // console.log('commentService - Updated comment in cache');
       }
       
       return result;
     } catch (error) {
-      console.error('commentService - Update comment error:', error);
+      // console.error('commentService - Update comment error:', error);
       throw error;
     }
   },
@@ -179,12 +179,12 @@ export const commentService = {
       // Remove from cache optimistically
       if (cachedComment) {
         cacheManager.removeCommentFromCache(cachedComment.movieId, Number(commentId), 1, 10);
-        console.log('commentService - Removed comment from cache optimistically');
+        // console.log('commentService - Removed comment from cache optimistically');
       }
       
       return result;
     } catch (error) {
-      console.error('commentService - Delete comment error:', error);
+      // console.error('commentService - Delete comment error:', error);
       throw error;
     }
   }

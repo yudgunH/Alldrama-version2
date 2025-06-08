@@ -115,8 +115,16 @@ export default function VideoPlayer({
   isHLS = true,             // true nếu chuỗi .m3u8
   useCustomControls = true,  // sẽ tắt trên iOS bên dưới
   useTestVideo = false,
-  subtitles = []             // [{src,label,lang,default?}]
-}: VideoPlayerProps & {subtitles?: {src:string;label:string;lang:string;default?:boolean}[]}) {
+  subtitles = [],             // [{src,label,lang,default?}]
+  onHLSReady,
+  onQualityLevelsUpdate,
+  onQualityChange
+}: VideoPlayerProps & {
+  subtitles?: {src:string;label:string;lang:string;default?:boolean}[]
+  onHLSReady?: (hls: any, video: HTMLVideoElement) => void
+  onQualityLevelsUpdate?: (levels: any[]) => void
+  onQualityChange?: (level: number) => void
+}) {
   /* ----------------------------------------------------------------
    * decide source & flags
    * --------------------------------------------------------------*/
@@ -231,12 +239,14 @@ export default function VideoPlayer({
       // Xử lý sự kiện MANIFEST_PARSED để lấy thông tin độ phân giải
       h.on(Hls.Events.MANIFEST_PARSED, (_, data) => {
         setLevels(data.levels)
-        console.log('Available quality levels:', data.levels)
+        onQualityLevelsUpdate?.(data.levels)
+        // console.log('Available quality levels:', data.levels)
       })
 
       h.on(Hls.Events.LEVEL_SWITCHED, (_, data) => {
         setLevel(data.level)
-        console.log('Switched to quality level:', data.level)
+        onQualityChange?.(data.level)
+        // console.log('Switched to quality level:', data.level)
       })
 
       h.on(Hls.Events.ERROR, (_e, data: ErrorData) => {
@@ -249,6 +259,9 @@ export default function VideoPlayer({
         h.destroy()
       })
       hlsRef.current = h
+      
+      // Notify parent component that HLS is ready
+      onHLSReady?.(h, v)
     }
     return ()=>{ hlsRef.current?.destroy(); hlsRef.current=null }
   },[videoSrc, hlsStream])

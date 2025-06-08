@@ -1,0 +1,36 @@
+{
+  "name": "AllDrama - Nền tảng xem phim trực tuyến",
+  "short_name": "AllDrama",
+  "description": "Xem phim và series yêu thích của bạn tại AllDrama",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#111111",
+  "theme_color": "#E50914",
+  "orientation": "portrait-primary",
+  "icons": [
+    {
+      "src": "/logo.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/favicon-16x16.png",
+      "sizes": "16x16",
+      "type": "image/png"
+    },
+    {
+      "src": "/favicon-32x32.png",
+      "sizes": "32x32",
+      "type": "image/png"
+    },
+    {
+      "src": "/apple-touch-icon.png",
+      "sizes": "180x180",
+      "type": "image/png"
+    }
+  ],
+  "categories": ["entertainment", "video", "streaming"],
+  "lang": "vi",
+  "dir": "ltr"
+} 

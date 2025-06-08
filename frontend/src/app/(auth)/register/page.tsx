@@ -84,7 +84,8 @@ export default function RegisterPage() {
       }
     } catch (err) {
       setError('Có lỗi xảy ra khi đăng ký. Vui lòng thử lại');
-      console.error('Register error:', err);
+      // console.error('Register error:', err);
+      toast.error('Có lỗi xảy ra khi đăng ký. Vui lòng thử lại');
     } finally {
       setIsLoading(false);
     }

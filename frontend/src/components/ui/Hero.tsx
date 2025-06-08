@@ -185,7 +185,7 @@ const Hero = ({ movies = [], isLoading = false }: HeroProps) => {
                   )}
                   quality={90}
                   onError={() => {
-                    console.log('Hero - Background image load error for movie:', currentMovie.id);
+                    // console.log('Hero - Background image load error for movie:', currentMovie.id);
                     handleImageError(backdropInfo.url);
                   }}
                 />

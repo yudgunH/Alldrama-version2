@@ -20,7 +20,7 @@ const API_URL = isProduction
   : '';  // Empty string makes axios use relative URLs
 
 // Log the API URL being used
-console.log('API client using baseURL:', API_URL || 'Relative URLs (using Next.js proxy)');
+// console.log('API client using baseURL:', API_URL || 'Relative URLs (using Next.js proxy)');
 
 // Mở rộng InternalAxiosRequestConfig để hỗ trợ _retry property
 interface ExtendedAxiosRequestConfig extends InternalAxiosRequestConfig {

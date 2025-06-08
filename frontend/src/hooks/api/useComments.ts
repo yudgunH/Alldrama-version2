@@ -13,34 +13,34 @@ export const useComments = (movieId: string | number, initialPage: number = 1, i
   const [order, setOrder] = useState<'ASC' | 'DESC'>('DESC');
 
   // Debug logging
-  console.log('useComments - Input params:', { movieId, page, limit, sort, order });
+  // console.log('useComments - Input params:', { movieId, page, limit, sort, order });
 
   // SWR key với cache fingerprint
   const key = movieId ? 
     `comments-${movieId}-p${page}-l${limit}-${sort}-${order}` 
     : null;
 
-  console.log('useComments - SWR key:', key);
+  // console.log('useComments - SWR key:', key);
 
   // Optimized fetcher function với cache fallback
   const fetcher = useCallback(
     async () => {
       if (!movieId) return { comments: [], total: 0 };
       
-      console.log('useComments - Fetching comments for movieId:', movieId);
+      // console.log('useComments - Fetching comments for movieId:', movieId);
       
       try {
         // Service đã handle cache internally
         const result = await commentService.getCommentsByMovieId(movieId, page, limit, sort, order);
-        console.log('useComments - Fetch result:', result);
+        // console.log('useComments - Fetch result:', result);
         return result;
       } catch (error) {
-        console.error('useComments - Error fetching comments:', error);
+        // console.error('useComments - Error fetching comments:', error);
         
         // Fallback to cache in case of network error
         const cached = cacheManager.getComments(movieId, page, limit);
         if (cached) {
-          console.log('useComments - Using stale cache due to error');
+          // console.log('useComments - Using stale cache due to error');
           return cached;
         }
         
@@ -68,7 +68,7 @@ export const useComments = (movieId: string | number, initialPage: number = 1, i
   );
 
   // Debug logging for SWR result
-  console.log('useComments - SWR result:', { data, error, isLoading });
+  // console.log('useComments - SWR result:', { data, error, isLoading });
 
   // Optimized add comment with optimistic update
   const addComment = useCallback(
@@ -112,7 +112,7 @@ export const useComments = (movieId: string | number, initialPage: number = 1, i
         
         return result.comment;
       } catch (err) {
-        console.error('Error adding comment:', err);
+        // console.error('Error adding comment:', err);
         // Revert optimistic update on error
         await mutate();
         throw err;
@@ -142,7 +142,7 @@ export const useComments = (movieId: string | number, initialPage: number = 1, i
         
         return true;
       } catch (err) {
-        console.error('Error deleting comment:', err);
+        // console.error('Error deleting comment:', err);
         // Revert optimistic update on error
         await mutate();
         throw err;
@@ -162,7 +162,7 @@ export const useComments = (movieId: string | number, initialPage: number = 1, i
         await mutate();
         return result.comment;
       } catch (err) {
-        console.error('Error updating comment:', err);
+        // console.error('Error updating comment:', err);
         throw err;
       }
     },
@@ -175,7 +175,7 @@ export const useComments = (movieId: string | number, initialPage: number = 1, i
       try {
         return await commentService.getCommentById(commentId);
       } catch (err) {
-        console.error('Error getting comment:', err);
+        // console.error('Error getting comment:', err);
         throw err;
       }
     },

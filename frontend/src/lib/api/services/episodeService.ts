@@ -71,7 +71,7 @@ export const episodeService = {
     episodeId: string | number, 
     data: EpisodeViewRequest
   ): Promise<ViewResponse> {
-    console.warn('episodeService.incrementView is deprecated. Use viewService.incrementEpisodeView instead.');
+    // console.warn('episodeService.incrementView is deprecated. Use viewService.incrementEpisodeView instead.');
     return apiClient.post<ViewResponse>(
       API_ENDPOINTS.VIEWS.INCREMENT_EPISODE(episodeId),
       data

@@ -63,14 +63,14 @@ export default function MovieEpisodes({
       // Check cache first
       const cached = cacheManager.getEpisodes(movieId);
       if (cached && cached.length > 0) {
-        console.log(`Using cached episodes for movie ${movieId}:`, cached.length, 'episodes');
+        // console.log(`Using cached episodes for movie ${movieId}:`, cached.length, 'episodes');
         return cached;
       }
       
-      console.log(`Fetching episodes for movie ${movieId} from API`);
+      // console.log(`Fetching episodes for movie ${movieId} from API`);
       try {
         const episodesData = await episodeService.getEpisodesByMovieId(movieId);
-        console.log(`Fetched ${episodesData?.length || 0} episodes for movie ${movieId}`);
+        // console.log(`Fetched ${episodesData?.length || 0} episodes for movie ${movieId}`);
         
         // Cache the result for 30 minutes
         if (episodesData && episodesData.length > 0) {
@@ -79,7 +79,7 @@ export default function MovieEpisodes({
         
         return episodesData || [];
       } catch (error) {
-        console.error(`Error fetching episodes for movie ${movieId}:`, error);
+        // console.error(`Error fetching episodes for movie ${movieId}:`, error);
         return [];
       }
     },

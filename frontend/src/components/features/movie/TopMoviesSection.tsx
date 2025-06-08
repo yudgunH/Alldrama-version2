@@ -165,7 +165,7 @@ const TopMoviesSection = ({
                                   priority={index < 3}
                                   loading={index < 3 ? "eager" : "lazy"}
                                   onError={() => {
-                                    console.log('TopMoviesSection - Image load error for movie:', movie.id);
+                                    // console.log('TopMoviesSection - Image load error for movie:', movie.id);
                                     handleImageError(imageInfo.url);
                                   }}
                                   quality={75}

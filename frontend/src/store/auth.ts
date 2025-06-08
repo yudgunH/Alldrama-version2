@@ -5,6 +5,7 @@ import { persist, createJSONStorage } from 'zustand/middleware';
 import { User } from '@/types';
 import { authService } from '@/lib/api';
 import { AxiosError } from 'axios';
+import { toast } from 'react-hot-toast';
 
 // Định nghĩa kiểu dữ liệu cho AuthState
 interface AuthState {
@@ -105,7 +106,8 @@ export const useAuthStore = create<AuthState>()(
             // Gọi API đăng xuất
             await authService.logout();
           } catch (error) {
-            console.error('Lỗi khi đăng xuất:', error);
+            // console.error('Lỗi khi đăng xuất:', error);
+            toast.error('Lỗi khi đăng xuất');
           }
           
           // Xóa token 
@@ -126,7 +128,7 @@ export const useAuthStore = create<AuthState>()(
               const { mutate } = await import('swr');
               const { cacheManager } = await import('@/lib/cache/cacheManager');
               
-              console.log('Clearing all caches after logout...');
+              // console.log('Clearing all caches after logout...');
               
               // 1. Clear SWR cache
               await mutate(() => true, undefined, { revalidate: false });
@@ -157,7 +159,7 @@ export const useAuthStore = create<AuthState>()(
                 console.error('Error clearing storage:', storageError);
               }
               
-              console.log('All caches cleared successfully after logout');
+              // console.log('All caches cleared successfully after logout');
             } catch (cacheError) {
               console.error('Error clearing caches after logout:', cacheError);
             }
@@ -184,7 +186,8 @@ export const useAuthStore = create<AuthState>()(
             }, 2000);
           }
         } catch (error) {
-          console.error('Lỗi trong quá trình đăng xuất:', error);
+          // console.error('Lỗi trong quá trình đăng xuất:', error);
+          toast.error('Lỗi trong quá trình đăng xuất');
           
           // Đảm bảo reset cờ ngay cả khi có lỗi
           if (typeof window !== 'undefined') {
@@ -254,7 +257,7 @@ if (typeof window !== 'undefined') {
       customWindow._isHandlingLogout = true;
       
       try {
-        console.log('Processing logout event from another tab...');
+        // console.log('Processing logout event from another tab...');
         
         // Clear all caches if requested
         if (event.detail?.clearCache) {
@@ -268,7 +271,7 @@ if (typeof window !== 'undefined') {
             // Clear manual cache
             cacheManager.clearAllCache();
             
-            console.log('Cache cleared from logout event');
+            // console.log('Cache cleared from logout event');
           } catch (cacheError) {
             console.error('Error clearing cache from logout event:', cacheError);
           }
@@ -288,9 +291,10 @@ if (typeof window !== 'undefined') {
           sessionId: null
         });
         
-        console.log('Logout event processed successfully');
+        // console.log('Logout event processed successfully');
       } catch (error) {
-        console.error('Error processing logout event:', error);
+        // console.error('Error processing logout event:', error);
+        toast.error('Lỗi trong quá trình đăng xuất');
       }
       
       // Đặt lại cờ sau khi hoàn thành

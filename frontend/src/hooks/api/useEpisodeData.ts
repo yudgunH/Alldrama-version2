@@ -6,6 +6,7 @@ import { statsService } from '@/lib/api/services/statsService';
 import { cacheManager } from '@/lib/cache/cacheManager';
 import { getSafePosterUrl } from '@/utils/image';
 import { EnhancedEpisode, EnhancedTopEpisode } from '@/components/features/episode/EpisodeList';
+import { toast } from 'react-hot-toast';
 
 export const useEpisodeData = () => {
   // Fetch movies with episodes - optimized with caching (max 10 for series section)
@@ -15,11 +16,11 @@ export const useEpisodeData = () => {
       // Check cache first
       const cached = cacheManager.getMovies('movies-with-episodes');
       if (cached) {
-        console.log('Using cached movies data for episodes page');
+        // console.log('Using cached movies data for episodes page');
         return cached;
       }
 
-      console.log('Fetching movies data from API for episodes page');
+      // console.log('Fetching movies data from API for episodes page');
       const response = await movieService.getMovies({ limit: 10 }); // Keep at 10 for series section
       const movies = response.movies;
       
@@ -42,11 +43,11 @@ export const useEpisodeData = () => {
       // Check cache first
       const cached = cacheManager.getStats('top-episodes');
       if (cached) {
-        console.log('Using cached top episodes data');
+        // console.log('Using cached top episodes data');
         return cached;
       }
 
-      console.log('Fetching top episodes data from API');
+      // console.log('Fetching top episodes data from API');
       const episodes = await statsService.getTopEpisodes(20); // Increased to 20 for trending
       
       // Create a map of movies for faster lookup
@@ -82,24 +83,24 @@ export const useEpisodeData = () => {
   const { data: enhancedEpisodes, error: episodesError, isLoading: episodesLoading } = useSWR(
     movies ? "all-episodes" : null,
     async () => {
-      console.log('Starting to fetch episodes for', movies?.length || 0, 'movies');
+      // console.log('Starting to fetch episodes for', movies?.length || 0, 'movies');
       
       // Check cache first
       const cacheKey = 'all-enhanced-episodes';
       const cached = cacheManager.getStats(cacheKey);
       if (cached) {
-        console.log('Using cached enhanced episodes data');
+        // console.log('Using cached enhanced episodes data');
         return cached;
       }
 
-      console.log('Fetching all episodes data from API');
+      // console.log('Fetching all episodes data from API');
       const all: EnhancedEpisode[] = [];
       
       // Process movies in smaller batches to avoid overwhelming the API
       const batchSize = 3; // Increased batch size since we're getting fewer episodes per movie
       for (let i = 0; i < movies!.length; i += batchSize) {
         const batch = movies!.slice(i, i + batchSize);
-        console.log(`Processing batch ${Math.floor(i/batchSize) + 1}, movies:`, batch.map(m => m.id));
+        // console.log(`Processing batch ${Math.floor(i/batchSize) + 1}, movies:`, batch.map(m => m.id));
         
         await Promise.all(
           batch.map(async (movie) => {
@@ -109,12 +110,12 @@ export const useEpisodeData = () => {
               const cachedEpisodes = cacheManager.getEpisodes(movie.id);
               
               if (cachedEpisodes && cachedEpisodes.length > 0) {
-                console.log(`Using cached episodes for movie ${movie.id} (${movie.title}) - ${cachedEpisodes.length} episodes`);
+                // console.log(`Using cached episodes for movie ${movie.id} (${movie.title}) - ${cachedEpisodes.length} episodes`);
                 episodes = cachedEpisodes;
               } else {
-                console.log(`Fetching episodes for movie ${movie.id} (${movie.title})`);
+                // console.log(`Fetching episodes for movie ${movie.id} (${movie.title})`);
                 episodes = await episodeService.getEpisodesByMovieId(movie.id);
-                console.log(`Fetched ${episodes.length} episodes for movie ${movie.id}`);
+                // console.log(`Fetched ${episodes.length} episodes for movie ${movie.id}`);
                 
                 // Only cache if we got episodes
                 if (episodes.length > 0) {
@@ -129,7 +130,7 @@ export const useEpisodeData = () => {
                   .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
                   .slice(0, 2); // Reduced to 2 per movie to get better distribution
                   
-                console.log(`Adding ${latestEpisodes.length} latest episodes from movie ${movie.id}`);
+                // console.log(`Adding ${latestEpisodes.length} latest episodes from movie ${movie.id}`);
                   
                 latestEpisodes.forEach((ep) =>
                   all.push({
@@ -140,10 +141,11 @@ export const useEpisodeData = () => {
                   })
                 );
               } else {
-                console.log(`No episodes found for movie ${movie.id} (${movie.title})`);
+                // console.log(`No episodes found for movie ${movie.id} (${movie.title})`);
+                toast.error(`Không tìm thấy tập phim cho phim ${movie.title}`);
               }
             } catch (err) {
-              console.error(`Error fetching episodes for movie ${movie.id} (${movie.title}):`, err);
+              // console.error(`Error fetching episodes for movie ${movie.id} (${movie.title}):`, err);
               // Continue with other movies even if one fails
             }
           })
@@ -155,13 +157,13 @@ export const useEpisodeData = () => {
         }
       }
       
-      console.log(`Total episodes collected: ${all.length}`);
+      // console.log(`Total episodes collected: ${all.length}`);
       
       const sortedEpisodes = all.sort(
         (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
       );
       
-      console.log(`Episodes sorted, final count: ${sortedEpisodes.length}`);
+      //console.log(`Episodes sorted, final count: ${sortedEpisodes.length}`);
       
       // Cache the enhanced episodes result for 5 minutes
       cacheManager.setStats(cacheKey, sortedEpisodes, 5 * 60 * 1000);

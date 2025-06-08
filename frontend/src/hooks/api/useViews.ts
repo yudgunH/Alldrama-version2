@@ -24,20 +24,21 @@ export const useViews = () => {
         
         // Hiển thị thông báo nếu bị throttle
         if (!result.success) {
-          toast.error(result.message);
+          // Don't show error for throttled requests
+          // console.log('View increment throttled for movie:', movieId)
           return result;
         }
         
-        // Xóa cache stats để refresh dữ liệu mới
-        clearViewCache();
+        // Don't clear cache to avoid re-renders
+        // clearViewCache();
         
         return result;
       } catch (error) {
-        console.error('Lỗi khi tăng lượt xem phim:', error);
-        toast.error('Không thể cập nhật lượt xem');
+        // console.error('Lỗi khi tăng lượt xem phim:', error);
+        // Don't show toast error as it might interfere with video playback
         throw error;
       }
-    }, [clearViewCache]);
+    }, []); // Remove clearViewCache dependency
 
     // Kiểm tra có thể increment view không
     const canIncrement = useCallback((movieId: string | number) => {
@@ -59,26 +60,27 @@ export const useViews = () => {
       progress: number = 0, 
       duration: number = 0
     ) => {
-      console.log('📺 useEpisodeViewIncrement called:', { episodeId, movieId, progress, duration })
+      // console.log('📺 useEpisodeViewIncrement called:', { episodeId, movieId, progress, duration })
       try {
         const result = await viewService.incrementEpisodeView(episodeId, movieId, progress, duration);
         
         // Hiển thị thông báo nếu bị throttle
         if (!result.success) {
-          toast.error(result.message);
+          // Don't show error for throttled requests
+          // console.log('View increment throttled for episode:', episodeId)
           return result;
         }
         
-        // Xóa cache stats để refresh dữ liệu mới
-        clearViewCache();
+        // Don't clear cache to avoid re-renders
+        // clearViewCache();
         
         return result;
       } catch (error) {
-        console.error('Lỗi khi tăng lượt xem tập phim:', error);
-        toast.error('Không thể cập nhật lượt xem');
+        // console.error('Lỗi khi tăng lượt xem tập phim:', error);
+        // Don't show toast error as it might interfere with video playback
         throw error;
       }
-    }, [clearViewCache]);
+    }, []); // Remove clearViewCache dependency
 
     // Kiểm tra có thể increment view không
     const canIncrement = useCallback((episodeId: string | number) => {

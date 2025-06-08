@@ -1,5 +1,6 @@
 import { useSWRConfig } from 'swr';
 import { useCallback } from 'react';
+import { toast } from 'sonner';
 
 // Định nghĩa kiểu cho matcher của cache key
 export type CacheMatcher = string | RegExp | ((key: string) => boolean);
@@ -88,7 +89,7 @@ export const useApiCache = () => {
    */
   const refreshPublicDataAfterLogout = useCallback(async () => {
     try {
-      console.log('Refreshing public data after logout...');
+      // console.log('Refreshing public data after logout...');
       
       // Đợi một chút để đảm bảo cache đã được clear
       await new Promise(resolve => setTimeout(resolve, 300));
@@ -106,9 +107,10 @@ export const useApiCache = () => {
         key.includes('featured')
       ));
       
-      console.log('Public data refreshed successfully after logout');
+      // console.log('Public data refreshed successfully after logout');
     } catch (error) {
-      console.error('Error refreshing public data after logout:', error);
+      // console.error('Error refreshing public data after logout:', error);
+      toast.error('Có lỗi xảy ra khi đăng xuất. Vui lòng thử lại');
     }
   }, [mutate]);
 
@@ -117,7 +119,7 @@ export const useApiCache = () => {
    */
   const refreshUserDataAfterLogin = useCallback(async () => {
     try {
-      console.log('Refreshing user data after login...');
+      // console.log('Refreshing user data after login...');
       
       // Đợi một chút để đảm bảo auth state đã ổn định
       await new Promise(resolve => setTimeout(resolve, 300));
@@ -135,9 +137,10 @@ export const useApiCache = () => {
       // Also refresh homepage to show personalized content
       await mutate('homepage_data');
       
-      console.log('User data refreshed successfully after login');
+      // console.log('User data refreshed successfully after login');
     } catch (error) {
-      console.error('Error refreshing user data after login:', error);
+      // console.error('Error refreshing user data after login:', error);
+      toast.error('Có lỗi xảy ra khi đăng nhập. Vui lòng thử lại');
     }
   }, [mutate]);
 
@@ -146,7 +149,7 @@ export const useApiCache = () => {
    */
   const clearAllCacheAndStorage = useCallback(async () => {
     try {
-      console.log('Clearing all cache and storage...');
+      // console.log('Clearing all cache and storage...');
       
       // 1. Clear SWR cache completely
       await mutate(() => true, undefined, { revalidate: false });

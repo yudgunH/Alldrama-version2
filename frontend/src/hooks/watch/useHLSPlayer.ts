@@ -219,7 +219,7 @@ function useHLSPlayer({
     
     // Dọn dẹp instance HLS cũ nếu có
     if (hlsRef.current) {
-      console.log("HLS: Đang hủy instance cũ");
+      // console.log("HLS: Đang hủy instance cũ");
       hlsRef.current.destroy();
       hlsRef.current = null;
     }
@@ -240,7 +240,7 @@ function useHLSPlayer({
     
     // Xử lý video không phải HLS
     if (!isHLS && !videoSrc.includes('.m3u8')) {
-      console.log("Phát hiện nguồn video không phải HLS, sử dụng phát native");
+      // console.log("Phát hiện nguồn video không phải HLS, sử dụng phát native");
       video.src = shouldUseTestVideo ? TEST_MP4_VIDEO : videoSrc;
       return;
     }
@@ -253,7 +253,7 @@ function useHLSPlayer({
       video.src = videoSrc;
     } else if (Hls.isSupported()) {
       // Dùng hls.js cho các trình duyệt không hỗ trợ HLS mặc định
-      console.log("Sử dụng hls.js để phát HLS");
+      // console.log("Sử dụng hls.js để phát HLS");
       hls = new Hls({
         // Cấu hình buffer tối ưu để giảm lag
         maxBufferSize: 0,
@@ -381,14 +381,14 @@ function useHLSPlayer({
 
       // Theo dõi thay đổi chất lượng
       hls.on(Hls.Events.LEVEL_SWITCHED, (_event, data) => {
-        console.log(`HLS: Đã chuyển sang chất lượng ${data.level}`);
+        // console.log(`HLS: Đã chuyển sang chất lượng ${data.level}`);
         setCurrentQuality(data.level);
       });
       
       // Theo dõi fragment được tải
       hls.on(Hls.Events.FRAG_LOADED, (_event, data) => {
         if (data.frag.duration > 5) {
-          console.log(`HLS: Đã tải fragment lớn (${data.frag.duration.toFixed(2)}s)`);
+          // console.log(`HLS: Đã tải fragment lớn (${data.frag.duration.toFixed(2)}s)`);
         }
       });
       
@@ -398,7 +398,7 @@ function useHLSPlayer({
         
         const bufferInfo = hls.mainForwardBufferInfo;
         if (bufferInfo && bufferInfo.len < 10) {
-          console.warn(`HLS: Buffer thấp (${bufferInfo.len.toFixed(2)}s), có thể bị giật`);
+          // console.warn(`HLS: Buffer thấp (${bufferInfo.len.toFixed(2)}s), có thể bị giật`);
         }
       });
       
@@ -457,7 +457,7 @@ function useHLSPlayer({
     // Dọn dẹp khi unmount hoặc source thay đổi
     return () => {
       if (hlsRef.current) {
-        console.log("HLS: Đang dọn dẹp instance HLS");
+        //  console.log("HLS: Đang dọn dẹp instance HLS");
         hlsRef.current.destroy();
         hlsRef.current = null;
       }

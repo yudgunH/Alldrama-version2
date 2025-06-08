@@ -5,6 +5,7 @@ import Link from 'next/link';
 import Image from 'next/image';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { useAuth } from '@/hooks/api/useAuth';
+import { toast } from 'sonner';
 
 // Loading component for Suspense
 const LoginPageLoader = () => {
@@ -79,7 +80,8 @@ const LoginContent = () => {
       // Login thành công, router.push sẽ được gọi bởi useEffect trong useAuth hook
     } catch (err) {
       setError('Có lỗi xảy ra, vui lòng thử lại');
-      console.error('Login error:', err);
+      // console.error('Login error:', err);
+      toast.error('Có lỗi xảy ra, vui lòng thử lại');
     } finally {
       setIsLoading(false);
     }

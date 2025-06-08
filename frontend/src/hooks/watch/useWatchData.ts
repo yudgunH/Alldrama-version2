@@ -73,18 +73,18 @@ export function useWatchData({ slug, episodeId }: UseWatchDataProps) {
     movieId ? `episodes-${movieId}` : null,
     async () => {
       if (!movieId) return [];
-      
-      console.log(`🔍 Fetching episodes for movie ${movieId}`);
+
+      // console.log(`🔍 Fetching episodes for movie ${movieId}`);
       
       const cached = cacheManager.getEpisodes(movieId);
       if (cached) {
-        console.log(`💾 Using cached episodes for movie ${movieId}:`, cached.length, 'episodes');
+        // console.log(`💾 Using cached episodes for movie ${movieId}:`, cached.length, 'episodes');
         return cached;
       }
       
-      console.log(`🌐 Fetching episodes from API for movie ${movieId}`);
+      // console.log(`🌐 Fetching episodes from API for movie ${movieId}`);
       const episodesData = await episodeService.getEpisodesByMovieId(movieId);
-      console.log(`📦 Received episodes data for movie ${movieId}:`, episodesData?.length || 0, 'episodes');
+      // console.log(`📦 Received episodes data for movie ${movieId}:`, episodesData?.length || 0, 'episodes');
       
       cacheManager.setEpisodes(movieId, episodesData, 10 * 60 * 1000);
       
@@ -99,11 +99,11 @@ export function useWatchData({ slug, episodeId }: UseWatchDataProps) {
 
   /* Set active episode and navigation */
   useEffect(() => {
-    console.log(`🎯 Setting active episode for movie ${movieId}:`, {
-      episodesCount: episodes?.length || 0,
-      episodeId,
-      hasEpisodes: !!(episodes && episodes.length > 0)
-    });
+    // console.log(`🎯 Setting active episode for movie ${movieId}:`, {
+    //   episodesCount: episodes?.length || 0,
+    //   episodeId,
+    //   hasEpisodes: !!(episodes && episodes.length > 0)
+    // });
 
     if (!episodes || episodes.length === 0) {
       setActiveEpisode(null);
@@ -117,7 +117,7 @@ export function useWatchData({ slug, episodeId }: UseWatchDataProps) {
       const found = episodes.find((e: EpisodeWithSubtitles) => String(e.id) === episodeId);
       if (found) {
         current = found;
-        console.log(`✅ Found episode ${episodeId}:`, current);
+        // console.log(`✅ Found episode ${episodeId}:`, current);
       } else {
         console.warn(`❌ Episode ${episodeId} not found in episodes list`);
       }
@@ -136,15 +136,15 @@ export function useWatchData({ slug, episodeId }: UseWatchDataProps) {
     (episodes && episodes.length > 0)
   );
 
-  console.log(`🎬 useWatchData result for movie ${movieId}:`, {
-    hasMovie: !!movie,
-    totalEpisodes: movie?.totalEpisodes,
-    episodesCount: episodes?.length || 0,
-    activeEpisodeId: activeEpisode?.id,
-    isSeries,
-    isLoading,
-    error: !!error
-  });
+  // console.log(`🎬 useWatchData result for movie ${movieId}:`, {
+  //   hasMovie: !!movie,
+  //   totalEpisodes: movie?.totalEpisodes,
+  //   episodesCount: episodes?.length || 0,
+  //   activeEpisodeId: activeEpisode?.id,
+  //   isSeries,
+  //   isLoading,
+  //   error: !!error
+  // });
 
   return {
     movie,

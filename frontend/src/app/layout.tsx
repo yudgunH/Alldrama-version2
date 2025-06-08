@@ -16,8 +16,69 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
+  metadataBase: new URL(process.env.NEXT_PUBLIC_SITE_URL || 'https://alldrama.net'),
   title: "AllDrama - Nền tảng xem phim trực tuyến",
   description: "Xem phim và series yêu thích của bạn tại AllDrama",
+  keywords: "xem phim, phim trực tuyến, series,phim trung quốc, drama, tổng tài, phim châu Á, AllDrama, streaming",
+  authors: [{ name: "AllDrama Team" }],
+  creator: "AllDrama",
+  publisher: "AllDrama",
+  
+  // Favicon và icons
+  icons: {
+    icon: [
+      { url: "/logo.svg", type: "image/svg+xml" },
+      { url: "/favicon-16x16.png", sizes: "16x16", type: "image/png" },
+      { url: "/favicon-32x32.png", sizes: "32x32", type: "image/png" },
+    ],
+    apple: [
+      { url: "/apple-touch-icon.png", sizes: "180x180", type: "image/png" },
+    ],
+    shortcut: "/favicon.ico",
+  },
+  
+  // Open Graph
+  openGraph: {
+    title: "AllDrama - Nền tảng xem phim trực tuyến",
+    description: "Xem phim và series yêu thích của bạn tại AllDrama",
+    url: "https://alldrama.net",
+    siteName: "AllDrama",
+    images: [
+      {
+        url: "/logo-seo.svg",
+        width: 1200,
+        height: 630,
+        alt: "AllDrama Logo",
+      },
+    ],
+    locale: "vi_VN",
+    type: "website",
+  },
+  
+  // Twitter Card
+  twitter: {
+    card: "summary_large_image",
+    title: "AllDrama - Nền tảng xem phim trực tuyến",
+    description: "Xem phim và series yêu thích của bạn tại AllDrama",
+    images: ["/logo-seo.svg"],
+    creator: "@alldrama",
+  },
+  
+  // Manifest
+  manifest: "/manifest.json",
+  
+  // Robots
+  robots: {
+    index: true,
+    follow: true,
+    googleBot: {
+      index: true,
+      follow: true,
+      "max-video-preview": -1,
+      "max-image-preview": "large",
+      "max-snippet": -1,
+    },
+  },
 };
 
 export default function RootLayout({

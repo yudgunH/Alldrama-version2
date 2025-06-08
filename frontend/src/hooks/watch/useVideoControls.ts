@@ -52,7 +52,7 @@ export function useVideoControls({
     
     if (!document.fullscreenElement) {
       containerRef.current.requestFullscreen().catch(err => {
-        console.error(`Không thể vào chế độ toàn màn hình: ${err.message}`);
+        // console.error(`Không thể vào chế độ toàn màn hình: ${err.message}`);
       });
     } else {
       document.exitFullscreen();

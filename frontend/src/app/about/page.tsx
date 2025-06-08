@@ -1,5 +1,6 @@
 'use client';
 
+import type { Metadata } from "next";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
@@ -10,51 +11,52 @@ import {
   Film, Users, Award, TrendingUp, Heart, ChevronRight, 
   Calendar, Clock, BookOpen, Globe, Target, Zap 
 } from 'lucide-react';
+import Link from "next/link";
 
 export default function AboutPage() {
   // Mock data for company milestones
   const milestones = [
-    { year: 2018, title: 'Thành lập', description: 'Alldrama được thành lập với mục tiêu mang lại trải nghiệm giải trí chất lượng cao cho người dùng Việt Nam.' },
-    { year: 2019, title: 'Ra mắt phiên bản đầu tiên', description: 'Phiên bản đầu tiên của nền tảng Alldrama được ra mắt với kho phim và series châu Á.' },
-    { year: 2020, title: 'Mở rộng thị trường', description: 'Alldrama bắt đầu mở rộng sang các thị trường Đông Nam Á và thu hút hơn 1 triệu người dùng.' },
-    { year: 2021, title: 'Phát triển nội dung độc quyền', description: 'Chúng tôi bắt đầu đầu tư vào việc sản xuất và phát hành các nội dung độc quyền.' },
-    { year: 2022, title: 'Cải tiến công nghệ', description: 'Nâng cấp toàn diện về công nghệ, cải thiện chất lượng hình ảnh và trải nghiệm người dùng.' },
-    { year: 2023, title: 'Hôm nay', description: 'Alldrama hiện đang phục vụ hơn 5 triệu người dùng trên toàn khu vực Đông Nam Á với kho nội dung phong phú.' },
+    { year: 2024, title: 'Thành lập', description: 'Alldrama được thành lập với mục tiêu mang lại trải nghiệm giải trí chất lượng cao cho người dùng Việt Nam.' },
+    { year: 2024, title: 'Ra mắt phiên bản đầu tiên', description: 'Phiên bản đầu tiên của nền tảng Alldrama được ra mắt với kho phim và series châu Á.' },
+    { year: 2024, title: 'Mở rộng thị trường', description: 'Alldrama bắt đầu mở rộng sang các thị trường Đông Nam Á và thu hút hơn 1 triệu người dùng.' },
+    { year: 2024, title: 'Phát triển nội dung độc quyền', description: 'Chúng tôi bắt đầu đầu tư vào việc sản xuất và phát hành các nội dung độc quyền.' },
+    { year: 2025, title: 'Cải tiến công nghệ', description: 'Nâng cấp toàn diện về công nghệ, cải thiện chất lượng hình ảnh và trải nghiệm người dùng.' },
+    { year: 2025, title: 'Hôm nay', description: 'Alldrama hiện đang phục vụ hơn 5 nghìn người dùng trên toàn khu vực Đông Nam Á với kho nội dung phong phú.' },
   ];
 
   // Mock data for leadership team
   const leadershipTeam = [
     {
-      name: 'Nguyễn Minh Tuấn',
+      name: 'Hưng Duy',
       role: 'Giám đốc điều hành',
-      avatar: 'https://randomuser.me/api/portraits/men/32.jpg',
-      bio: 'Với hơn 15 năm kinh nghiệm trong ngành công nghệ và giải trí, Minh Tuấn đã dẫn dắt Alldrama từ một ý tưởng đến nền tảng hàng đầu hiện nay.'
+      avatar: 'ech.jpg',
+      bio: 'Với hơn 15 năm kinh nghiệm trong ngành công nghệ và giải trí, Hưng Duy đã dẫn dắt Alldrama từ một ý tưởng đến nền tảng hàng đầu hiện nay.'
     },
     {
-      name: 'Trần Thị Hương',
+      name: 'Tu Tu',
       role: 'Giám đốc nội dung',
-      avatar: 'https://randomuser.me/api/portraits/women/44.jpg',
-      bio: 'Hương là người đứng sau chiến lược nội dung đa dạng của Alldrama, với nền tảng vững chắc trong lĩnh vực truyền thông và điện ảnh.'
+      avatar: 'hehe.jpg',
+      bio: 'Tu Tú là người đứng sau chiến lược nội dung đa dạng của Alldrama, với nền tảng vững chắc trong lĩnh vực truyền thông và điện ảnh.'
     },
     {
-      name: 'Phạm Văn Đức',
+      name: 'Hưng Duy',
       role: 'Giám đốc công nghệ',
-      avatar: 'https://randomuser.me/api/portraits/men/22.jpg',
+      avatar: 'xinan.jpg',
       bio: 'Với chuyên môn sâu về công nghệ streaming và kinh nghiệm phát triển sản phẩm, Đức đã xây dựng nền tảng kỹ thuật vững chắc cho Alldrama.'
     },
     {
-      name: 'Lê Thanh Mai',
+      name: 'Tu Tú',
       role: 'Giám đốc marketing',
-      avatar: 'https://randomuser.me/api/portraits/women/29.jpg',
-      bio: 'Mai đã giúp xây dựng thương hiệu Alldrama và phát triển các chiến lược marketing sáng tạo nhằm tiếp cận khách hàng mục tiêu.'
+      avatar: 'ua.jpg',
+      bio: 'Tu Tú đã giúp xây dựng thương hiệu Alldrama và phát triển các chiến lược marketing sáng tạo nhằm tiếp cận khách hàng mục tiêu.'
     }
   ];
 
   // Mock data for company stats
   const companyStats = [
-    { icon: <Film />, value: '10,000+', label: 'Tác phẩm', description: 'Bộ sưu tập phim và series đa dạng từ châu Á và quốc tế' },
-    { icon: <Users />, value: '5M+', label: 'Người dùng', description: 'Người dùng đang hoạt động trên toàn khu vực Đông Nam Á' },
-    { icon: <Award />, value: '25+', label: 'Giải thưởng', description: 'Giải thưởng và ghi nhận từ các tổ chức uy tín' },
+    { icon: <Film />, value: '100+', label: 'Tác phẩm', description: 'Bộ sưu tập phim và series đa dạng từ châu Á và quốc tế' },
+    { icon: <Users />, value: '5K+', label: 'Người dùng', description: 'Người dùng đang hoạt động trên toàn khu vực Đông Nam Á' },
+    { icon: <Award />, value: '0+', label: 'Giải thưởng', description: 'Giải thưởng và ghi nhận từ các tổ chức uy tín' },
     { icon: <TrendingUp />, value: '99.9%', label: 'Uptime', description: 'Độ ổn định của hệ thống, luôn sẵn sàng phục vụ' }
   ];
 
@@ -95,13 +97,17 @@ export default function AboutPage() {
               kho nội dung đa dạng với chất lượng hình ảnh tuyệt vời và trải nghiệm người dùng vượt trội.
             </p>
             <div className="flex flex-col sm:flex-row gap-4">
-              <Button size="lg" className="bg-amber-500 hover:bg-amber-600 text-gray-900">
-                Khám phá kho phim
-                <ChevronRight className="ml-2 h-4 w-4" />
-              </Button>
-              <Button variant="outline" size="lg" className="bg-transparent border-gray-700 text-white hover:bg-gray-800">
-                Đăng ký dùng thử
-              </Button>
+              <Link href="/movie">
+                <Button size="lg" className="bg-amber-500 hover:bg-amber-600 text-gray-900">
+                    Khám phá kho phim
+                    <ChevronRight className="ml-2 h-4 w-4" />
+                </Button>
+              </Link>
+              <Link href="/register">
+                <Button variant="outline" size="lg" className="bg-transparent border-gray-700 text-white hover:bg-gray-800">
+                  Đăng ký dùng thử
+                </Button>
+              </Link>
             </div>
           </div>
         </div>

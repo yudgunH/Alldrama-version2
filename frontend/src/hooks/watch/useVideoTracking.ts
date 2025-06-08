@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect } from 'react'
+import { useState, useCallback, useEffect, useRef } from 'react'
 import { useAuth } from '@/hooks/api/useAuth'
 import { useWatchHistory } from '@/hooks/api/useWatchHistory'
 import { useViews } from '@/hooks/api/useViews'
@@ -18,6 +18,24 @@ export function useVideoTracking({ movie, activeEpisode }: UseVideoTrackingProps
   const { incrementView: incrementMovieView } = useMovieViewIncrement()
   const { incrementView: incrementEpisodeView } = useEpisodeViewIncrement()
 
+  // Use refs to avoid recreating callbacks when data changes
+  const movieRef = useRef(movie)
+  const activeEpisodeRef = useRef(activeEpisode)
+  const hasTrackedViewRef = useRef(hasTrackedView)
+
+  // Update refs when data changes
+  useEffect(() => {
+    movieRef.current = movie
+  }, [movie])
+
+  useEffect(() => {
+    activeEpisodeRef.current = activeEpisode
+  }, [activeEpisode])
+
+  useEffect(() => {
+    hasTrackedViewRef.current = hasTrackedView
+  }, [hasTrackedView])
+
   // Debounce function to prevent excessive API calls
   const debounce = <T extends (...args: any[]) => any>(func: T, delay: number) => {
     let timer: NodeJS.Timeout
@@ -30,14 +48,14 @@ export function useVideoTracking({ movie, activeEpisode }: UseVideoTrackingProps
   // Debounced update progress function
   const debouncedUpdateProgress = useCallback(
     debounce((time: number, duration: number) => {
-      if (!isAuthenticated || !movie) return
+      if (!isAuthenticated || !movieRef.current) return
       
       try {
-        const movieIdNumber = Number(movie.id)
+        const movieIdNumber = Number(movieRef.current.id)
         let episodeIdNumber: number
         
-        if (activeEpisode) {
-          episodeIdNumber = Number(activeEpisode.id)
+        if (activeEpisodeRef.current) {
+          episodeIdNumber = Number(activeEpisodeRef.current.id)
         } else {
           episodeIdNumber = movieIdNumber
         }
@@ -56,21 +74,21 @@ export function useVideoTracking({ movie, activeEpisode }: UseVideoTrackingProps
         // Silent error handling
       }
     }, 5000),
-    [isAuthenticated, movie, activeEpisode, updateProgress]
+    [isAuthenticated, updateProgress]
   )
 
   // Function to track view count
   const trackViewCount = useCallback(async (time: number, duration: number) => {
-    if (hasTrackedView || !movie) return
+    if (hasTrackedViewRef.current || !movieRef.current) return
     
     const shouldTrackView = time > 45 || (duration > 0 && time / duration > 0.15)
     if (!shouldTrackView) return
     
     try {
-      const movieIdNumber = Number(movie.id)
+      const movieIdNumber = Number(movieRef.current.id)
       
-      if (activeEpisode) {
-        const episodeIdNumber = Number(activeEpisode.id)
+      if (activeEpisodeRef.current) {
+        const episodeIdNumber = Number(activeEpisodeRef.current.id)
         await incrementEpisodeView(episodeIdNumber, movieIdNumber, Math.floor(time), Math.floor(duration))
       } else {
         await incrementMovieView(movieIdNumber, Math.floor(time), Math.floor(duration))
@@ -78,9 +96,9 @@ export function useVideoTracking({ movie, activeEpisode }: UseVideoTrackingProps
       
       setHasTrackedView(true)
     } catch (error) {
-      // Silent error handling
+      console.error('Error tracking view:', error)
     }
-  }, [hasTrackedView, movie, activeEpisode, incrementMovieView, incrementEpisodeView])
+  }, [incrementMovieView, incrementEpisodeView]) // Minimal dependencies
 
   // Reset view tracking when episode changes
   useEffect(() => {
@@ -107,15 +125,15 @@ export function useVideoTracking({ movie, activeEpisode }: UseVideoTrackingProps
   // Handle video end
   const handleVideoEnd = useCallback(() => {
     try {
-      if (movie) {
+      if (movieRef.current) {
         const videoElement = document.querySelector('video')
         const duration = videoElement?.duration || 0
         
-        const movieIdNumber = Number(movie.id)
+        const movieIdNumber = Number(movieRef.current.id)
         let episodeIdNumber: number
         
-        if (activeEpisode) {
-          episodeIdNumber = Number(activeEpisode.id)
+        if (activeEpisodeRef.current) {
+          episodeIdNumber = Number(activeEpisodeRef.current.id)
         } else {
           episodeIdNumber = movieIdNumber
         }
@@ -124,7 +142,7 @@ export function useVideoTracking({ movie, activeEpisode }: UseVideoTrackingProps
             movieIdNumber > 0 && episodeIdNumber > 0 && 
             isFinite(duration) && duration > 0) {
           
-          if (!hasTrackedView) {
+          if (!hasTrackedViewRef.current) {
             trackViewCount(duration, duration)
           }
           
@@ -134,9 +152,9 @@ export function useVideoTracking({ movie, activeEpisode }: UseVideoTrackingProps
         }
       }
     } catch (error) {
-      // Silent error handling
+      console.error('Error handling video end:', error)
     }
-  }, [movie, activeEpisode, hasTrackedView, trackViewCount, isAuthenticated, updateProgress])
+  }, [trackViewCount, isAuthenticated, updateProgress]) // Minimal dependencies
 
   return {
     handleTimeUpdate,

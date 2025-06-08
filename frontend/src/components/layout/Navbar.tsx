@@ -80,12 +80,12 @@ const NavbarContent = () => {
       // Check cache first
       const cached = cacheManager.getGenres();
       if (cached) {
-        console.log('Navbar: Using cached genres data');
+        // console.log('Navbar: Using cached genres data');
         return cached;
       }
       
       // Fetch from API if not cached
-      console.log('Navbar: Fetching genres data from API');
+      // console.log('Navbar: Fetching genres data from API');
       const genresData = await genreService.getAllGenres();
       
       // Cache the result for 30 minutes
@@ -214,7 +214,7 @@ const NavbarContent = () => {
       // Chuyển hướng về trang chủ sau khi đăng xuất
       router.push("/");
     } catch (error) {
-      console.error("Logout error:", error);
+      // console.error("Logout error:", error);
       toast.error("Đã xảy ra lỗi khi đăng xuất");
     }
   }

@@ -114,34 +114,52 @@ export function getEpisodeThumbnailInfo(
 }
 
 /**
- * SIMPLE PATTERN TO FIX ReactDOM.preload() ERRORS:
+ * USAGE PATTERNS FOR AUTO-DETECTED IMAGES:
  * 
- * // 1. Import utilities and Skeleton
- * import { getImageInfo, getEpisodeThumbnailInfo } from '@/utils/image'
- * import { Skeleton } from '@/components/ui/skeleton'
+ * // 1. Basic usage with auto-detection:
+ * import { getAutoDetectedImageUrl } from '@/utils/image'
  * 
- * // 2. In your component, replace:
- * // OLD: <img src={movie.posterUrl || '/placeholder.svg'} />
- * // NEW:
+ * const backdropUrl = getAutoDetectedImageUrl(`https://media.alldrama.tech/movies/${movieId}/backdrop`)
+ * // Returns: backdrop.webp (or .jpg if webp not available)
+ * 
+ * // 2. React hook for real-time updates:
+ * import { useAutoDetectedImage } from '@/hooks/useAutoDetectedImage'
+ * 
+ * const { url, isDetecting, hasDetected } = useAutoDetectedImage(
+ *   `https://media.alldrama.tech/movies/${movieId}/backdrop`
+ * )
+ * 
+ * {isDetecting ? (
+ *   <Skeleton className="w-full h-full" />
+ * ) : (
+ *   <img src={url} alt="backdrop" onLoad={() => handleImageLoadSuccess(url)} />
+ * )}
+ * 
+ * // 3. Preload multiple images:
+ * import { usePreloadImages } from '@/hooks/useAutoDetectedImage'
+ * 
+ * const baseUrls = movies.map(m => `https://media.alldrama.tech/movies/${m.id}/poster`)
+ * const { isLoading, loadedCount, totalCount } = usePreloadImages(baseUrls)
+ * 
+ * // 4. Legacy pattern with skeleton:
+ * import { getImageInfo } from '@/utils/image'
+ * 
  * const imageInfo = getImageInfo(movie.posterUrl, movie.id, 'poster')
+ * {imageInfo.shouldShowSkeleton ? <Skeleton /> : <img src={imageInfo.url} />}
  * 
- * {imageInfo.shouldShowSkeleton ? (
- *   <Skeleton className="w-full h-full" />
- * ) : (
- *   <img src={imageInfo.url} alt="..." className="..." />
- * )}
+ * // 5. Cache management:
+ * import { clearImageFormatCache, getImageCacheStats } from '@/utils/image'
  * 
- * // 3. For episode thumbnails:
- * const thumbInfo = getEpisodeThumbnailInfo(episode.thumbnailUrl, movieId, episode.id)
+ * // Clear cache when needed
+ * clearImageFormatCache()
  * 
- * {thumbInfo.shouldShowSkeleton ? (
- *   <Skeleton className="w-full h-full" />
- * ) : (
- *   <img src={thumbInfo.url} alt="..." className="..." />
- * )}
- * 
- * // This prevents ReactDOM.preload() errors by never passing empty URLs to Image components
+ * // Check cache stats
+ * console.log(getImageCacheStats()) // { memoryCache: 10, localStorageCache: 15, failedCache: 2 }
  */
+
+// Cache for storing detected formats and failed attempts
+const formatCache = new Map<string, string>();
+const failedCache = new Set<string>();
 
 /**
  * Auto-detect the actual image format available on server
@@ -153,10 +171,106 @@ export function getAutoDetectedImageUrl(
   baseUrl: string, 
   preferredFormats: string[] = ['jpg', 'jpeg', 'png', 'webp']
 ): string {
-  // For now, return the first preferred format
-  // In a real implementation, you might want to check server response
-  // But since we can't make async calls in most React contexts, we'll use jpg as default
-  return `${baseUrl}.jpg`;
+  // Check memory cache first
+  if (formatCache.has(baseUrl)) {
+    return `${baseUrl}.${formatCache.get(baseUrl)}`;
+  }
+  
+  // Check localStorage cache
+  const cacheKey = `img_format_${baseUrl}`;
+  const cachedFormat = localStorage.getItem(cacheKey);
+  
+  if (cachedFormat && preferredFormats.includes(cachedFormat)) {
+    formatCache.set(baseUrl, cachedFormat);
+    return `${baseUrl}.${cachedFormat}`;
+  }
+  
+  // Start async detection in background
+  detectImageFormatAsync(baseUrl, preferredFormats);
+  
+  // Return intelligent default while detection is running
+  return getIntelligentDefault(baseUrl, preferredFormats);
+}
+
+/**
+ * Get intelligent default format based on image type
+ */
+function getIntelligentDefault(baseUrl: string, preferredFormats: string[]): string {
+  // For backdrop images, try webp first as it's more common for larger images
+  if (baseUrl.includes('/backdrop')) {
+    return `${baseUrl}.webp`;
+  }
+  
+  // For poster images, jpg is most common
+  if (baseUrl.includes('/poster')) {
+    return `${baseUrl}.jpg`;
+  }
+  
+  // For thumbnails, webp is preferred for smaller file size
+  if (baseUrl.includes('/thumbnail')) {
+    return `${baseUrl}.webp`;
+  }
+  
+  // Default fallback
+  return `${baseUrl}.${preferredFormats[0]}`;
+}
+
+/**
+ * Async function to detect actual image format on server
+ */
+async function detectImageFormatAsync(
+  baseUrl: string, 
+  preferredFormats: string[] = ['jpg', 'jpeg', 'png', 'webp']
+): Promise<void> {
+  // Skip if already failed recently
+  if (failedCache.has(baseUrl)) {
+    return;
+  }
+  
+  try {
+    for (const format of preferredFormats) {
+      const testUrl = `${baseUrl}.${format}`;
+      
+      try {
+        // Use HEAD request to check if image exists without downloading
+        const response = await fetch(testUrl, { 
+          method: 'HEAD',
+          cache: 'force-cache' // Use browser cache if available
+        });
+        
+        if (response.ok) {
+          // Cache the successful format
+          formatCache.set(baseUrl, format);
+          localStorage.setItem(`img_format_${baseUrl}`, format);
+          
+          // Trigger re-render for components using this image
+          triggerImageUpdate(baseUrl, format);
+          return;
+        }
+      } catch (error) {
+        // Continue to next format
+        continue;
+      }
+    }
+    
+    // If no format worked, cache the failure temporarily
+    failedCache.add(baseUrl);
+    setTimeout(() => failedCache.delete(baseUrl), 5 * 60 * 1000); // Clear after 5 minutes
+    
+  } catch (error) {
+    console.warn('Image format detection failed:', error);
+  }
+}
+
+/**
+ * Trigger update for components using this image
+ */
+function triggerImageUpdate(baseUrl: string, format: string): void {
+  // Dispatch custom event to notify components
+  const event = new CustomEvent('imageFormatDetected', {
+    detail: { baseUrl, format, url: `${baseUrl}.${format}` }
+  });
+  window.dispatchEvent(event);
 }
 
 /**
@@ -174,6 +288,9 @@ export async function getBestImageFormat(
     try {
       const response = await fetch(testUrl, { method: 'HEAD' });
       if (response.ok) {
+        // Cache the successful format for future use
+        const cacheKey = `img_format_${baseUrl}`;
+        localStorage.setItem(cacheKey, format);
         return testUrl;
       }
     } catch (error) {
@@ -184,6 +301,79 @@ export async function getBestImageFormat(
   
   // Fallback to first preferred format if none work
   return `${baseUrl}.${preferredFormats[0]}`;
+}
+
+/**
+ * Cache the successful image format for future use
+ * @param imageUrl - The successful image URL
+ */
+export function cacheImageFormat(imageUrl: string): void {
+  const extension = getImageExtension(imageUrl);
+  if (extension) {
+    const baseUrl = imageUrl.replace(/\.[^.]+(\?.*)?$/, '');
+    const cacheKey = `img_format_${baseUrl}`;
+    localStorage.setItem(cacheKey, extension);
+  }
+}
+
+/**
+ * Hook to handle image load success and cache format
+ * @param imageUrl - The image URL that loaded successfully
+ */
+export function handleImageLoadSuccess(imageUrl: string): void {
+  cacheImageFormat(imageUrl);
+}
+
+// Note: useAutoDetectedImage hook is now implemented in @/hooks/useAutoDetectedImage
+
+/**
+ * Preload and detect image formats for multiple URLs
+ * @param baseUrls - Array of base URLs to detect
+ * @param preferredFormats - Preferred formats
+ */
+export async function preloadImageFormats(
+  baseUrls: string[],
+  preferredFormats: string[] = ['jpg', 'jpeg', 'png', 'webp']
+): Promise<void> {
+  const promises = baseUrls.map(baseUrl => 
+    detectImageFormatAsync(baseUrl, preferredFormats)
+  );
+  
+  await Promise.allSettled(promises);
+}
+
+/**
+ * Clear image format cache (useful for testing or cache invalidation)
+ */
+export function clearImageFormatCache(): void {
+  formatCache.clear();
+  failedCache.clear();
+  
+  // Clear localStorage cache
+  const keys = Object.keys(localStorage);
+  keys.forEach(key => {
+    if (key.startsWith('img_format_')) {
+      localStorage.removeItem(key);
+    }
+  });
+}
+
+/**
+ * Get cache statistics for debugging
+ */
+export function getImageCacheStats(): {
+  memoryCache: number;
+  localStorageCache: number;
+  failedCache: number;
+} {
+  const localStorageCount = Object.keys(localStorage)
+    .filter(key => key.startsWith('img_format_')).length;
+    
+  return {
+    memoryCache: formatCache.size,
+    localStorageCache: localStorageCount,
+    failedCache: failedCache.size
+  };
 }
 
 /**
