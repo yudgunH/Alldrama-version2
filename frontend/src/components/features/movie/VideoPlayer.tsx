@@ -113,7 +113,7 @@ export default function VideoPlayer({
   autoPlay = false,
   onEnded,
   isHLS = true,             // true nếu chuỗi .m3u8
-  useCustomControls = true,  // sẽ tắt trên iOS bên dưới
+  useCustomControls = true,  // always respects this setting for all devices
   useTestVideo = false,
   subtitles = [],             // [{src,label,lang,default?}]
   onHLSReady,
@@ -139,7 +139,7 @@ export default function VideoPlayer({
   ), [testMode, title])
 
   const hlsStream = useMemo(() => videoSrc.endsWith('.m3u8'), [videoSrc])
-  const custom = useCustomControls && !isiOS()   // iOS = native control
+  const custom = useCustomControls   // Always respect the useCustomControls prop
 
   /* ----------------------------------------------------------------
    * refs & basic state
@@ -162,7 +162,13 @@ export default function VideoPlayer({
   const [fatalErr,setFatalErr]  = useState(false)
   const [playbackRate, setPlaybackRate] = useState(1)
   const [isPiP, setIsPiP] = useState(false)
-  const [isDropdownOpen, setIsDropdownOpen] = useState(false)
+  const [isSpeedDropdownOpen, setIsSpeedDropdownOpen] = useState(false)
+  const [isQualityDropdownOpen, setIsQualityDropdownOpen] = useState(false)
+  
+  // Combined state for any dropdown being open
+  const isDropdownOpen = isSpeedDropdownOpen || isQualityDropdownOpen
+  const [forceHLSJS, setForceHLSJS] = useState(true) // Default to forcing HLS.js on iOS
+  const [showControlsOnMobile, setShowControlsOnMobile] = useState(true)
 
   /* ----------------------------------------------------------------
    * progress callback (throttled)
@@ -207,6 +213,16 @@ export default function VideoPlayer({
   },[initialTime, emitProgress, onEnded])
 
   /* ----------------------------------------------------------------
+   * Mobile controls logic - stable for iOS
+   * --------------------------------------------------------------*/
+  useEffect(() => {
+    if (window.innerWidth < 640) { // sm breakpoint
+      // Always show controls on mobile/iOS for better UX
+      setShowControlsOnMobile(true)
+    }
+  }, [])
+
+  /* ----------------------------------------------------------------
    * init / destroy HLS.js
    * --------------------------------------------------------------*/
   useEffect(()=>{
@@ -217,22 +233,94 @@ export default function VideoPlayer({
     
     if(hlsRef.current){ hlsRef.current.destroy(); hlsRef.current=null }
 
-    if(!hlsStream || v.canPlayType('application/vnd.apple.mpegurl')){
+    // FORCE HLS.js on iOS for quality control - this is the key change!
+    const shouldForceHLS = isiOS() && Hls.isSupported() && forceHLSJS
+    const useNativeHLS = !hlsStream || (v.canPlayType('application/vnd.apple.mpegurl') && !shouldForceHLS)
+    
+    if(useNativeHLS) {
+      // Use native HLS playback (old behavior)
       v.src = videoSrc
+
+      
+      // For iOS native HLS, listen for tracks to be available
+      if(isiOS()) {
+        const handleLoadedMetadata = () => {
+          setTimeout(() => {
+            const videoElement = v as any // Cast for iOS videoTracks access
+            if(videoElement.videoTracks && videoElement.videoTracks.length > 0) {
+              // Create fake levels array from videoTracks for UI consistency
+              const fakeLevels = Array.from(videoElement.videoTracks).map((track: any, index: number) => {
+                const height = parseInt(track.label?.match(/(\d+)p/)?.[1]) || (720 - index * 240)
+                return {
+                  height,
+                  width: Math.round(height * 16/9),
+                  bitrate: 0,
+                  url: '',
+                  attrs: { RESOLUTION: track.label || `${height}p` }
+                } as unknown as Level
+              })
+              setLevels(fakeLevels)
+              onQualityLevelsUpdate?.(fakeLevels)
+            } else {
+              // If no tracks detected, set fallback levels for UI
+              const fallbackLevels = [
+                { height: 1080, width: 1920, bitrate: 0, url: '', attrs: { RESOLUTION: '1080p' } },
+                { height: 720, width: 1280, bitrate: 0, url: '', attrs: { RESOLUTION: '720p' } },
+                { height: 480, width: 854, bitrate: 0, url: '', attrs: { RESOLUTION: '480p' } }
+              ] as unknown as Level[]
+              setLevels(fallbackLevels)
+              onQualityLevelsUpdate?.(fallbackLevels)
+            }
+          }, 1000) // Wait for tracks to be populated
+        }
+        
+        v.addEventListener('loadedmetadata', handleLoadedMetadata)
+        
+        // Cleanup listener
+        return () => {
+          v.removeEventListener('loadedmetadata', handleLoadedMetadata)
+        }
+      }
+      
       return
     }
 
+    // Use HLS.js (either forced on iOS or normal on other platforms)
+    if(shouldForceHLS) {
+      // Try to prevent iOS from intercepting the video
+      if(v.src !== '') {
+        v.removeAttribute('src')
+        v.load()
+      }
+    }
+
     if(Hls.isSupported()){
-      const h = new Hls({ 
-        startLevel:-1, 
-        enableWorker:true,
+      // iOS-specific configuration to force HLS.js
+      const hlsConfig = {
+        startLevel: -1, 
+        enableWorker: true,
         maxBufferLength: 30,
         maxMaxBufferLength: 600,
         maxBufferSize: 60 * 1000 * 1000, // 60MB
         maxBufferHole: 0.5,
         lowLatencyMode: false,
-        backBufferLength: 90
-      })
+        backBufferLength: 90,
+        // iOS-specific optimizations
+        ...(isiOS() && {
+          // Force HLS.js instead of native on iOS
+          forceKeyFrameOnDiscontinuity: true,
+          abrEwmaDefaultEstimate: 500000, // Conservative estimate for mobile
+          abrBandWidthFactor: 0.95, // Be more conservative on mobile
+          abrBandWidthUpFactor: 0.7,
+          maxLoadingDelay: 4,
+          maxBufferLength: 20, // Shorter buffer on mobile
+          maxMaxBufferLength: 300,
+          // Try to prevent iOS from taking over
+          debug: false
+        })
+      }
+      
+      const h = new Hls(hlsConfig)
       h.attachMedia(v)
       h.loadSource(videoSrc)
       
@@ -264,7 +352,7 @@ export default function VideoPlayer({
       onHLSReady?.(h, v)
     }
     return ()=>{ hlsRef.current?.destroy(); hlsRef.current=null }
-  },[videoSrc, hlsStream])
+  },[videoSrc, hlsStream, forceHLSJS]) // Add forceHLSJS to deps to reload when toggled
 
   /* ----------------------------------------------------------------
    * helpers UI
@@ -292,9 +380,99 @@ export default function VideoPlayer({
   }
 
   const setLvl = (idx:number)=>{
-    if(!hlsRef.current) return
-    if(idx===-1){ hlsRef.current.currentLevel = -1; setLevel(-1); return }
-    hlsRef.current.currentLevel = idx
+    const v = vRef.current as any
+    
+    // For HLS.js (non-iOS)
+    if(hlsRef.current) {
+      if(idx===-1){ hlsRef.current.currentLevel = -1; setLevel(-1); return }
+      hlsRef.current.currentLevel = idx
+      return
+    }
+    
+    // For iOS native HLS - try multiple approaches
+    if(isiOS() && v) {
+      // Method 1: Try video tracks (rarely works)
+      if(v.videoTracks && v.videoTracks.length > 0) {
+        const tracks = v.videoTracks
+        
+        // Disable all tracks first
+        for(let i = 0; i < tracks.length; i++) {
+          tracks[i].selected = false
+        }
+        
+        if(idx === -1) {
+          // Enable all tracks for auto
+          for(let i = 0; i < tracks.length; i++) {
+            tracks[i].selected = true
+          }
+        } else if(idx >= 0 && idx < tracks.length) {
+          tracks[idx].selected = true
+        }
+        
+        setLevel(idx)
+        return
+      }
+      
+      // Method 2: Try reloading video with quality-specific URL
+      const currentSrc = v.src
+      if(currentSrc && currentSrc.includes('.m3u8')) {
+        
+        // Store current time to resume
+        const currentTime = v.currentTime
+        const wasPlaying = !v.paused
+        
+        // Generate quality-specific URLs (this would need actual implementation based on your video URLs)
+        const qualityUrls = {
+          '-1': currentSrc, // Auto quality (original)
+          '0': currentSrc.replace('.m3u8', '_1080p.m3u8'),
+          '1': currentSrc.replace('.m3u8', '_720p.m3u8'), 
+          '2': currentSrc.replace('.m3u8', '_480p.m3u8')
+        }
+        
+        const targetUrl = qualityUrls[idx.toString() as keyof typeof qualityUrls] || currentSrc
+        
+        if(targetUrl !== currentSrc) {
+          v.src = targetUrl
+          v.load()
+          
+          // Resume playback at same time
+          const handleLoadedMetadata = () => {
+            v.currentTime = currentTime
+            if(wasPlaying) {
+              v.play().catch(console.error)
+            }
+            v.removeEventListener('loadedmetadata', handleLoadedMetadata)
+          }
+          
+          v.addEventListener('loadedmetadata', handleLoadedMetadata)
+        }
+        
+        setLevel(idx)
+        return
+      }
+      
+      // Method 3: Force reload with different approach
+      setLevel(idx)
+      
+      // Trigger a refresh of the video element
+      const currentTime = v.currentTime
+      const wasPlaying = !v.paused
+      
+      setTimeout(() => {
+        v.load()
+        setTimeout(() => {
+          v.currentTime = currentTime
+          if(wasPlaying) {
+            v.play().catch(console.error)
+          }
+        }, 100)
+      }, 100)
+      
+      return
+    }
+    
+    // Fallback: just update UI state for display purposes
+    setLevel(idx)
   }
 
   const setSpeed = (rate: number) => {
@@ -306,13 +484,38 @@ export default function VideoPlayer({
 
   const fullScreen = ()=>{
     const el = cRef.current
-    if(!el) return
-    if(!document.fullscreenElement){ el.requestFullscreen(); setFull(true) }
-    else { document.exitFullscreen(); setFull(false) }
+    const video = vRef.current as any // Cast to any for iOS webkit methods
+    if(!el || !video) return
+    
+    // For iOS, use video element's webkitEnterFullscreen
+    if (isiOS() && video.webkitEnterFullscreen) {
+      if (!full) {
+        video.webkitEnterFullscreen()
+        setFull(true)
+      } else {
+        video.webkitExitFullscreen && video.webkitExitFullscreen()
+        setFull(false)
+      }
+      return
+    }
+    
+    // For other browsers, use standard fullscreen API
+    if(!document.fullscreenElement){ 
+      el.requestFullscreen().then(() => setFull(true)).catch(() => {
+        // Fallback for iOS Safari
+        if (video.webkitEnterFullscreen) {
+          video.webkitEnterFullscreen()
+          setFull(true)
+        }
+      })
+    }
+    else { 
+      document.exitFullscreen().then(() => setFull(false))
+    }
   }
 
   const togglePiP = async () => {
-    const v = vRef.current
+    const v = vRef.current as any
     if (!v) return
 
     try {
@@ -320,29 +523,70 @@ export default function VideoPlayer({
         await document.exitPictureInPicture()
         setIsPiP(false)
       } else {
-        await v.requestPictureInPicture()
-        setIsPiP(true)
+        // Try standard PiP first
+        if (v.requestPictureInPicture) {
+          await v.requestPictureInPicture()
+          setIsPiP(true)
+        } 
+        // Fallback for iOS Safari
+        else if (v.webkitSetPresentationMode) {
+          v.webkitSetPresentationMode('picture-in-picture')
+          setIsPiP(true)
+        }
       }
     } catch (error) {
       console.error('Error toggling PiP:', error)
+      // Try iOS fallback if standard PiP fails
+      if (isiOS() && v.webkitSetPresentationMode) {
+        try {
+          v.webkitSetPresentationMode('picture-in-picture')
+          setIsPiP(true)
+        } catch (iosError) {
+          console.error('iOS PiP also failed:', iosError)
+        }
+      }
     }
   }
 
-  // Add PiP event listeners
+  // Add PiP and Fullscreen event listeners
   useEffect(() => {
-    const v = vRef.current
+    const v = vRef.current as any
     if (!v) return
 
     const handlePiPChange = () => {
       setIsPiP(document.pictureInPictureElement === v)
     }
 
+    const handleFullscreenChange = () => {
+      setFull(!!document.fullscreenElement)
+    }
+
+    const handleIOSFullscreenChange = () => {
+      if (v.webkitDisplayingFullscreen !== undefined) {
+        setFull(v.webkitDisplayingFullscreen)
+      }
+    }
+
+    // Standard events
     v.addEventListener('enterpictureinpicture', handlePiPChange)
     v.addEventListener('leavepictureinpicture', handlePiPChange)
+    document.addEventListener('fullscreenchange', handleFullscreenChange)
+
+    // iOS events
+    if (v.webkitDisplayingFullscreen !== undefined) {
+      v.addEventListener('webkitbeginfullscreen', handleIOSFullscreenChange)
+      v.addEventListener('webkitendfullscreen', handleIOSFullscreenChange)
+    }
 
     return () => {
       v.removeEventListener('enterpictureinpicture', handlePiPChange)
       v.removeEventListener('leavepictureinpicture', handlePiPChange)
+      document.removeEventListener('fullscreenchange', handleFullscreenChange)
+      
+      if (v.webkitDisplayingFullscreen !== undefined) {
+        v.removeEventListener('webkitbeginfullscreen', handleIOSFullscreenChange)
+        v.removeEventListener('webkitendfullscreen', handleIOSFullscreenChange)
+      }
     }
   }, [])
 
@@ -431,7 +675,9 @@ export default function VideoPlayer({
         title={displayTitle}
         onClick={(e) => {
           e.stopPropagation();
-          if (custom) togglePlay();
+          if (custom) {
+            togglePlay(); // Simple play/pause for all devices
+          }
         }}
       >
         {subtitles.map((t,i)=>(
@@ -469,8 +715,11 @@ export default function VideoPlayer({
           {/* bottom bar */}
           <div className={cn(
             "absolute bottom-0 left-0 right-0 px-2 sm:px-4 py-2 sm:py-3 bg-gradient-to-t from-black/90 via-black/60 to-transparent transition-all duration-300 backdrop-blur-sm border-t border-white/10",
-            "opacity-0 group-hover:opacity-100",
-            isDropdownOpen && "opacity-100"
+            // Mobile: show/hide based on state, Desktop: hover behavior  
+            showControlsOnMobile ? "opacity-100" : "opacity-0",
+            "sm:opacity-0 sm:group-hover:opacity-100",
+            // Force show when dropdown is open
+            isDropdownOpen && "!opacity-100"
           )}>
             {/* progress bar container */}
             <div 
@@ -541,34 +790,39 @@ export default function VideoPlayer({
                 >
                   {playing? <Pause className="h-4 w-4 sm:h-6 sm:w-6"/> : <Play className="h-4 w-4 sm:h-6 sm:w-6"/>}
                 </Button>
-                <Button 
-                  size="icon" 
-                  variant="ghost" 
-                  className="h-8 w-8 sm:h-10 sm:w-10 text-white hover:text-amber-400 hover:bg-amber-400/10 transition-all duration-200 hover:scale-110" 
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    jump(-10);
-                  }} 
-                  aria-label="-10s"
-                >
-                  <SkipBack className="h-4 w-4 sm:h-5 sm:w-5"/>
-                </Button>
-                <Button 
-                  size="icon" 
-                  variant="ghost" 
-                  className="h-8 w-8 sm:h-10 sm:w-10 text-white hover:text-amber-400 hover:bg-amber-400/10 transition-all duration-200 hover:scale-110" 
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    jump(10);
-                  }} 
-                  aria-label="+10s"
-                >
-                  <SkipForward className="h-4 w-4 sm:h-5 sm:w-5"/>
-                </Button>
+                {/* Skip buttons - hidden on iOS to save space */}
+                {!isiOS() && (
+                  <>
+                    <Button 
+                      size="icon" 
+                      variant="ghost" 
+                      className="h-8 w-8 sm:h-10 sm:w-10 text-white hover:text-amber-400 hover:bg-amber-400/10 transition-all duration-200 hover:scale-110" 
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        jump(-10);
+                      }} 
+                      aria-label="-10s"
+                    >
+                      <SkipBack className="h-4 w-4 sm:h-5 sm:w-5"/>
+                    </Button>
+                    <Button 
+                      size="icon" 
+                      variant="ghost" 
+                      className="h-8 w-8 sm:h-10 sm:w-10 text-white hover:text-amber-400 hover:bg-amber-400/10 transition-all duration-200 hover:scale-110" 
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        jump(10);
+                      }} 
+                      aria-label="+10s"
+                    >
+                      <SkipForward className="h-4 w-4 sm:h-5 sm:w-5"/>
+                    </Button>
+                  </>
+                )}
                 
-                {/* Volume section - hidden on mobile, shown on desktop */}
+                {/* Volume section - simplified on mobile, full on desktop */}
                 <div 
-                  className="hidden sm:flex items-center gap-2 group/volume"
+                  className="flex items-center gap-2 group/volume"
                   onClick={(e) => e.stopPropagation()}
                 >
                   <Button 
@@ -583,7 +837,7 @@ export default function VideoPlayer({
                     {muted||vol===0? <VolumeX className="h-5 w-5"/> : <Volume2 className="h-5 w-5"/>}
                   </Button>
                   
-                  <div className="relative w-24 h-6 hidden group-hover/volume:flex items-center">
+                  <div className="relative w-24 h-6 hidden sm:group-hover/volume:flex items-center">
                     {/* Volume background */}
                     <div className="absolute w-full h-2 bg-black/40 rounded-full overflow-hidden backdrop-blur-sm">
                       {/* Volume level */}
@@ -642,13 +896,14 @@ export default function VideoPlayer({
                 {/* Time display for mobile */}
                 <span className="text-xs tabular-nums sm:hidden">{fmt(time)}</span>
 
-                {/* Playback Speed - hidden on small mobile */}
-                <DropdownMenu onOpenChange={setIsDropdownOpen}>
+                {/* Playback Speed - hidden on iOS to save space */}
+                {!isiOS() && (
+                <DropdownMenu onOpenChange={setIsSpeedDropdownOpen}>
                   <DropdownMenuTrigger asChild>
                     <Button 
                       variant="ghost" 
                       size="sm" 
-                      className="text-xs hidden sm:flex items-center gap-1 hover:text-amber-400 h-8 px-2"
+                      className="text-xs flex items-center gap-1 hover:text-amber-400 h-8 px-2"
                       onClick={(e) => e.stopPropagation()}
                     >
                       {playbackRate}x
@@ -673,10 +928,11 @@ export default function VideoPlayer({
                     ))}
                   </DropdownMenuContent>
                 </DropdownMenu>
+                )}
 
-                {/* quality - simplified for mobile */}
-                {levels.length > 0 && (
-                  <DropdownMenu onOpenChange={(open) => setIsDropdownOpen(open)}>
+                {/* quality - always show on iOS, conditional on others */}
+                {(isiOS() || levels.length > 0) && (
+                  <DropdownMenu onOpenChange={(open) => setIsQualityDropdownOpen(open)}>
                     <DropdownMenuTrigger asChild>
                       <Button 
                         variant="ghost" 
@@ -684,7 +940,7 @@ export default function VideoPlayer({
                         className="text-xs flex items-center gap-1 hover:text-amber-400 h-8 px-2"
                         onClick={(e) => e.stopPropagation()}
                       >
-                        <span className="hidden sm:inline">{level === -1 ? 'Auto' : formatQualityLabel(levels[level], level, videoSrc)}</span>
+                        <span className="text-xs">{level === -1 ? 'Auto' : (levels[level] ? formatQualityLabel(levels[level], level, videoSrc) : 'Auto')}</span>
                         <Settings className="h-3 w-3 sm:h-4 sm:w-4"/>
                       </Button>
                     </DropdownMenuTrigger>
@@ -702,7 +958,7 @@ export default function VideoPlayer({
                       >
                         Auto
                       </DropdownMenuItem>
-                      {levels.map((l, i) => (
+                      {levels.length > 0 ? levels.map((l, i) => (
                         <DropdownMenuItem 
                           key={i} 
                           onClick={(e) => {
@@ -713,21 +969,73 @@ export default function VideoPlayer({
                         >
                           {formatQualityLabel(l, i, videoSrc)}
                         </DropdownMenuItem>
-                      ))}
+                      )) : (
+                        // Fallback options for iOS when HLS levels not loaded yet
+                        <>
+                          <DropdownMenuItem 
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              setLvl(0)
+                            }}
+                            className={cn('cursor-pointer', level === 0 && 'bg-amber-500/20 text-amber-400')}
+                          >
+                            1080p
+                          </DropdownMenuItem>
+                          <DropdownMenuItem 
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              setLvl(1)
+                            }}
+                            className={cn('cursor-pointer', level === 1 && 'bg-amber-500/20 text-amber-400')}
+                          >
+                            720p
+                          </DropdownMenuItem>
+                          <DropdownMenuItem 
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              setLvl(2)
+                            }}
+                            className={cn('cursor-pointer', level === 2 && 'bg-amber-500/20 text-amber-400')}
+                          >
+                            480p
+                          </DropdownMenuItem>
+                          {isiOS() && (
+                            <>
+                              <div className="px-2 py-1 text-xs text-gray-400 border-t border-gray-600 mt-1">
+                                ⚠️ iOS may not support quality switching
+                              </div>
+                              <DropdownMenuItem 
+                                onClick={(e) => {
+                                  e.stopPropagation()
+                                  setForceHLSJS(!forceHLSJS)
+                                  // Reload video to apply change
+                                  setTimeout(() => {
+                                    const v = vRef.current
+                                    if(v) v.load()
+                                  }, 100)
+                                }}
+                                className="cursor-pointer text-xs border-t border-gray-600"
+                              >
+                                🔧 {forceHLSJS ? 'Use Native Player' : 'Force HLS.js'} (iOS)
+                              </DropdownMenuItem>
+                            </>
+                          )}
+                        </>
+                      )}
                     </DropdownMenuContent>
                   </DropdownMenu>
                 )}
 
-                {/* PiP Button - hidden on mobile */}
+                {/* PiP Button - available on mobile too */}
                 <Button 
                   size="icon" 
                   variant="ghost" 
-                  className="hidden sm:flex h-8 w-8 sm:h-10 sm:w-10 text-white hover:text-purple-400 hover:bg-purple-400/10 transition-all duration-200 hover:scale-110" 
+                  className="flex h-8 w-8 sm:h-10 sm:w-10 text-white hover:text-purple-400 hover:bg-purple-400/10 transition-all duration-200 hover:scale-110" 
                   onClick={(e) => {
                     e.stopPropagation()
                     togglePiP()
                   }}
-                  disabled={!document.pictureInPictureEnabled}
+                  disabled={!document.pictureInPictureEnabled && !isiOS()}
                 >
                   <PictureInPicture className="h-4 w-4 sm:h-5 sm:w-5" />
                 </Button>
