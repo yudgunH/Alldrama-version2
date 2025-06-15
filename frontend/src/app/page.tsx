@@ -49,10 +49,7 @@ export default function Home() {
 
   return (
     <div className="min-h-screen bg-gray-950">
-      <Hero 
-        movies={sections.featured} 
-        isLoading={isLoading}
-      />
+      <Hero />
       {/* Top 10 Movies Section with trapezoid cards */}
       <TopMoviesSection 
         movies={sections.trending} 

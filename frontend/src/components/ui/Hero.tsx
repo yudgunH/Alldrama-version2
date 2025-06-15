@@ -6,6 +6,7 @@ import { Movie } from '@/types';
 import { generateMovieUrl } from '@/utils/url';
 import { getImageInfo } from '@/utils/image';
 import { useMobile } from '@/hooks/use-mobile';
+import { useHomepageData } from '@/hooks/api/useHomepageData';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Play, Film, X } from 'lucide-react';
 import { cn } from '@/lib/utils';
@@ -59,39 +60,71 @@ const heroStyles = `
   }
 `;
 
-interface HeroProps {
-  movies?: Movie[];
-  isLoading?: boolean;
-}
-
-const Hero = ({ movies = [], isLoading = false }: HeroProps) => {
+const Hero = () => {
   const [currentIndex, setCurrentIndex] = useState(0);
   const [failedImages, setFailedImages] = useState<Set<string>>(new Set());
   const [showTrailer, setShowTrailer] = useState(false);
   const isMobile = useMobile();
 
-  // Get featured movies (top 5)
-  const featuredMovies = movies.slice(0, 5);
+  // Get homepage data with newest movies
+  const { sections, isLoading } = useHomepageData();
+  
+  // Get featured movies (latest 5 movies from newest section)
+  const featuredMovies = sections.newest?.slice(0, 5) || [];
   const currentMovie = featuredMovies[currentIndex];
+
+  // Debug logging
+  console.log('🎬 Hero Debug:', {
+    isLoading,
+    sectionsKeysAvailable: Object.keys(sections),
+    newestMoviesCount: sections.newest?.length || 0,
+    featuredMoviesCount: featuredMovies.length,
+    currentIndex,
+    currentMovieId: currentMovie?.id,
+    currentMovieTitle: currentMovie?.title
+  });
 
   // Auto-rotate through featured movies every 10 seconds
   useEffect(() => {
+    console.log('🔄 Auto-rotate effect:', { 
+      featuredMoviesLength: featuredMovies.length, 
+      showTrailer, 
+      shouldStartRotation: featuredMovies.length > 1 && !showTrailer 
+    });
+
     if (featuredMovies.length <= 1 || showTrailer) return;
 
     const interval = setInterval(() => {
-      setCurrentIndex((prev) => (prev + 1) % featuredMovies.length);
-    }, 10000); // 10 seconds per slide
+      setCurrentIndex((prev) => {
+        const next = (prev + 1) % featuredMovies.length;
+        console.log('⏰ Auto-rotate triggered:', { from: prev, to: next });
+        return next;
+      });
+    }, 3000); // 3 seconds per slide for testing
 
-    return () => clearInterval(interval);
+    console.log('✅ Auto-rotate interval started');
+
+    return () => {
+      console.log('🛑 Auto-rotate interval cleared');
+      clearInterval(interval);
+    };
   }, [featuredMovies.length, showTrailer]);
+
+  // Reset currentIndex when featuredMovies change dramatically (but not just length)
+  useEffect(() => {
+    if (currentIndex >= featuredMovies.length && featuredMovies.length > 0) {
+      setCurrentIndex(0);
+    }
+  }, [featuredMovies, currentIndex]);
 
   const handleImageError = useCallback((url: string) => {
     setFailedImages(prev => new Set(prev).add(url));
   }, []);
 
   const handleSlideChange = useCallback((newIndex: number) => {
+    console.log('🎯 Slide change clicked:', { from: currentIndex, to: newIndex });
     setCurrentIndex(newIndex);
-  }, []);
+  }, [currentIndex]);
 
   const handleTrailerClick = useCallback(() => {
     setShowTrailer(true);
@@ -374,9 +407,10 @@ const Hero = ({ movies = [], isLoading = false }: HeroProps) => {
                   {/* Progress bar for current slide */}
                   {index === currentIndex && (
                     <motion.div
+                      key={`progress-${currentIndex}-${currentMovie?.id}`}
                       initial={{ width: 0 }}
                       animate={{ width: "100%" }}
-                      transition={{ duration: 10, ease: "linear" }}
+                      transition={{ duration: 5, ease: "linear" }}
                       className="absolute top-0 left-0 h-full bg-amber-300 rounded-full"
                     />
                   )}
