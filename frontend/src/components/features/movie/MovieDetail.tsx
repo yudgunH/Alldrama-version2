@@ -33,6 +33,9 @@ import { useMovies } from '@/hooks/api/useMovies'
 import VideoPlayer from './VideoPlayer'
 import { getImageInfo, getEpisodeThumbnailInfo } from "@/utils/image"
 import { useImageErrorHandler } from "@/hooks/useImageErrorHandler"
+import MovieStructuredData from "./MovieStructuredData"
+import ShareButtons from "./ShareButtons"
+import SocialPreview from "./SocialPreview"
 
 interface MovieDetailProps {
   movieId: string | number
@@ -297,6 +300,9 @@ const MovieDetail = ({ movieId, initialData }: MovieDetailProps) => {
 
   return (
     <div className="text-foreground">
+      {/* Structured Data for SEO */}
+      <MovieStructuredData movie={movie} />
+      
       {/* Hero Banner with parallax effect */}
       <div className="relative w-full h-[50vh] md:h-[75vh] overflow-hidden">
         {/* Background Image with Overlay */}
@@ -547,22 +553,11 @@ const MovieDetail = ({ movieId, initialData }: MovieDetailProps) => {
                           </Tooltip>
                         </TooltipProvider>
                         
-                        <TooltipProvider>
-                          <Tooltip>
-                            <TooltipTrigger asChild>
-                              <Button 
-                                variant="outline" 
-                                size="icon" 
-                                className="h-9 w-9 md:h-11 md:w-11 rounded-full bg-gray-900/40 border-gray-600 hover:bg-gray-800 text-white backdrop-blur-sm"
-                              >
-                                <Share className="h-4 w-4 md:h-5 md:w-5" />
-                              </Button>
-                            </TooltipTrigger>
-                            <TooltipContent className="text-xs md:text-sm p-1 md:p-2">
-                              <p>Chia sẻ</p>
-                            </TooltipContent>
-                          </Tooltip>
-                        </TooltipProvider>
+                        <ShareButtons 
+                          movie={movie} 
+                          variant="icon"
+                          className="h-9 w-9 md:h-11 md:w-11 rounded-full bg-gray-900/40 border-gray-600 hover:bg-gray-800 text-white backdrop-blur-sm"
+                        />
                       </div>
                     </div>
                   </div>
@@ -598,6 +593,12 @@ const MovieDetail = ({ movieId, initialData }: MovieDetailProps) => {
                   className="data-[state=active]:bg-gradient-to-r data-[state=active]:from-indigo-600 data-[state=active]:to-purple-600 data-[state=active]:text-white rounded-md py-2"
                 >
                   <MessageCircle className="w-4 h-4 mr-2" /> Bình luận
+                </TabsTrigger>
+                <TabsTrigger 
+                  value="share" 
+                  className="data-[state=active]:bg-gradient-to-r data-[state=active]:from-indigo-600 data-[state=active]:to-purple-600 data-[state=active]:text-white rounded-md py-2"
+                >
+                  <Share className="w-4 h-4 mr-2" /> Chia sẻ
                 </TabsTrigger>
               </TabsList>
               
@@ -844,6 +845,40 @@ const MovieDetail = ({ movieId, initialData }: MovieDetailProps) => {
               {/* Comments Tab */}
               <TabsContent value="comments">
                     <CommentSection movieId={String(movie.id)} />
+              </TabsContent>
+              
+              {/* Share Tab */}
+              <TabsContent value="share" className="space-y-6">
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+                  {/* Share Buttons */}
+                  <Card className="bg-gradient-to-br from-gray-800/60 to-gray-900/60 border-gray-700 overflow-hidden">
+                    <div className="absolute inset-0 bg-[url('/images/noise.png')] opacity-5 mix-blend-overlay pointer-events-none"></div>
+                    <CardContent className="p-6 relative">
+                      <h3 className="text-lg font-semibold text-white mb-4 flex items-center">
+                        <Share className="w-5 h-5 mr-2 text-indigo-400" />
+                        Chia sẻ phim này
+                      </h3>
+                      
+                      <div className="space-y-4">
+                        <p className="text-gray-300 text-sm">
+                          Chia sẻ "{movie.title}" với bạn bè trên mạng xã hội
+                        </p>
+                        
+                        <div className="flex flex-wrap gap-3">
+                          <ShareButtons movie={movie} variant="button" />
+                        </div>
+                      </div>
+                    </CardContent>
+                  </Card>
+                  
+                  {/* Social Preview */}
+                  <Card className="bg-gradient-to-br from-gray-800/60 to-gray-900/60 border-gray-700 overflow-hidden">
+                    <div className="absolute inset-0 bg-[url('/images/noise.png')] opacity-5 mix-blend-overlay pointer-events-none"></div>
+                    <CardContent className="p-6 relative">
+                      <SocialPreview movie={movie} />
+                    </CardContent>
+                  </Card>
+                </div>
               </TabsContent>
             </Tabs>
           </div>
