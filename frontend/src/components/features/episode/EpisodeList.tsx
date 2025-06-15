@@ -281,7 +281,7 @@ function EpisodeGrid({
             <Card className="relative bg-gray-800/40 border-gray-700 hover:border-gray-500 transition-all overflow-hidden h-[200px] sm:h-[240px] md:h-[280px] group">
               {/* Poster */}
               <img
-                src={ep.thumbnailUrl || ep.moviePoster || getSafePosterUrl(null, ep.movieId)}
+                src={ep.moviePoster || getSafePosterUrl(null, ep.movieId)}
                 alt={`Episode ${ep.episodeNumber}`}
                 className="absolute inset-0 w-full h-full object-cover"
                 onError={(e) => {

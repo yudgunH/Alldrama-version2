@@ -31,7 +31,7 @@ import { useMovieDetail } from '@/hooks/api/useMovieDetail'
 import { useEpisodes } from '@/hooks/api/useEpisodes'
 import { useMovies } from '@/hooks/api/useMovies'
 import VideoPlayer from './VideoPlayer'
-import { getImageInfo, getEpisodeThumbnailInfo } from "@/utils/image"
+import { getImageInfo, getSafePosterUrl } from "@/utils/image"
 import { useImageErrorHandler } from "@/hooks/useImageErrorHandler"
 import MovieStructuredData from "./MovieStructuredData"
 import ShareButtons from "./ShareButtons"
@@ -828,23 +828,16 @@ const MovieDetail = ({ movieId, initialData }: MovieDetailProps) => {
                                 // Desktop view with thumbnails
                                 <>
                                   <div className="relative aspect-video overflow-hidden">
-                                    {(() => {
-                                      const imageInfo = getEpisodeThumbnailInfo(episode.thumbnailUrl, movie.id, episode.id)
-                                      
-                                      return imageInfo.shouldShowSkeleton ? (
-                                        <Skeleton className="w-full h-full" />
-                                      ) : (
-                                        <Image 
-                                          src={imageInfo.url} 
-                                          alt={episode.title}
-                                          fill
-                                          className="object-cover"
-                                          onError={(e) => {
-                                            // Gracefully handle error
-                                          }}
-                                        />
-                                      )
-                                    })()}
+                                    {/* Use movie poster instead of episode thumbnail to avoid 404s */}
+                                    <Image 
+                                      src={getSafePosterUrl(movie.posterUrl, movie.id)} 
+                                      alt={episode.title}
+                                      fill
+                                      className="object-cover"
+                                      onError={(e) => {
+                                        // Gracefully handle error
+                                      }}
+                                    />
                                     <div className="absolute inset-0 bg-gradient-to-t from-black/70 to-transparent opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
                                       <div className="w-12 h-12 rounded-full bg-indigo-600/80 flex items-center justify-center">
                                         <Play className="h-6 w-6 text-white fill-current ml-1" />

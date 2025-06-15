@@ -147,7 +147,7 @@ export default function MovieEpisodes({
             >
               <div className="relative bg-gray-800/40 hover:bg-gray-700/40 transition-all overflow-hidden h-[200px] sm:h-[240px] md:h-[280px] rounded-lg">
                 <img
-                  src={ep.thumbnailUrl || posterUrl || getSafePosterUrl(null, movieId)}
+                  src={posterUrl || getSafePosterUrl(null, movieId)}
                   alt={`Tập ${ep.episodeNumber}`}
                   className="w-full h-full object-cover rounded-lg"
                   loading="lazy"

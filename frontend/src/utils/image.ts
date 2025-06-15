@@ -127,26 +127,9 @@ export function getEpisodeThumbnailInfo(
     return { url: thumbnailUrl, shouldShowSkeleton: false };
   }
   
-  // Check if should show skeleton first
-  if (shouldShowSkeleton(thumbnailUrl)) {
-    // In production, skip auto-detection for episode thumbnails to reduce 404s
-    if (process.env.NODE_ENV === 'production') {
-      return { url: '', shouldShowSkeleton: true };
-    }
-    
-    // Auto-detect with movieId and episodeId only in development
-    const autoUrl = getAutoDetectedImageUrl(`https://media.alldrama.tech/episodes/${movieId}/${episodeId}/thumbnail`);
-    return { url: autoUrl, shouldShowSkeleton: false };
-  }
-  
-  // In production, don't auto-detect to avoid 404 spam
-  if (process.env.NODE_ENV === 'production') {
-    return { url: '', shouldShowSkeleton: true };
-  }
-  
-  // Auto-detect format for episode thumbnail (development only)
-  const autoUrl = getAutoDetectedImageUrl(`https://media.alldrama.tech/episodes/${movieId}/${episodeId}/thumbnail`);
-  return { url: autoUrl, shouldShowSkeleton: false };
+  // DISABLED: Episode thumbnail auto-detection to prevent 404 spam
+  // Always return skeleton for missing episode thumbnails
+  return { url: '', shouldShowSkeleton: true };
 }
 
 /**
@@ -268,8 +251,8 @@ async function detectImageFormatAsync(
   baseUrl: string, 
   preferredFormats: string[] = ['jpg', 'jpeg', 'webp', 'png']
 ): Promise<void> {
-  // In production, skip episode thumbnail detection to reduce 404s
-  if (process.env.NODE_ENV === 'production' && baseUrl.includes('/episodes/')) {
+  // DISABLED: Skip all episode thumbnail detection to reduce 404s
+  if (baseUrl.includes('/episodes/')) {
     return;
   }
   
@@ -700,12 +683,9 @@ export function getEpisodeThumbnailUrl(
   episodeNumber: number | string,
   fallback: string = "/placeholder.svg"
 ): string {
-  // In production, return fallback to avoid 404 spam
-  if (process.env.NODE_ENV === 'production') {
-    return fallback;
-  }
-  
-  return getAutoDetectedImageUrl(`https://media.alldrama.tech/episodes/${movieId}/${episodeNumber}/thumbnail`);
+  // DISABLED: Episode thumbnail auto-detection to prevent 404 spam
+  // Always return fallback for episode thumbnails
+  return fallback;
 }
 
 /**

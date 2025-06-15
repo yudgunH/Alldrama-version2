@@ -137,7 +137,7 @@ export const useEpisodeData = () => {
                     ...ep,
                     movieTitle: movie.title,
                     moviePoster: movie.posterUrl || getSafePosterUrl(null, movie.id),
-                    thumbnailUrl: ep.thumbnailUrl || movie.posterUrl || getSafePosterUrl(null, movie.id)
+                    thumbnailUrl: movie.posterUrl || getSafePosterUrl(null, movie.id)
                   })
                 );
               } else {

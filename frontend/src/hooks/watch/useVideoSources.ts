@@ -1,5 +1,5 @@
 import { useMemo } from 'react'
-import { getSafePosterUrl, getEpisodeThumbnailUrl } from '@/utils/image'
+import { getSafePosterUrl } from '@/utils/image'
 import { MovieWithSubtitles, EpisodeWithSubtitles } from './useWatchData'
 
 interface UseVideoSourcesProps {
@@ -55,18 +55,7 @@ export function useVideoSources({ movie, activeEpisode, isSeries }: UseVideoSour
 
   // Get poster URL with proper fallbacks
   const posterSrc = useMemo(() => {
-    // For episode, use its thumbnail if available
-    if (isSeries && activeEpisode) {
-      if (activeEpisode.thumbnailUrl && activeEpisode.thumbnailUrl.startsWith('http')) {
-        return activeEpisode.thumbnailUrl;
-      }
-      // If not, try to construct it intelligently using utility function
-      if (movie?.id && activeEpisode.episodeNumber) {
-        return getEpisodeThumbnailUrl(movie.id, activeEpisode.episodeNumber);
-      }
-    }
-    
-    // For movie, use its poster if available
+    // Always use movie poster instead of episode thumbnails to avoid 404s
     if (movie?.posterUrl) {
       if (movie.posterUrl.startsWith('http')) {
         return movie.posterUrl;
@@ -76,7 +65,7 @@ export function useVideoSources({ movie, activeEpisode, isSeries }: UseVideoSour
     
     // Fallback to auto-detected poster or placeholder
     return movie?.id ? getSafePosterUrl(null, movie.id) : '/placeholder.svg';
-  }, [isSeries, activeEpisode, movie]);
+  }, [movie]);
 
   // Get video title
   const title = useMemo(() => {
