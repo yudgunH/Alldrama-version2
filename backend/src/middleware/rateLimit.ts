@@ -14,7 +14,7 @@ export const globalLimiter = rateLimit({
 // Middleware giới hạn số lượng request cho các endpoint đăng nhập để ngăn tấn công brute force
 export const loginLimiter = rateLimit({
   windowMs: 60 * 60 * 1000, // 1 giờ
-  max: 5, // Giới hạn mỗi IP chỉ được gửi 5 request đăng nhập thất bại trong 1 giờ
+  max: 10, // Giới hạn mỗi IP chỉ được gửi 5 request đăng nhập thất bại trong 1 giờ
   standardHeaders: true,
   legacyHeaders: false,
   skipSuccessfulRequests: true, // Chỉ đếm các request thất bại
