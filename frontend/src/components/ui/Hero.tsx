@@ -100,7 +100,7 @@ const Hero = () => {
         console.log('⏰ Auto-rotate triggered:', { from: prev, to: next });
         return next;
       });
-    }, 3000); // 3 seconds per slide for testing
+    }, 5000); // 5 seconds per slide for testing
 
     console.log('✅ Auto-rotate interval started');
 

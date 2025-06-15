@@ -260,9 +260,23 @@ class ApiClient {
         const isLoginPage = typeof window !== 'undefined' && window.location.pathname.includes('/login');
         
         // Hiển thị thông báo lỗi (trừ lỗi 401 đã xử lý và trừ khi đang đăng xuất)
-        if (!isUnauthorized && !isLoggingOut && !isLoginPage) {
-          const errorMessage = errorResponse?.message || 'Đã xảy ra lỗi không xác định';
-          toast.error(errorMessage);
+        // Không hiển thị thông báo cho lỗi image load hoặc các lỗi không quan trọng
+        const isImageRequest = originalRequest.url?.includes('/movies/') && 
+          (originalRequest.url?.includes('/backdrop') || originalRequest.url?.includes('/poster') || originalRequest.url?.includes('/thumbnail'));
+        
+        if (!isUnauthorized && !isLoggingOut && !isLoginPage && !isImageRequest) {
+          const errorMessage = errorResponse?.message || 'Có lỗi xảy ra';
+          const statusCode = error.response?.status;
+          
+          // Chỉ hiển thị lỗi cho các API requests quan trọng
+          if (statusCode && statusCode >= 500) {
+            toast.error('Lỗi server. Vui lòng thử lại sau.');
+          } else if (statusCode && statusCode >= 400 && statusCode < 500) {
+            // Chỉ hiển thị lỗi 4xx nếu có message cụ thể từ server
+            if (errorResponse?.message) {
+              toast.error(errorMessage);
+            }
+          }
         }
 
         return Promise.reject(error);

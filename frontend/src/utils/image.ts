@@ -24,6 +24,20 @@ export function shouldShowSkeleton(imageUrl: string | null | undefined): boolean
  * @returns Backdrop URL
  */
 export function convertPosterToBackdrop(posterUrl: string): string {
+  // Handle URLs with explicit poster path and extension
+  if (posterUrl.includes('/poster.')) {
+    const backdropUrl = posterUrl.replace('/poster.', '/backdrop.');
+    // Keep the same extension, but it will be auto-detected later if needed
+    return backdropUrl;
+  }
+  
+  // Handle URLs ending with poster (no extension)
+  // e.g., https://media.alldrama.tech/movies/1/poster -> https://media.alldrama.tech/movies/1/backdrop
+  if (posterUrl.endsWith('/poster')) {
+    return posterUrl.replace('/poster', '/backdrop');
+  }
+  
+  // Fallback to original regex for other patterns
   return posterUrl.replace(/\/poster(\.|$)/, '/backdrop$1');
 }
 
@@ -41,10 +55,18 @@ export function getImageInfo(
   type: 'poster' | 'backdrop' | 'thumbnail' = 'poster',
   posterUrl?: string | null | undefined
 ): { url: string; shouldShowSkeleton: boolean } {
+  // Production: Remove debug logs for better performance
+  
   // For backdrop type, if no backdrop URL but have poster URL, convert it
   if (type === 'backdrop' && shouldShowSkeleton(imageUrl) && posterUrl && !shouldShowSkeleton(posterUrl)) {
     const backdropUrl = convertPosterToBackdrop(posterUrl);
-    return { url: backdropUrl, shouldShowSkeleton: false };
+    
+    // Always use auto-detection for backdrop, even if it has extension from poster
+    // This ensures we find the actual format that exists on server
+    const baseUrl = backdropUrl.replace(/\.[^.]*$/, ''); // Remove any extension
+    const autoUrl = getAutoDetectedImageUrl(baseUrl);
+    
+    return { url: autoUrl, shouldShowSkeleton: false };
   }
   
   // Check if should show skeleton first
@@ -60,7 +82,9 @@ export function getImageInfo(
       return { url: '', shouldShowSkeleton: true };
     }
     
-    const autoUrl = getAutoDetectedImageUrl(`https://media.alldrama.tech/movies/${movieId}/${type}`);
+    const baseUrl = `https://media.alldrama.tech/movies/${movieId}/${type}`;
+    const autoUrl = getAutoDetectedImageUrl(baseUrl);
+    
     return { url: autoUrl, shouldShowSkeleton: false };
   }
   
@@ -76,7 +100,9 @@ export function getImageInfo(
       return { url: '', shouldShowSkeleton: true };
     }
     
-    const autoUrl = getAutoDetectedImageUrl(`https://media.alldrama.tech/movies/${movieId}/${type}`);
+    const baseUrl = `https://media.alldrama.tech/movies/${movieId}/${type}`;
+    const autoUrl = getAutoDetectedImageUrl(baseUrl);
+    
     return { url: autoUrl, shouldShowSkeleton: false };
   }
   
@@ -169,11 +195,18 @@ const failedCache = new Set<string>();
  */
 export function getAutoDetectedImageUrl(
   baseUrl: string, 
-  preferredFormats: string[] = ['jpg', 'jpeg', 'png', 'webp']
+  preferredFormats: string[] = ['jpg', 'jpeg', 'webp', 'png']
 ): string {
+  // For backdrop images, try jpg first but still test all formats
+  if (baseUrl.includes('/backdrop')) {
+    preferredFormats = ['jpg', 'jpeg', 'png', 'webp'];
+  }
+  
   // Check memory cache first
   if (formatCache.has(baseUrl)) {
-    return `${baseUrl}.${formatCache.get(baseUrl)}`;
+    const cachedFormat = formatCache.get(baseUrl);
+    const url = `${baseUrl}.${cachedFormat}`;
+    return url;
   }
   
   // Check localStorage cache
@@ -182,23 +215,26 @@ export function getAutoDetectedImageUrl(
   
   if (cachedFormat && preferredFormats.includes(cachedFormat)) {
     formatCache.set(baseUrl, cachedFormat);
-    return `${baseUrl}.${cachedFormat}`;
+    const url = `${baseUrl}.${cachedFormat}`;
+    return url;
   }
   
   // Start async detection in background
   detectImageFormatAsync(baseUrl, preferredFormats);
   
   // Return intelligent default while detection is running
-  return getIntelligentDefault(baseUrl, preferredFormats);
+  const intelligentUrl = getIntelligentDefault(baseUrl, preferredFormats);
+  return intelligentUrl;
 }
 
 /**
  * Get intelligent default format based on image type
  */
 function getIntelligentDefault(baseUrl: string, preferredFormats: string[]): string {
-  // For backdrop images, try webp first as it's more common for larger images
+  // For backdrop images, try the most likely format first
   if (baseUrl.includes('/backdrop')) {
-    return `${baseUrl}.webp`;
+    // First try the most common format for backdrops
+    return `${baseUrl}.${preferredFormats[0]}`;
   }
   
   // For poster images, jpg is most common
@@ -220,12 +256,20 @@ function getIntelligentDefault(baseUrl: string, preferredFormats: string[]): str
  */
 async function detectImageFormatAsync(
   baseUrl: string, 
-  preferredFormats: string[] = ['jpg', 'jpeg', 'png', 'webp']
+  preferredFormats: string[] = ['jpg', 'jpeg', 'webp', 'png']
 ): Promise<void> {
+  // For backdrop images, test jpg/jpeg first but still try all formats
+  if (baseUrl.includes('/backdrop')) {
+    preferredFormats = ['jpg', 'jpeg', 'png', 'webp'];
+  }
+  
   // Skip if already failed recently
   if (failedCache.has(baseUrl)) {
+    console.log(`⏭️ Skipping detection for ${baseUrl} (recently failed)`);
     return;
   }
+  
+  // Starting async format detection
   
   try {
     for (const format of preferredFormats) {
@@ -255,10 +299,12 @@ async function detectImageFormatAsync(
     
     // If no format worked, cache the failure temporarily
     failedCache.add(baseUrl);
-    setTimeout(() => failedCache.delete(baseUrl), 5 * 60 * 1000); // Clear after 5 minutes
+    setTimeout(() => {
+      failedCache.delete(baseUrl);
+    }, 5 * 60 * 1000); // Clear after 5 minutes
     
   } catch (error) {
-    console.warn('Image format detection failed:', error);
+    // Silent fail - not critical for app functionality
   }
 }
 
@@ -266,11 +312,21 @@ async function detectImageFormatAsync(
  * Trigger update for components using this image
  */
 function triggerImageUpdate(baseUrl: string, format: string): void {
+  const detectedUrl = `${baseUrl}.${format}`;
+  
   // Dispatch custom event to notify components
   const event = new CustomEvent('imageFormatDetected', {
-    detail: { baseUrl, format, url: `${baseUrl}.${format}` }
+    detail: { baseUrl, format, url: detectedUrl }
   });
   window.dispatchEvent(event);
+  
+  // Additional approach: trigger a storage event for components listening to localStorage
+  const storageEvent = new StorageEvent('storage', {
+    key: `img_format_${baseUrl}`,
+    newValue: format,
+    url: window.location.href
+  });
+  window.dispatchEvent(storageEvent);
 }
 
 /**
@@ -281,7 +337,7 @@ function triggerImageUpdate(baseUrl: string, format: string): void {
  */
 export async function getBestImageFormat(
   baseUrl: string, 
-  preferredFormats: string[] = ['jpg', 'jpeg', 'png', 'webp']
+  preferredFormats: string[] = ['jpg', 'jpeg', 'webp', 'png']
 ): Promise<string> {
   for (const format of preferredFormats) {
     const testUrl = `${baseUrl}.${format}`;
@@ -324,6 +380,65 @@ export function handleImageLoadSuccess(imageUrl: string): void {
   cacheImageFormat(imageUrl);
 }
 
+/**
+ * Hook to handle image load error and try alternative formats
+ * @param imageUrl - The image URL that failed to load
+ * @param baseUrl - Base URL without extension for trying alternatives
+ * @param onAlternativeFound - Callback when alternative format is found
+ */
+export async function handleImageLoadError(
+  imageUrl: string, 
+  baseUrl?: string,
+  onAlternativeFound?: (newUrl: string) => void
+): Promise<string | null> {
+  if (!baseUrl) {
+    // Try to extract base URL from failed URL
+    const match = imageUrl.match(/^(.+)\.([^.]+)(\?.*)?$/);
+    if (match) {
+      baseUrl = match[1];
+    } else {
+      return null;
+    }
+  }
+  
+  // Clear any existing cache for this base URL
+  clearSpecificImageCache(baseUrl);
+  
+  // Try to find an alternative format
+  const alternativeFormats = ['jpg', 'jpeg', 'png', 'webp'];
+  const failedExtension = getImageExtension(imageUrl);
+  
+  // Remove the failed extension from alternatives
+  const formatsToTry = alternativeFormats.filter(ext => ext !== failedExtension);
+  
+  for (const format of formatsToTry) {
+    const testUrl = `${baseUrl}.${format}`;
+    try {
+      const response = await fetch(testUrl, { method: 'HEAD' });
+      if (response.ok) {
+        // Cache the working format
+        formatCache.set(baseUrl, format);
+        localStorage.setItem(`img_format_${baseUrl}`, format);
+        
+        // Notify callback if provided
+        if (onAlternativeFound) {
+          onAlternativeFound(testUrl);
+        }
+        
+        return testUrl;
+      }
+    } catch (error) {
+      continue;
+    }
+  }
+  
+  // Mark this baseUrl as failed
+  failedCache.add(baseUrl);
+  setTimeout(() => failedCache.delete(baseUrl), 10 * 60 * 1000); // Clear after 10 minutes
+  
+  return null;
+}
+
 // Note: useAutoDetectedImage hook is now implemented in @/hooks/useAutoDetectedImage
 
 /**
@@ -333,7 +448,7 @@ export function handleImageLoadSuccess(imageUrl: string): void {
  */
 export async function preloadImageFormats(
   baseUrls: string[],
-  preferredFormats: string[] = ['jpg', 'jpeg', 'png', 'webp']
+  preferredFormats: string[] = ['jpg', 'jpeg', 'webp', 'png']
 ): Promise<void> {
   const promises = baseUrls.map(baseUrl => 
     detectImageFormatAsync(baseUrl, preferredFormats)
@@ -456,6 +571,7 @@ export function getSafeBackdropUrl(
       // Check if backdropUrl already has an extension
       const extension = getImageExtension(backdropUrl);
       if (extension) {
+        // Use the provided extension directly first, auto-detection will handle fallbacks
         return `https://media.alldrama.tech/movies/${movieId}/backdrop.${extension}`;
       }
       
@@ -467,9 +583,19 @@ export function getSafeBackdropUrl(
   // If no backdrop but have poster, convert poster to backdrop
   if (posterUrl && !shouldShowSkeleton(posterUrl)) {
     if (posterUrl.startsWith('http://') || posterUrl.startsWith('https://')) {
-      return convertPosterToBackdrop(posterUrl);
+      const backdropUrl = convertPosterToBackdrop(posterUrl);
+      console.log('🖼️ Converting poster to backdrop:', { posterUrl, backdropUrl });
+      return backdropUrl;
     }
     if (movieId) {
+      // If poster has extension, try to use same extension for backdrop first
+      const extension = getImageExtension(posterUrl);
+      if (extension) {
+        const backdropUrl = `https://media.alldrama.tech/movies/${movieId}/backdrop.${extension}`;
+        console.log('🖼️ Trying poster extension for backdrop:', { posterUrl, extension, backdropUrl });
+        return backdropUrl;
+      }
+      
       // Auto-detect format for backdrop based on poster structure
       return getAutoDetectedImageUrl(`https://media.alldrama.tech/movies/${movieId}/backdrop`);
     }
@@ -533,6 +659,7 @@ export function getImageUrl(
     }
     
     if (extension) {
+      // Use the provided extension directly, auto-detection will handle fallbacks
       return `https://media.alldrama.tech/movies/${movieId}/${type}.${extension}`;
     }
     
@@ -568,7 +695,7 @@ export function getEpisodeThumbnailUrl(
 export function getImageUrlsWithFallback(
   movieId: number | string,
   type: 'poster' | 'backdrop' | 'thumbnail' = 'poster',
-  formats: string[] = ['jpg', 'jpeg', 'png', 'webp']
+  formats: string[] = ['jpg', 'jpeg', 'webp', 'png']
 ): string[] {
   return formats.map(format => 
     `https://media.alldrama.tech/movies/${movieId}/${type}.${format}`
@@ -608,4 +735,108 @@ export function createResponsiveImageSources(
     },
     fallback: `${baseUrl}/${type}.jpg`
   };
+}
+
+/**
+ * Clear specific image format cache for a URL
+ * @param baseUrl - Base URL to clear cache for
+ */
+export function clearSpecificImageCache(baseUrl: string): void {
+  formatCache.delete(baseUrl);
+  failedCache.delete(baseUrl);
+  
+  const cacheKey = `img_format_${baseUrl}`;
+  localStorage.removeItem(cacheKey);
+}
+
+/**
+ * Force refresh image format detection for a specific URL
+ * @param baseUrl - Base URL to refresh
+ * @param preferredFormats - Preferred formats to try
+ */
+export async function refreshImageFormat(
+  baseUrl: string,
+  preferredFormats: string[] = ['jpg', 'jpeg', 'webp', 'png']
+): Promise<string> {
+  // Clear existing cache
+  clearSpecificImageCache(baseUrl);
+  
+  // Force new detection
+  await detectImageFormatAsync(baseUrl, preferredFormats);
+  
+  // Return the detected URL
+  return getAutoDetectedImageUrl(baseUrl, preferredFormats);
+}
+
+/**
+ * Clear image format cache for debugging
+ * Call this function in browser console to reset image detection
+ */
+export function debugClearImageCache(): void {
+  if (process.env.NODE_ENV === 'development') {
+    console.log('Clearing image format cache...');
+  }
+  formatCache.clear();
+  failedCache.clear();
+  
+  // Clear localStorage cache
+  const keys = Object.keys(localStorage).filter(key => key.startsWith('img_format_'));
+  keys.forEach(key => localStorage.removeItem(key));
+  
+  if (process.env.NODE_ENV === 'development') {
+    console.log(`Cleared ${keys.length} localStorage entries and memory cache`);
+    console.log('You can now test image format detection with fresh cache');
+  }
+}
+
+/**
+ * Debug function to test backdrop URL generation
+ * @param movieId - Movie ID to test
+ */
+export function debugBackdropUrl(movieId: number | string): void {
+  if (process.env.NODE_ENV !== 'development') {
+    return;
+  }
+
+  const baseUrl = `https://media.alldrama.tech/movies/${movieId}/backdrop`;
+  const intelligentDefault = getIntelligentDefault(baseUrl, ['jpg', 'jpeg', 'webp', 'png']);
+  const autoDetectedUrl = getAutoDetectedImageUrl(baseUrl);
+  
+  console.log('=== Backdrop URL Debug ===');
+  console.log('Movie ID:', movieId);
+  console.log('Base URL:', baseUrl);
+  console.log('Intelligent Default:', intelligentDefault);
+  console.log('Auto Detected URL:', autoDetectedUrl);
+  console.log('Memory Cache:', formatCache.get(baseUrl));
+  console.log('LocalStorage Cache:', localStorage.getItem(`img_format_${baseUrl}`));
+  console.log('Failed Cache:', failedCache.has(baseUrl));
+  
+  // Test all formats for this backdrop
+  console.log('🧪 Testing all formats:');
+  const formats = ['jpg', 'jpeg', 'png', 'webp'];
+  formats.forEach(async (format) => {
+    const testUrl = `${baseUrl}.${format}`;
+    try {
+      const response = await fetch(testUrl, { method: 'HEAD' });
+      console.log(`${response.ok ? '✅' : '❌'} ${testUrl} - Status: ${response.status}`);
+    } catch (error) {
+      console.log(`❌ ${testUrl} - Error:`, error);
+    }
+  });
+}
+
+// Make functions available globally for debugging
+declare global {
+  interface Window {
+    debugClearImageCache: () => void;
+    debugBackdropUrl: (movieId: number | string) => void;
+  }
+}
+
+if (typeof window !== 'undefined' && process.env.NODE_ENV === 'development') {
+  window.debugClearImageCache = debugClearImageCache;
+  window.debugBackdropUrl = debugBackdropUrl;
+  
+  // Make handleImageLoadError available globally for easier debugging
+  (window as any).handleImageLoadError = handleImageLoadError;
 } 

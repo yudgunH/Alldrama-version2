@@ -32,6 +32,7 @@ import { useEpisodes } from '@/hooks/api/useEpisodes'
 import { useMovies } from '@/hooks/api/useMovies'
 import VideoPlayer from './VideoPlayer'
 import { getImageInfo, getEpisodeThumbnailInfo } from "@/utils/image"
+import { useImageErrorHandler } from "@/hooks/useImageErrorHandler"
 
 interface MovieDetailProps {
   movieId: string | number
@@ -97,6 +98,7 @@ const MovieDetail = ({ movieId, initialData }: MovieDetailProps) => {
   const [topRatedMovies, setTopRatedMovies] = useState<Movie[]>([])
   const isMobile = useMobile()
   const [isPlayingTrailer, setIsPlayingTrailer] = useState(false)
+  const imageErrorHandler = useImageErrorHandler()
   
   // Check if the movie is in favorites when component mounts or movie changes
   useEffect(() => {
@@ -312,16 +314,22 @@ const MovieDetail = ({ movieId, initialData }: MovieDetailProps) => {
               <Skeleton className="w-full h-full" />
             ) : (
               <Image
-                src={backdropInfo.url}
+                src={imageErrorHandler.getImageUrl(backdropInfo.url)}
                 alt={movie.title}
                 fill
                 priority
                 sizes="100vw"
                 className="object-cover object-center"
                 quality={90}
-                onError={() => {
-                  // console.log('MovieDetail - Backdrop image load error for movie:', movie.id);
-                  throw new Error('Backdrop image load error');
+                onError={async (e) => {
+                  // Prevent the error from bubbling up and causing error boundaries to trigger
+                  e.preventDefault();
+                  
+                  // Try to find alternative format using the error handler
+                  const baseUrl = backdropInfo.url.replace(/\.[^.]*(\?.*)?$/, '');
+                  await imageErrorHandler.handleError(backdropInfo.url, baseUrl);
+                  
+                  // The component will re-render with the alternative URL from the hook
                 }}
               />
             );
@@ -382,8 +390,7 @@ const MovieDetail = ({ movieId, initialData }: MovieDetailProps) => {
                     priority
                     className="object-cover transform hover:scale-105 transition-transform duration-700" 
                     onError={() => {
-                      // console.log('MovieDetail Mobile - Image load error for movie:', movie.id);
-                      throw new Error('Image load error');
+                      // Gracefully handle error - don't throw
                     }}
                   />
                 )
@@ -409,8 +416,7 @@ const MovieDetail = ({ movieId, initialData }: MovieDetailProps) => {
                           fill 
                           className="object-cover transform group-hover:scale-105 transition-transform duration-700" 
                           onError={() => {
-                            // console.log('MovieDetail Desktop - Image load error for movie:', movie.id);
-                            throw new Error('Image load error');
+                            // Gracefully handle error - don't throw
                           }}
                         />
                       )
@@ -800,7 +806,7 @@ const MovieDetail = ({ movieId, initialData }: MovieDetailProps) => {
                                           fill
                                           className="object-cover"
                                           onError={(e) => {
-                                            console.log('MovieDetail - Episode thumbnail load error for URL:', imageInfo.url);
+                                            // Gracefully handle error
                                           }}
                                         />
                                       )
@@ -887,7 +893,7 @@ const MovieDetail = ({ movieId, initialData }: MovieDetailProps) => {
                               fill
                               className="object-cover"
                               onError={() => {
-                                console.log('MovieDetail Sidebar - Image load error for movie:', movie.id);
+                                // Gracefully handle error
                               }}
                             />
                           )
