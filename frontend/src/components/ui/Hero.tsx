@@ -74,38 +74,48 @@ const Hero = () => {
   const currentMovie = featuredMovies[currentIndex];
 
   // Debug logging
-  console.log('🎬 Hero Debug:', {
-    isLoading,
-    sectionsKeysAvailable: Object.keys(sections),
-    newestMoviesCount: sections.newest?.length || 0,
-    featuredMoviesCount: featuredMovies.length,
-    currentIndex,
-    currentMovieId: currentMovie?.id,
-    currentMovieTitle: currentMovie?.title
-  });
+  if (process.env.NODE_ENV === 'development') {
+    console.log('🎬 Hero Debug:', {
+      isLoading,
+      sectionsKeysAvailable: Object.keys(sections),
+      newestMoviesCount: sections.newest?.length || 0,
+      featuredMoviesCount: featuredMovies.length,
+      currentIndex,
+      currentMovieId: currentMovie?.id,
+      currentMovieTitle: currentMovie?.title
+    });
+  }
 
   // Auto-rotate through featured movies every 10 seconds
   useEffect(() => {
-    console.log('🔄 Auto-rotate effect:', { 
-      featuredMoviesLength: featuredMovies.length, 
-      showTrailer, 
-      shouldStartRotation: featuredMovies.length > 1 && !showTrailer 
-    });
+    if (process.env.NODE_ENV === 'development') {
+      console.log('🔄 Auto-rotate effect:', { 
+        featuredMoviesLength: featuredMovies.length, 
+        showTrailer, 
+        shouldStartRotation: featuredMovies.length > 1 && !showTrailer 
+      });
+    }
 
     if (featuredMovies.length <= 1 || showTrailer) return;
 
     const interval = setInterval(() => {
       setCurrentIndex((prev) => {
         const next = (prev + 1) % featuredMovies.length;
-        console.log('⏰ Auto-rotate triggered:', { from: prev, to: next });
+        if (process.env.NODE_ENV === 'development') {
+          console.log('⏰ Auto-rotate triggered:', { from: prev, to: next });
+        }
         return next;
       });
     }, 5000); // 5 seconds per slide for testing
 
-    console.log('✅ Auto-rotate interval started');
+    if (process.env.NODE_ENV === 'development') {
+      console.log('✅ Auto-rotate interval started');
+    }
 
     return () => {
-      console.log('🛑 Auto-rotate interval cleared');
+      if (process.env.NODE_ENV === 'development') {
+        console.log('🛑 Auto-rotate interval cleared');
+      }
       clearInterval(interval);
     };
   }, [featuredMovies.length, showTrailer]);
@@ -122,7 +132,9 @@ const Hero = () => {
   }, []);
 
   const handleSlideChange = useCallback((newIndex: number) => {
-    console.log('🎯 Slide change clicked:', { from: currentIndex, to: newIndex });
+    if (process.env.NODE_ENV === 'development') {
+      console.log('🎯 Slide change clicked:', { from: currentIndex, to: newIndex });
+    }
     setCurrentIndex(newIndex);
   }, [currentIndex]);
 

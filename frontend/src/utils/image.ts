@@ -584,7 +584,9 @@ export function getSafeBackdropUrl(
   if (posterUrl && !shouldShowSkeleton(posterUrl)) {
     if (posterUrl.startsWith('http://') || posterUrl.startsWith('https://')) {
       const backdropUrl = convertPosterToBackdrop(posterUrl);
+      if (process.env.NODE_ENV === 'development') {
       console.log('🖼️ Converting poster to backdrop:', { posterUrl, backdropUrl });
+    }
       return backdropUrl;
     }
     if (movieId) {
@@ -592,7 +594,9 @@ export function getSafeBackdropUrl(
       const extension = getImageExtension(posterUrl);
       if (extension) {
         const backdropUrl = `https://media.alldrama.tech/movies/${movieId}/backdrop.${extension}`;
-        console.log('🖼️ Trying poster extension for backdrop:', { posterUrl, extension, backdropUrl });
+        if (process.env.NODE_ENV === 'development') {
+          console.log('🖼️ Trying poster extension for backdrop:', { posterUrl, extension, backdropUrl });
+        }
         return backdropUrl;
       }
       

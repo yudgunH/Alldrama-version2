@@ -89,6 +89,7 @@ export default function RootLayout({
   return (
     <html lang="vi" className="dark p-0 m-0" style={{ colorScheme: "dark" }}>
       <head>
+        <meta name="mobile-web-app-capable" content="yes" />
         <meta name="apple-mobile-web-app-capable" content="yes" />
         <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
       </head>

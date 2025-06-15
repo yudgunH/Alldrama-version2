@@ -18,7 +18,9 @@ export const useViews = () => {
       progress: number = 0, 
       duration: number = 0
     ) => {
-      console.log('🎬 useMovieViewIncrement called:', { movieId, progress, duration })
+      if (process.env.NODE_ENV === 'development') {
+    console.log('🎬 useMovieViewIncrement called:', { movieId, progress, duration })
+  }
       try {
         const result = await viewService.incrementMovieView(movieId, progress, duration);
         

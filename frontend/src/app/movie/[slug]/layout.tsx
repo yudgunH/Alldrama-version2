@@ -48,9 +48,30 @@ export async function generateMetadata({ params }: { params: Promise<{ slug: str
     }
     
     if (!movie) {
+      console.warn(`⚠️ [generateMetadata] No movie data found for ID ${movieId}, using fallback metadata`);
       return {
-        title: 'Phim không tồn tại - AllDrama',
-        description: 'Phim bạn đang tìm không tồn tại trên AllDrama',
+        title: `Phim ${movieId} - AllDrama`,
+        description: 'Xem phim trực tuyến tại AllDrama - Nền tảng phim châu Á hàng đầu với chất lượng cao và đa dạng thể loại.',
+        openGraph: {
+          title: `Phim ${movieId} - AllDrama`,
+          description: 'Xem phim trực tuyến tại AllDrama - Nền tảng phim châu Á hàng đầu với chất lượng cao và đa dạng thể loại.',
+          type: 'video.movie',
+          siteName: 'AllDrama',
+          images: [
+            {
+              url: `${process.env.NEXT_PUBLIC_SITE_URL || 'https://alldrama.net'}/logo-seo.svg`,
+              width: 1200,
+              height: 630,
+              alt: 'AllDrama',
+            }
+          ],
+        },
+        twitter: {
+          card: 'summary_large_image',
+          title: `Phim ${movieId} - AllDrama`,
+          description: 'Xem phim trực tuyến tại AllDrama - Nền tảng phim châu Á hàng đầu với chất lượng cao và đa dạng thể loại.',
+          images: [`${process.env.NEXT_PUBLIC_SITE_URL || 'https://alldrama.net'}/logo-seo.svg`],
+        },
       }
     }
 
@@ -70,6 +91,8 @@ export async function generateMetadata({ params }: { params: Promise<{ slug: str
       : `Xem phim ${movie.title} (${movie.releaseYear}) với chất lượng cao tại AllDrama. Đánh giá: ${movie.rating || 'N/A'}/10`
       
     const movieUrl = `${process.env.NEXT_PUBLIC_SITE_URL || 'https://alldrama.net'}/movie/${resolvedParams.slug}`
+
+    console.log(`✅ [generateMetadata] Successfully generated metadata for: ${movie.title} (ID: ${movie.id})`);
 
     return {
       title,

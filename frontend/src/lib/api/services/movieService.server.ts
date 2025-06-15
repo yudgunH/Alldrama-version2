@@ -29,16 +29,22 @@ class ServerMovieService {
   private baseUrl: string;
 
   constructor() {
-    // Use backend API URL for server-side requests
-    this.baseUrl = process.env.NEXT_PUBLIC_API_URL || 'https://api.alldrama.tech';
+    // Use backend API URL for server-side requests (match next.config.ts)
+    this.baseUrl = process.env.NEXT_PUBLIC_API_URL || 'https://alldramaz.com';
+    console.log(`🔧 [ServerMovieService] Initialized with baseUrl: ${this.baseUrl}`);
   }
 
   /**
    * Fetch movie by ID - server-side safe with fallback
    */
   async getMovieById(movieId: number): Promise<Movie | null> {
+    console.log(`🎬 [ServerMovieService] Fetching movie ${movieId} from ${this.baseUrl}`);
+    
     try {
-      const response = await fetch(`${this.baseUrl}/movies/${movieId}`, {
+      const fullUrl = `${this.baseUrl}/api/movies/${movieId}`;
+      console.log(`🌐 [ServerMovieService] Request URL: ${fullUrl}`);
+      
+      const response = await fetch(fullUrl, {
         method: 'GET',
         headers: {
           'Content-Type': 'application/json',
@@ -48,27 +54,62 @@ class ServerMovieService {
         next: {
           revalidate: 3600, // Cache for 1 hour
         },
-        signal: AbortSignal.timeout(5000), // 5 second timeout
+        signal: AbortSignal.timeout(10000), // Increase timeout to 10 seconds
       });
+
+      console.log(`📡 [ServerMovieService] Response status: ${response.status} ${response.statusText}`);
 
       if (!response.ok) {
         if (response.status === 404) {
+          console.warn(`❌ [ServerMovieService] Movie ${movieId} not found (404)`);
           return null;
         }
-        throw new Error(`Failed to fetch movie: ${response.status}`);
+        throw new Error(`Failed to fetch movie: ${response.status} ${response.statusText}`);
       }
 
       const data = await response.json();
-      return data.movie || data; // Handle different response formats
-    } catch (error: any) {
-      console.warn(`API unavailable for movie ${movieId}, using mock data:`, error?.message || error);
+      const movie = data.movie || data;
       
-      // Return mock data in development, null in production
-      if (process.env.NODE_ENV === 'development') {
-        return getMockMovieData(movieId);
+      if (movie && movie.id) {
+        console.log(`✅ [ServerMovieService] Successfully fetched movie: ${movie.title} (ID: ${movie.id})`);
+        return movie;
+      } else {
+        console.warn(`⚠️ [ServerMovieService] Invalid movie data structure:`, data);
+        return null;
       }
       
-      return null;
+    } catch (error: any) {
+      console.error(`💥 [ServerMovieService] Error fetching movie ${movieId}:`, {
+        message: error?.message,
+        name: error?.name,
+        cause: error?.cause,
+        stack: error?.stack?.substring(0, 500)
+      });
+      
+      // In production, try to provide basic fallback metadata instead of complete failure
+      if (process.env.NODE_ENV === 'production') {
+        console.log(`🔄 [ServerMovieService] Providing fallback movie data for metadata`);
+        return {
+          id: movieId,
+          title: `Phim ${movieId}`,
+          summary: 'Xem phim trực tuyến tại AllDrama - Nền tảng phim châu Á hàng đầu với chất lượng cao và đa dạng thể loại.',
+          releaseYear: 2024,
+          duration: 120,
+          rating: 8.0,
+          views: 100000,
+          posterUrl: 'https://media.alldrama.tech/placeholder.jpg',
+          backdropUrl: 'https://media.alldrama.tech/placeholder.jpg',
+          totalEpisodes: 1,
+          trailerUrl: '',
+          playlistUrl: '',
+          genres: [{ id: 1, name: 'Drama' }],
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+        };
+      } else {
+        // Development mode - use mock data
+        return getMockMovieData(movieId);
+      }
     }
   }
 
