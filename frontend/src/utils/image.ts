@@ -122,19 +122,29 @@ export function getEpisodeThumbnailInfo(
   movieId: number | string,
   episodeId: number | string
 ): { url: string; shouldShowSkeleton: boolean } {
-  // Check if should show skeleton first
-  if (shouldShowSkeleton(thumbnailUrl)) {
-    // Auto-detect with movieId and episodeId
-    const autoUrl = getAutoDetectedImageUrl(`https://media.alldrama.tech/episodes/${movieId}/${episodeId}/thumbnail`);
-    return { url: autoUrl, shouldShowSkeleton: false };
-  }
-  
   // If we have a valid URL, use it
   if (thumbnailUrl && thumbnailUrl.trim() !== '' && thumbnailUrl.startsWith('http')) {
     return { url: thumbnailUrl, shouldShowSkeleton: false };
   }
   
-  // Auto-detect format for episode thumbnail
+  // Check if should show skeleton first
+  if (shouldShowSkeleton(thumbnailUrl)) {
+    // In production, skip auto-detection for episode thumbnails to reduce 404s
+    if (process.env.NODE_ENV === 'production') {
+      return { url: '', shouldShowSkeleton: true };
+    }
+    
+    // Auto-detect with movieId and episodeId only in development
+    const autoUrl = getAutoDetectedImageUrl(`https://media.alldrama.tech/episodes/${movieId}/${episodeId}/thumbnail`);
+    return { url: autoUrl, shouldShowSkeleton: false };
+  }
+  
+  // In production, don't auto-detect to avoid 404 spam
+  if (process.env.NODE_ENV === 'production') {
+    return { url: '', shouldShowSkeleton: true };
+  }
+  
+  // Auto-detect format for episode thumbnail (development only)
   const autoUrl = getAutoDetectedImageUrl(`https://media.alldrama.tech/episodes/${movieId}/${episodeId}/thumbnail`);
   return { url: autoUrl, shouldShowSkeleton: false };
 }
@@ -258,6 +268,11 @@ async function detectImageFormatAsync(
   baseUrl: string, 
   preferredFormats: string[] = ['jpg', 'jpeg', 'webp', 'png']
 ): Promise<void> {
+  // In production, skip episode thumbnail detection to reduce 404s
+  if (process.env.NODE_ENV === 'production' && baseUrl.includes('/episodes/')) {
+    return;
+  }
+  
   // For backdrop images, test jpg/jpeg first but still try all formats
   if (baseUrl.includes('/backdrop')) {
     preferredFormats = ['jpg', 'jpeg', 'png', 'webp'];
@@ -265,7 +280,6 @@ async function detectImageFormatAsync(
   
   // Skip if already failed recently
   if (failedCache.has(baseUrl)) {
-    console.log(`⏭️ Skipping detection for ${baseUrl} (recently failed)`);
     return;
   }
   
@@ -686,6 +700,11 @@ export function getEpisodeThumbnailUrl(
   episodeNumber: number | string,
   fallback: string = "/placeholder.svg"
 ): string {
+  // In production, return fallback to avoid 404 spam
+  if (process.env.NODE_ENV === 'production') {
+    return fallback;
+  }
+  
   return getAutoDetectedImageUrl(`https://media.alldrama.tech/episodes/${movieId}/${episodeNumber}/thumbnail`);
 }
 

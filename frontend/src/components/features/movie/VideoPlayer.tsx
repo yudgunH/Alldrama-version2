@@ -605,19 +605,19 @@ export default function VideoPlayer({
 
       switch (e.code) {
         case 'Space':
-          e.preventDefault()
+          if (e.cancelable) e.preventDefault()
           togglePlay()
           break
         case 'ArrowLeft':
-          e.preventDefault()
+          if (e.cancelable) e.preventDefault()
           jump(-10)
           break
         case 'ArrowRight':
-          e.preventDefault()
+          if (e.cancelable) e.preventDefault()
           jump(10)
           break
         case 'ArrowUp':
-          e.preventDefault()
+          if (e.cancelable) e.preventDefault()
           const v = vRef.current
           if (v) {
             const newVolume = Math.min(1, v.volume + 0.1)
@@ -625,7 +625,7 @@ export default function VideoPlayer({
           }
           break
         case 'ArrowDown':
-          e.preventDefault()
+          if (e.cancelable) e.preventDefault()
           const video = vRef.current
           if (video) {
             const newVolume = Math.max(0, video.volume - 0.1)
@@ -633,11 +633,11 @@ export default function VideoPlayer({
           }
           break
         case 'KeyM':
-          e.preventDefault()
+          if (e.cancelable) e.preventDefault()
           toggleMute()
           break
         case 'KeyF':
-          e.preventDefault()
+          if (e.cancelable) e.preventDefault()
           fullScreen()
           break
       }

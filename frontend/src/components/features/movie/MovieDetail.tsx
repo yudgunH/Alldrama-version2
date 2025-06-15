@@ -271,7 +271,10 @@ const MovieDetail = ({ movieId, initialData }: MovieDetailProps) => {
     // Only handle horizontal scroll on desktop when there are multiple pages
     if (isMobile || totalEpisodesPages <= 1) return;
     
-    e.preventDefault();
+    // Check if we can prevent default (not on passive listener)
+    if (e.cancelable) {
+      e.preventDefault();
+    }
     
     // Determine scroll direction
     const deltaY = e.deltaY;
@@ -296,6 +299,37 @@ const MovieDetail = ({ movieId, initialData }: MovieDetailProps) => {
         }
       }
     }
+  }, [isMobile, totalEpisodesPages, episodesPage]);
+
+  // Add non-passive wheel event listener for episodes grid
+  useEffect(() => {
+    const episodesGrid = document.querySelector('.episodes-grid');
+    if (!episodesGrid || isMobile || totalEpisodesPages <= 1) return;
+
+    const wheelHandler = (e: Event) => {
+      const wheelEvent = e as WheelEvent;
+      wheelEvent.preventDefault();
+      
+      const deltaY = wheelEvent.deltaY;
+      const deltaX = wheelEvent.deltaX;
+      const isHorizontalScroll = Math.abs(deltaX) > Math.abs(deltaY) || deltaY !== 0;
+      
+      if (isHorizontalScroll) {
+        const scrollDirection = deltaX !== 0 ? deltaX : deltaY;
+        
+        if (scrollDirection > 0 && episodesPage < totalEpisodesPages - 1) {
+          setEpisodesPage(prev => prev + 1);
+        } else if (scrollDirection < 0 && episodesPage > 0) {
+          setEpisodesPage(prev => prev - 1);
+        }
+      }
+    };
+
+    episodesGrid.addEventListener('wheel', wheelHandler, { passive: false });
+    
+    return () => {
+      episodesGrid.removeEventListener('wheel', wheelHandler);
+    };
   }, [isMobile, totalEpisodesPages, episodesPage]);
 
   return (
@@ -761,8 +795,7 @@ const MovieDetail = ({ movieId, initialData }: MovieDetailProps) => {
                         )}
                         
                         <div 
-                          className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4"
-                          onWheel={handleEpisodesWheel}
+                          className="episodes-grid grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4"
                           style={{ 
                             cursor: totalEpisodesPages > 1 && !isMobile ? 'grab' : 'default' 
                           }}

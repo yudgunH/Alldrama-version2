@@ -9,7 +9,7 @@ import { cn } from "@/lib/utils"
 import { motion } from "framer-motion"
 import { ChevronLeft, ChevronRight } from "lucide-react"
 import MoviePopover from "./MoviePopover"
-import { useState, useCallback, useRef, useMemo } from "react"
+import { useState, useCallback, useRef, useMemo, useEffect } from "react"
 import { useMobile } from "@/hooks/use-mobile"
 import { Skeleton } from "@/components/ui/skeleton"
 
@@ -111,13 +111,48 @@ const MovieSlider = ({
     setTouchStart(0);
     setTouchEnd(0);
   }, [touchStart, touchEnd, currentPage, totalPages, handleNextPage, handlePrevPage]);
+
+  // Add non-passive wheel event listener for desktop
+  useEffect(() => {
+    const container = containerRef.current;
+    if (!container || isMobile) return;
+
+    const wheelHandler = (e: WheelEvent) => {
+      if (totalPages <= 1) return;
+
+      e.preventDefault();
+      
+      const deltaY = e.deltaY;
+      const deltaX = e.deltaX;
+      const isHorizontalScroll = Math.abs(deltaX) > Math.abs(deltaY) || deltaY !== 0;
+      
+      if (isHorizontalScroll) {
+        const scrollDirection = deltaX !== 0 ? deltaX : deltaY;
+        
+        if (scrollDirection > 0 && currentPage < totalPages - 1) {
+          handleNextPage();
+        } else if (scrollDirection < 0 && currentPage > 0) {
+          handlePrevPage();
+        }
+      }
+    };
+
+    container.addEventListener('wheel', wheelHandler, { passive: false });
+    
+    return () => {
+      container.removeEventListener('wheel', wheelHandler);
+    };
+  }, [isMobile, totalPages, currentPage, handleNextPage, handlePrevPage]);
   
-  // Handle mouse wheel scroll functionality
+  // Handle mouse wheel scroll functionality (deprecated - replaced by useEffect above)
   const handleWheel = useCallback((e: React.WheelEvent) => {
     // Only handle horizontal scroll on desktop when not on mobile
     if (isMobile || totalPages <= 1) return;
     
-    e.preventDefault();
+    // Check if we can prevent default (not on passive listener)
+    if (e.cancelable) {
+      e.preventDefault();
+    }
     
     // Determine scroll direction
     const deltaY = e.deltaY;
@@ -265,7 +300,6 @@ const MovieSlider = ({
             <div 
               ref={containerRef}
               className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-7 gap-3 md:gap-4"
-              onWheel={handleWheel}
               style={{ cursor: totalPages > 1 ? 'grab' : 'default' }}
             >
               {displayMovies.map((movie, index) => (

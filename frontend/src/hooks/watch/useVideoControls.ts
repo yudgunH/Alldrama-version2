@@ -117,7 +117,7 @@ export function useVideoControls({
       switch (e.key.toLowerCase()) {
         case ' ':
         case 'k':
-          e.preventDefault();
+          if (e.cancelable) e.preventDefault();
           if (videoRef.current) {
             if (videoRef.current.paused) {
               videoRef.current.play().catch(e => console.warn('Lỗi phát:', e));
@@ -128,20 +128,20 @@ export function useVideoControls({
           break;
         case 'j':
         case 'arrowleft':
-          e.preventDefault();
+          if (e.cancelable) e.preventDefault();
           skipBackward();
           break;
         case 'l':
         case 'arrowright':
-          e.preventDefault();
+          if (e.cancelable) e.preventDefault();
           skipForward();
           break;
         case 'f':
-          e.preventDefault();
+          if (e.cancelable) e.preventDefault();
           toggleFullscreen();
           break;
         case 'm':
-          e.preventDefault();
+          if (e.cancelable) e.preventDefault();
           if (videoRef.current) {
             videoRef.current.muted = !videoRef.current.muted;
           }
