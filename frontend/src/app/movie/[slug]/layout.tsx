@@ -59,7 +59,7 @@ export async function generateMetadata({ params }: { params: Promise<{ slug: str
           siteName: 'AllDrama',
           images: [
             {
-              url: `${process.env.NEXT_PUBLIC_SITE_URL || 'https://alldrama.net'}/logo-seo.svg`,
+              url: `${process.env.NEXT_PUBLIC_SITE_URL || 'https://alldrama.net'}/logo-og.svg`,
               width: 1200,
               height: 630,
               alt: 'AllDrama',
@@ -70,7 +70,7 @@ export async function generateMetadata({ params }: { params: Promise<{ slug: str
           card: 'summary_large_image',
           title: `Phim ${movieId} - AllDrama`,
           description: 'Xem phim trực tuyến tại AllDrama - Nền tảng phim châu Á hàng đầu với chất lượng cao và đa dạng thể loại.',
-          images: [`${process.env.NEXT_PUBLIC_SITE_URL || 'https://alldrama.net'}/logo-seo.svg`],
+          images: [`${process.env.NEXT_PUBLIC_SITE_URL || 'https://alldrama.net'}/logo-og.svg`],
         },
       }
     }
@@ -79,11 +79,25 @@ export async function generateMetadata({ params }: { params: Promise<{ slug: str
     const posterUrl = getSafePosterUrl(movie.posterUrl, movie.id)
     const backdropUrl = getSafeBackdropUrl(movie.backdropUrl, movie.posterUrl, movie.id)
     
-    // Choose the best image for sharing (prefer backdrop, fallback to poster)
-    const shareImage = backdropUrl !== '/placeholder.svg' ? backdropUrl : posterUrl
+    // Choose the best image for sharing (prefer poster for better social media display)
+    let shareImage = posterUrl !== '/placeholder.svg' ? posterUrl : backdropUrl
+    
+    // If both are placeholders, use a default AllDrama image
+    if (shareImage === '/placeholder.svg') {
+      shareImage = `${process.env.NEXT_PUBLIC_SITE_URL || 'https://alldrama.net'}/logo-og.svg`
+    }
+    
     const absoluteShareImage = shareImage.startsWith('http') 
       ? shareImage 
       : `${process.env.NEXT_PUBLIC_SITE_URL || 'https://alldrama.net'}${shareImage}`
+
+    console.log(`🖼️ [generateMetadata] Image URLs for ${movie.title}:`, {
+      originalPoster: movie.posterUrl,
+      originalBackdrop: movie.backdropUrl,
+      generatedPoster: posterUrl,
+      generatedBackdrop: backdropUrl,
+      finalShareImage: absoluteShareImage
+    });
 
     const title = `${movie.title} - Xem phim trực tuyến tại AllDrama`
     const description = movie.summary 

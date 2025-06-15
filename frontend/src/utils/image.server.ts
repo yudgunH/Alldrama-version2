@@ -12,6 +12,10 @@ export function getSafePosterUrl(
   fallback: string = "/placeholder.svg"
 ): string {
   if (!posterUrl || posterUrl.trim() === '') {
+    // If we have movieId, try to construct poster URL
+    if (movieId) {
+      return `https://media.alldrama.tech/movies/${movieId}/poster.jpg`;
+    }
     return fallback;
   }
 
@@ -21,15 +25,30 @@ export function getSafePosterUrl(
       return posterUrl;
     }
 
-    // If it's a placeholder or invalid, return fallback
+    // If it's a placeholder or invalid, try to construct from movieId
     if (posterUrl.includes('placeholder') || posterUrl === '/') {
+      if (movieId) {
+        return `https://media.alldrama.tech/movies/${movieId}/poster.jpg`;
+      }
       return fallback;
     }
 
-    // For server-side, just use the URL as provided without format detection
+    // If it's a relative path, make it absolute
+    if (posterUrl.startsWith('/')) {
+      return posterUrl; // Keep relative for local assets
+    }
+
+    // For server-side, construct full URL if we have movieId
+    if (movieId) {
+      return `https://media.alldrama.tech/movies/${movieId}/poster.jpg`;
+    }
+
     return posterUrl;
   } catch (error) {
     console.warn('Error processing poster URL:', error);
+    if (movieId) {
+      return `https://media.alldrama.tech/movies/${movieId}/poster.jpg`;
+    }
     return fallback;
   }
 }
@@ -50,15 +69,28 @@ export function getSafeBackdropUrl(
       if (backdropUrl.startsWith('http')) {
         return backdropUrl;
       }
+      // If relative path, keep as is for local assets
+      if (backdropUrl.startsWith('/')) {
+        return backdropUrl;
+      }
       return backdropUrl;
     } catch (error) {
       console.warn('Error processing backdrop URL:', error);
     }
   }
 
+  // Try to construct backdrop URL from movieId
+  if (movieId) {
+    return `https://media.alldrama.tech/movies/${movieId}/backdrop.jpg`;
+  }
+
   // Fallback to poster if backdrop not available
   if (posterUrl && posterUrl.trim() !== '' && !posterUrl.includes('placeholder')) {
     try {
+      // If poster is full URL, convert to backdrop
+      if (posterUrl.startsWith('http')) {
+        return convertPosterToBackdrop(posterUrl);
+      }
       // Convert poster to backdrop format if needed
       const convertedBackdrop = convertPosterToBackdrop(posterUrl);
       if (convertedBackdrop !== posterUrl) {
@@ -81,7 +113,14 @@ function convertPosterToBackdrop(posterUrl: string): string {
   
   try {
     // Simple conversion: replace 'poster' with 'backdrop' in path
-    return posterUrl.replace('/poster', '/backdrop');
+    if (posterUrl.includes('/poster')) {
+      return posterUrl.replace('/poster', '/backdrop');
+    }
+    // If it's a full poster URL, replace poster.ext with backdrop.ext
+    if (posterUrl.includes('poster.')) {
+      return posterUrl.replace(/poster\.(jpg|jpeg|png|webp)/, 'backdrop.$1');
+    }
+    return posterUrl;
   } catch (error) {
     return posterUrl;
   }
