@@ -1,7 +1,7 @@
 {
-  "name": "AllDrama - Nền tảng xem phim trực tuyến",
+  "name": "AllDrama - Nền tảng xem phim trực tuyến hàng đầu Việt Nam",
   "short_name": "AllDrama",
-  "description": "Xem phim và series yêu thích của bạn tại AllDrama",
+  "description": "Xem phim và series châu Á yêu thích của bạn tại AllDrama. Hơn 10,000+ bộ phim chất lượng cao với phụ đề tiếng Việt.",
   "start_url": "/",
   "display": "standalone",
   "background_color": "#111111",
@@ -9,10 +9,22 @@
   "orientation": "portrait-primary",
   "icons": [
     {
+      "src": "/logo-192x192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/logo-512x512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
       "src": "/logo.svg",
       "sizes": "any",
       "type": "image/svg+xml",
-      "purpose": "any maskable"
+      "purpose": "any"
     },
     {
       "src": "/favicon-16x16.png",
@@ -32,5 +44,15 @@
   ],
   "categories": ["entertainment", "video", "streaming"],
   "lang": "vi",
-  "dir": "ltr"
+  "dir": "ltr",
+  "scope": "/",
+  "id": "alldrama-app",
+  "screenshots": [
+    {
+      "src": "/logo-192x192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "form_factor": "wide"
+    }
+  ]
 } 

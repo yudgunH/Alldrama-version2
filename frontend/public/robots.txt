@@ -1,0 +1,20 @@
+User-agent: *
+Allow: /
+
+# Disallow admin and private pages
+Disallow: /api/
+Disallow: /admin/
+Disallow: /_next/
+Disallow: /private/
+
+# Allow important pages
+Allow: /movie/
+Allow: /search/
+Allow: /about/
+Allow: /contact/
+
+# Sitemap location
+Sitemap: https://alldrama.net/sitemap.xml
+
+# Crawl delay for respectful crawling
+Crawl-delay: 1 
