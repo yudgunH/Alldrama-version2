@@ -7,6 +7,7 @@ import GenreList from '@/components/features/genre/GenreList';
 import CommentsAndRankings from "@/components/features/movie/CommentsAndRankings"
 import FeaturedContentSwitcher from '@/components/features/movie/FeaturedContentSwitcher';
 import MovieDetailCard from '@/components/features/movie/MovieDetailCard';
+import HomepageSEOContent from '@/components/seo/HomepageSEOContent';
 import { useHomepageData, DEFAULT_SECTIONS } from '@/hooks/api/useHomepageData';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useInView } from 'react-intersection-observer';
@@ -49,63 +50,113 @@ export default function Home() {
 
   return (
     <div className="min-h-screen bg-gray-950">
-      <Hero />
-      {/* Top 10 Movies Section with trapezoid cards */}
-      <TopMoviesSection 
-        movies={sections.trending} 
-        isLoading={isLoading}
-        title="Top 10 Phim Đang Hot"
-        limit={10}
-      />
-
-      <div className="mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        {/* Movie Detail Cards Section */}
-        <section className="py-8">
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-            {sections.featured?.slice(0, 3).map((movie: Movie) => (
-              <MovieDetailCard
-                key={movie.id}
-                movie={movie}
-                isLoading={isLoading}
-              />
-            ))}
-          </div>
-        </section>
-        <FeaturedContentSwitcher
-          items={sections.featured}
-          title="Phim nổi bật"
-          variant="dark"
-          aspectRatio="video"
-          isLoading={isLoading}
-        />
-        {/* Section for featured movie sliders */}
-        <section className="py-4 space-y-12">
-          {DEFAULT_SECTIONS.map((section) => (
-            <div 
-              key={section.type}
-              ref={sectionRefs[section.type].ref}
-              className={visibleSections.has(section.type) ? 'block' : 'h-96'}
-            >
-              {visibleSections.has(section.type) && (
-                <MovieSlider 
-                  title={section.title}
-                  movies={sections[section.type]}
-                  size="md"
-                  variant={section.type === 'newest' ? 'new' : 
-                          section.type === 'popular' ? 'popular' :
-                          section.type === 'featured' ? 'top' :
-                          section.type === 'trending' ? 'trending' : 'default'}
-                />
-              )}
-            </div>
-          ))}
-        </section>
+      {/* SEO Content & Structured Data */}
+      <HomepageSEOContent />
+      
+      {/* Main Content */}
+      <main>
+        <Hero />
         
-        {/* Genre list section */}
-        <section className="py-8 mt-8">
-          <GenreList />
+        {/* Top 10 Movies Section with trapezoid cards */}
+        <section aria-label="Phim đang hot">
+          <TopMoviesSection 
+            movies={sections.trending} 
+            isLoading={isLoading}
+            title="Top 10 Phim Đang Hot"
+            limit={10}
+          />
         </section>
-      </div>
+
+        <div className="mx-auto px-4 sm:px-6 lg:px-8 py-8">
+          {/* Movie Detail Cards Section */}
+          <section className="py-8" aria-label="Phim nổi bật">
+            <h2 className="text-2xl font-bold text-white mb-6">Phim Nổi Bật Hôm Nay</h2>
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+              {sections.featured?.slice(0, 3).map((movie: Movie) => (
+                <MovieDetailCard
+                  key={movie.id}
+                  movie={movie}
+                  isLoading={isLoading}
+                />
+              ))}
+            </div>
+          </section>
+          
+          <section aria-label="Phim được giới thiệu">
+            <FeaturedContentSwitcher
+              items={sections.featured}
+              title="Phim nổi bật"
+              variant="dark"
+              aspectRatio="video"
+              isLoading={isLoading}
+            />
+          </section>
+          
+          {/* Section for featured movie sliders */}
+          <section className="py-4 space-y-12" aria-label="Danh sách phim theo danh mục">
+            {DEFAULT_SECTIONS.map((section) => (
+              <div 
+                key={section.type}
+                ref={sectionRefs[section.type].ref}
+                className={visibleSections.has(section.type) ? 'block' : 'h-96'}
+              >
+                {visibleSections.has(section.type) && (
+                  <MovieSlider 
+                    title={section.title}
+                    movies={sections[section.type]}
+                    size="md"
+                    variant={section.type === 'newest' ? 'new' : 
+                            section.type === 'popular' ? 'popular' :
+                            section.type === 'featured' ? 'top' :
+                            section.type === 'trending' ? 'trending' : 'default'}
+                  />
+                )}
+              </div>
+            ))}
+          </section>
+          
+          {/* Genre list section */}
+          <section className="py-8 mt-8" aria-label="Thể loại phim">
+            <h2 className="text-2xl font-bold text-white mb-6">Khám Phá Theo Thể Loại</h2>
+            <GenreList />
+          </section>
+          
+          {/* Additional SEO Content Section */}
+          <section className="py-12 mt-16 bg-gray-900/50 rounded-lg px-6">
+            <div className="max-w-4xl mx-auto text-center">
+              <h2 className="text-3xl font-bold text-white mb-6">
+                Tại Sao Chọn AllDrama Để Xem Phim?
+              </h2>
+              <p className="text-gray-300 text-lg leading-relaxed mb-8">
+                <strong>All Drama</strong> là nền tảng xem phim trực tuyến miễn phí hàng đầu tại Việt Nam, 
+                chuyên cung cấp <strong>drama châu Á</strong> chất lượng cao. Từ <strong>K-Drama Hàn Quốc</strong> 
+                lãng mạn đến <strong>phim Trung Quốc</strong> đầy kịch tính, từ <strong>phim Thái Lan</strong> 
+                ngọt ngào đến <strong>phim Nhật Bản</strong> tinh tế - tất cả đều có <strong>phụ đề tiếng Việt</strong> 
+                chất lượng HD.
+              </p>
+              
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mt-12">
+                <div className="text-center">
+                  <div className="text-4xl font-bold text-amber-500 mb-2">10,000+</div>
+                  <div className="text-gray-400">Bộ phim và series</div>
+                </div>
+                <div className="text-center">
+                  <div className="text-4xl font-bold text-amber-500 mb-2">100%</div>
+                  <div className="text-gray-400">Miễn phí</div>
+                </div>
+                <div className="text-center">
+                  <div className="text-4xl font-bold text-amber-500 mb-2">HD</div>
+                  <div className="text-gray-400">Chất lượng cao</div>
+                </div>
+                <div className="text-center">
+                  <div className="text-4xl font-bold text-amber-500 mb-2">24/7</div>
+                  <div className="text-gray-400">Cập nhật liên tục</div>
+                </div>
+              </div>
+            </div>
+          </section>
+        </div>
+      </main>
     </div>
   );
 }

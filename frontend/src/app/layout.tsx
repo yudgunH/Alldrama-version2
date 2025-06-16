@@ -18,12 +18,34 @@ const geistMono = Geist_Mono({
 
 export const metadata: Metadata = {
   metadataBase: new URL(process.env.NEXT_PUBLIC_SITE_URL || 'https://alldrama.net'),
-  title: "AllDrama - Nền tảng xem phim trực tuyến hàng đầu Việt Nam",
-  description: "Xem phim và series châu Á yêu thích của bạn tại AllDrama. Hơn 10,000+ bộ phim chất lượng cao với phụ đề tiếng Việt.",
-  keywords: "xem phim, phim trực tuyến, series, phim trung quốc, drama, tổng tài, phim châu Á, AllDrama, streaming, phim Hàn Quốc, phim Thái Lan",
+  title: "Xem Phim Trực Tuyến - All Drama | Phim Châu Á, Drama Hàn Quốc, Phim Trung Quốc",
+  description: "All Drama - Trang xem phim trực tuyến miễn phí hàng đầu Việt Nam. Phim châu Á, drama Hàn Quốc, phim Trung Quốc, phim Thái Lan với phụ đề tiếng Việt chất lượng HD. Cập nhật mới nhất 2024.",
+  keywords: [
+    // Brand keywords
+    "alldrama", "all drama", "AllDrama",
+    // Generic movie keywords
+    "xem phim", "phim trực tuyến", "phim online", "trang phim", "web phim", 
+    "xem phim miễn phí", "phim hay", "phim mới", "phim hot",
+    // Asian content keywords  
+    "phim châu á", "drama châu á", "phim asia",
+    "phim trung quốc", "phim tq", "drama trung quốc", "phim cổ trang trung quốc",
+    "phim hàn quốc", "drama hàn", "phim han", "k-drama", "korean drama",
+    "phim thái lan", "drama thái", "phim thai",
+    "phim nhật bản", "drama nhật", "j-drama",
+    // Genre keywords
+    "phim tình cảm", "phim lãng mạn", "phim ngôn tình", "phim tổng tài",
+    "phim hành động", "phim kinh dị", "phim hài", "phim chiến tranh",
+    "phim cung đấu", "phim cổ trang", "phim hiện đại", "phim đô thị",
+    // Quality keywords
+    "phim hd", "phim chất lượng cao", "phim vietsub", "phim phụ đề việt",
+    "phim full hd", "phim 4k", "phim bluray",
+    // Streaming keywords
+    "streaming", "xem phim streaming", "phim stream", "video on demand",
+    "watch online", "free movies", "free drama"
+  ].join(", "),
   authors: [{ name: "AllDrama Team" }],
-  creator: "AllDrama",
-  publisher: "AllDrama",
+  creator: "AllDrama - Xem Phim Trực Tuyến",
+  publisher: "AllDrama Entertainment",
   
   // Favicon và icons - Cải thiện cho Google
   icons: {
@@ -41,23 +63,23 @@ export const metadata: Metadata = {
   
   // Open Graph - Cải thiện để Google hiển thị logo tốt hơn
   openGraph: {
-    title: "AllDrama - Nền tảng xem phim trực tuyến hàng đầu Việt Nam",
-    description: "Xem phim và series châu Á yêu thích của bạn tại AllDrama. Hơn 10,000+ bộ phim chất lượng cao với phụ đề tiếng Việt.",
+    title: "Xem Phim Trực Tuyến Miễn Phí - All Drama | Phim Châu Á HD",
+    description: "All Drama - Trang xem phim trực tuyến miễn phí hàng đầu Việt Nam. Drama Hàn Quốc, phim Trung Quốc, phim Thái Lan với phụ đề tiếng Việt chất lượng HD. Cập nhật mới nhất 2024.",
     url: "https://alldrama.net",
-    siteName: "AllDrama",
+    siteName: "AllDrama - Xem Phim Trực Tuyến",
     images: [
       {
         url: "/logo-192x192.png",
         width: 192,
         height: 192,
-        alt: "AllDrama Logo",
+        alt: "AllDrama Logo - Xem Phim Trực Tuyến",
         type: "image/png",
       },
       {
         url: "/logo-seo.svg",
         width: 1200,
         height: 630,
-        alt: "AllDrama Banner",
+        alt: "AllDrama - Phim Trực Tuyến Châu Á",
         type: "image/svg+xml",
       },
     ],
@@ -68,11 +90,11 @@ export const metadata: Metadata = {
   // Twitter Card
   twitter: {
     card: "summary_large_image",
-    title: "AllDrama - Nền tảng xem phim trực tuyến hàng đầu Việt Nam",
-    description: "Xem phim và series châu Á yêu thích của bạn tại AllDrama. Hơn 10,000+ bộ phim chất lượng cao với phụ đề tiếng Việt.",
+    title: "Xem Phim Trực Tuyến Miễn Phí - All Drama | Phim Châu Á HD",
+    description: "All Drama - Trang xem phim trực tuyến miễn phí hàng đầu Việt Nam. Drama Hàn Quốc, phim Trung Quốc, phim Thái Lan với phụ đề tiếng Việt chất lượng HD.",
     images: ["/logo-192x192.png"],
     creator: "@alldrama",
-    site: "@alldrama",
+    site: "@alldrama_official",
   },
   
   // Manifest
@@ -105,6 +127,27 @@ export const metadata: Metadata = {
 
   // Category để Google hiểu rõ hơn về website
   category: "Entertainment",
+  
+  // Additional metadata cho better SEO
+  alternates: {
+    canonical: "https://alldrama.net",
+  },
+  
+  // App metadata
+  applicationName: "AllDrama - Xem Phim Trực Tuyến",
+  
+  // Additional structured hints
+  other: {
+    "theme-color": "#E50914",
+    "mobile-web-app-capable": "yes",
+    "apple-mobile-web-app-capable": "yes",
+    "apple-mobile-web-app-status-bar-style": "black-translucent",
+    // SEO hints
+    "content-language": "vi-VN",
+    "geo.region": "VN",
+    "geo.country": "Vietnam",
+    "target-country": "VN"
+  }
 };
 
 export default function RootLayout({
