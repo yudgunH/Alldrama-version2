@@ -37,10 +37,11 @@ export default function DebugMetadataPage() {
           const ogResponse = await response.json();
           setOgData(ogResponse);
         } else {
-          // Generate OG data manually if API is not available
-          const posterUrl = movieData.posterUrl && movieData.posterUrl.trim() !== '' && !movieData.posterUrl.includes('placeholder')
-            ? movieData.posterUrl
-            : `https://media.alldrama.tech/movies/${movieId}/poster.jpg`;
+                  // Generate OG data manually if API is not available
+        // Try PNG first, then JPG for better format support
+        const posterUrl = movieData.posterUrl && movieData.posterUrl.trim() !== '' && !movieData.posterUrl.includes('placeholder')
+          ? movieData.posterUrl
+          : `https://media.alldrama.tech/movies/${movieId}/poster.png`;
           
           setOgData({
             title: movieData.title,
@@ -58,7 +59,7 @@ export default function DebugMetadataPage() {
         // Generate OG data manually
         const posterUrl = movieData.posterUrl && movieData.posterUrl.trim() !== '' && !movieData.posterUrl.includes('placeholder')
           ? movieData.posterUrl
-          : `https://media.alldrama.tech/movies/${movieId}/poster.jpg`;
+          : `https://media.alldrama.tech/movies/${movieId}/poster.png`;
         
         setOgData({
           title: movieData.title,
@@ -399,6 +400,44 @@ export default function DebugMetadataPage() {
               >
                 Twitter Card Validator
               </Button>
+            </div>
+            
+            <div className="mt-4 pt-4 border-t border-gray-700">
+              <h4 className="text-sm font-medium text-gray-400 mb-3">Image Format Tests</h4>
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="w-full text-xs"
+                  onClick={() => window.open(`/api/debug-image/${movieId}`, '_blank')}
+                >
+                  Test All Formats
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="w-full text-xs"
+                  onClick={() => window.open(`https://media.alldrama.tech/movies/${movieId}/poster.png`, '_blank')}
+                >
+                  PNG
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="w-full text-xs"
+                  onClick={() => window.open(`https://media.alldrama.tech/movies/${movieId}/poster.jpg`, '_blank')}
+                >
+                  JPG
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="w-full text-xs"
+                  onClick={() => window.open(`https://media.alldrama.tech/movies/${movieId}/poster.webp`, '_blank')}
+                >
+                  WebP
+                </Button>
+              </div>
             </div>
           </CardContent>
         </Card>

@@ -1,11 +1,39 @@
 import { Metadata } from 'next'
 import { serverMovieService } from '@/lib/api/services/movieService.server'
 import { getIdFromSlug } from '@/utils/url'
-import { getSafePosterUrl, getSafeBackdropUrl } from '@/utils/image.server'
+import { getSafePosterUrl, getSafeBackdropUrl, getPosterUrlsWithFallback } from '@/utils/image.server'
 
 interface Props {
   params: Promise<{ slug: string }>
   children: React.ReactNode
+}
+
+/**
+ * Check if image URL exists
+ */
+async function checkImageExists(url: string): Promise<boolean> {
+  try {
+    const response = await fetch(url, { 
+      method: 'HEAD',
+      cache: 'no-cache'
+    });
+    return response.ok;
+  } catch (error) {
+    return false;
+  }
+}
+
+/**
+ * Get the first working image URL from a list
+ */
+async function getWorkingImageUrl(urls: string[]): Promise<string | null> {
+  for (const url of urls) {
+    const exists = await checkImageExists(url);
+    if (exists) {
+      return url;
+    }
+  }
+  return null;
 }
 
 export async function generateMetadata({ params }: { params: Promise<{ slug: string }> }): Promise<Metadata> {
@@ -59,10 +87,18 @@ export async function generateMetadata({ params }: { params: Promise<{ slug: str
           siteName: 'AllDrama',
           images: [
             {
+              url: `https://media.alldrama.tech/movies/${movieId}/poster.png`,
+              width: 800,
+              height: 1200,
+              alt: `Phim ${movieId}`,
+              type: 'image/png',
+            },
+            {
               url: `https://media.alldrama.tech/movies/${movieId}/poster.jpg`,
               width: 800,
               height: 1200,
               alt: `Phim ${movieId}`,
+              type: 'image/jpeg',
             },
             {
               url: `${process.env.NEXT_PUBLIC_SITE_URL || 'https://alldrama.net'}/logo-og.svg`,
@@ -81,26 +117,26 @@ export async function generateMetadata({ params }: { params: Promise<{ slug: str
       }
     }
 
-    // Generate image URLs
-    const posterUrl = getSafePosterUrl(movie.posterUrl, movie.id)
+    // Generate image URLs with format fallback for better PNG support
+    const posterUrls = getPosterUrlsWithFallback(movie.posterUrl, movie.id);
     
-    // Since API doesn't return backdrop URL, use poster as primary
-    // Try to generate backdrop from poster URL if possible
-    let shareImage = posterUrl
+    // Try to find a working poster image (PNG first, then JPG)
+    let workingPosterUrl = await getWorkingImageUrl(posterUrls);
     
-    // If poster is placeholder, try to construct from media server
-    if (shareImage === '/placeholder.svg') {
-      shareImage = `https://media.alldrama.tech/movies/${movieId}/poster.jpg`
+    // If no poster works, use fallback
+    if (!workingPosterUrl) {
+      workingPosterUrl = `https://media.alldrama.tech/movies/${movieId}/poster.png`;
     }
     
     // Ensure we always have an absolute URL for sharing
-    const absoluteShareImage = shareImage.startsWith('http') 
-      ? shareImage 
-      : `${process.env.NEXT_PUBLIC_SITE_URL || 'https://alldrama.net'}${shareImage}`
+    const absoluteShareImage = workingPosterUrl.startsWith('http') 
+      ? workingPosterUrl 
+      : `${process.env.NEXT_PUBLIC_SITE_URL || 'https://alldrama.net'}${workingPosterUrl}`
 
     console.log(`🖼️ [generateMetadata] Image URLs for ${movie.title}:`, {
       originalPoster: movie.posterUrl,
-      generatedPoster: posterUrl,
+      posterUrlsChecked: posterUrls,
+      workingPosterUrl,
       finalShareImage: absoluteShareImage
     });
 
@@ -131,7 +167,9 @@ export async function generateMetadata({ params }: { params: Promise<{ slug: str
             width: 1200,
             height: 630,
             alt: movie.title,
-            type: 'image/jpeg',
+            type: absoluteShareImage.includes('.png') ? 'image/png' : 
+                  absoluteShareImage.includes('.webp') ? 'image/webp' : 
+                  'image/jpeg',
           }
         ],
         locale: 'vi_VN',

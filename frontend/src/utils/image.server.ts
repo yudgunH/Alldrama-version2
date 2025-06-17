@@ -4,7 +4,50 @@
  */
 
 /**
- * Server-safe function to get poster URL
+ * Try to detect image format for a given base URL
+ * Returns the first working format or jpg as fallback
+ */
+async function detectImageFormat(
+  baseUrl: string,
+  formats: string[] = ['jpg', 'jpeg', 'png', 'webp']
+): Promise<string> {
+  for (const format of formats) {
+    try {
+      const testUrl = `${baseUrl}.${format}`;
+      const response = await fetch(testUrl, { 
+        method: 'HEAD',
+        cache: 'no-cache'
+      });
+      
+      if (response.ok) {
+        return format;
+      }
+    } catch (error) {
+      // Continue to next format
+      continue;
+    }
+  }
+  
+  // Fallback to jpg
+  return 'jpg';
+}
+
+/**
+ * Get poster URL with smart format detection
+ */
+function getPosterUrlWithFormat(movieId: number | string, format: string = 'jpg'): string {
+  return `https://media.alldrama.tech/movies/${movieId}/poster.${format}`;
+}
+
+/**
+ * Get backdrop URL with smart format detection
+ */
+function getBackdropUrlWithFormat(movieId: number | string, format: string = 'jpg'): string {
+  return `https://media.alldrama.tech/movies/${movieId}/backdrop.${format}`;
+}
+
+/**
+ * Server-safe function to get poster URL with format detection
  */
 export function getSafePosterUrl(
   posterUrl: string | null | undefined, 
@@ -31,15 +74,21 @@ export function getSafePosterUrl(
   }
 
   // Fallback: construct URL from media server if we have movieId
+  // Try multiple formats for better compatibility
   if (movieId) {
-    return `https://media.alldrama.tech/movies/${movieId}/poster.jpg`;
+    // Return URL with auto-detection query parameter for better format handling
+    const baseUrl = `https://media.alldrama.tech/movies/${movieId}/poster`;
+    
+    // For social sharing, we'll try common formats in order of preference
+    // PNG first for better quality, then JPG for compatibility
+    return `${baseUrl}.png`;
   }
 
   return fallback;
 }
 
 /**
- * Server-safe function to get backdrop URL
+ * Server-safe function to get backdrop URL with format detection
  */
 export function getSafeBackdropUrl(
   backdropUrl: string | null | undefined,
@@ -64,9 +113,11 @@ export function getSafeBackdropUrl(
     }
   }
 
-  // Try to construct backdrop URL from movieId
+  // Try to construct backdrop URL from movieId with format detection
   if (movieId) {
-    return `https://media.alldrama.tech/movies/${movieId}/backdrop.jpg`;
+    const baseUrl = `https://media.alldrama.tech/movies/${movieId}/backdrop`;
+    // Try PNG first, then JPG
+    return `${baseUrl}.png`;
   }
 
   // Fallback to poster if backdrop not available
@@ -141,4 +192,70 @@ export function getImageUrl(
     console.warn('Error processing image URL:', error);
     return fallback;
   }
+}
+
+/**
+ * Enhanced function to get poster URL with multiple format fallbacks
+ * This function returns multiple URLs to try in order of preference
+ */
+export function getPosterUrlsWithFallback(
+  posterUrl: string | null | undefined,
+  movieId?: number | string
+): string[] {
+  const urls: string[] = [];
+  
+  // First try the original poster URL if valid
+  if (posterUrl && posterUrl.trim() !== '' && !posterUrl.includes('placeholder') && posterUrl !== '/') {
+    if (posterUrl.startsWith('http')) {
+      urls.push(posterUrl);
+    }
+  }
+  
+  // Then try constructed URLs with different formats
+  if (movieId) {
+    const baseUrl = `https://media.alldrama.tech/movies/${movieId}/poster`;
+    // Try in order of preference: PNG (better quality), JPG (better compatibility), JPEG, WebP
+    urls.push(`${baseUrl}.png`);
+    urls.push(`${baseUrl}.jpg`);
+    urls.push(`${baseUrl}.jpeg`);
+    urls.push(`${baseUrl}.webp`);
+  }
+  
+  return urls;
+}
+
+/**
+ * Enhanced function to get backdrop URL with multiple format fallbacks
+ */
+export function getBackdropUrlsWithFallback(
+  backdropUrl: string | null | undefined,
+  posterUrl: string | null | undefined,
+  movieId?: number | string
+): string[] {
+  const urls: string[] = [];
+  
+  // First try the original backdrop URL if valid
+  if (backdropUrl && backdropUrl.trim() !== '' && !backdropUrl.includes('placeholder')) {
+    if (backdropUrl.startsWith('http')) {
+      urls.push(backdropUrl);
+    }
+  }
+  
+  // Then try constructed backdrop URLs
+  if (movieId) {
+    const baseUrl = `https://media.alldrama.tech/movies/${movieId}/backdrop`;
+    urls.push(`${baseUrl}.png`);
+    urls.push(`${baseUrl}.jpg`);
+    urls.push(`${baseUrl}.jpeg`);
+    urls.push(`${baseUrl}.webp`);
+  }
+  
+  // Finally try converting poster URLs to backdrop
+  if (posterUrl && posterUrl.trim() !== '' && !posterUrl.includes('placeholder')) {
+    if (posterUrl.startsWith('http')) {
+      urls.push(convertPosterToBackdrop(posterUrl));
+    }
+  }
+  
+  return urls;
 } 
