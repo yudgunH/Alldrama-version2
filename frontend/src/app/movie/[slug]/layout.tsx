@@ -59,6 +59,12 @@ export async function generateMetadata({ params }: { params: Promise<{ slug: str
           siteName: 'AllDrama',
           images: [
             {
+              url: `https://media.alldrama.tech/movies/${movieId}/poster.jpg`,
+              width: 800,
+              height: 1200,
+              alt: `Phim ${movieId}`,
+            },
+            {
               url: `${process.env.NEXT_PUBLIC_SITE_URL || 'https://alldrama.net'}/logo-og.svg`,
               width: 1200,
               height: 630,
@@ -77,25 +83,24 @@ export async function generateMetadata({ params }: { params: Promise<{ slug: str
 
     // Generate image URLs
     const posterUrl = getSafePosterUrl(movie.posterUrl, movie.id)
-    const backdropUrl = getSafeBackdropUrl(movie.backdropUrl, movie.posterUrl, movie.id)
     
-    // Choose the best image for sharing (prefer poster for better social media display)
-    let shareImage = posterUrl !== '/placeholder.svg' ? posterUrl : backdropUrl
+    // Since API doesn't return backdrop URL, use poster as primary
+    // Try to generate backdrop from poster URL if possible
+    let shareImage = posterUrl
     
-    // If both are placeholders, use a default AllDrama image
+    // If poster is placeholder, try to construct from media server
     if (shareImage === '/placeholder.svg') {
-      shareImage = `${process.env.NEXT_PUBLIC_SITE_URL || 'https://alldrama.net'}/logo-og.svg`
+      shareImage = `https://media.alldrama.tech/movies/${movieId}/poster.jpg`
     }
     
+    // Ensure we always have an absolute URL for sharing
     const absoluteShareImage = shareImage.startsWith('http') 
       ? shareImage 
       : `${process.env.NEXT_PUBLIC_SITE_URL || 'https://alldrama.net'}${shareImage}`
 
     console.log(`🖼️ [generateMetadata] Image URLs for ${movie.title}:`, {
       originalPoster: movie.posterUrl,
-      originalBackdrop: movie.backdropUrl,
       generatedPoster: posterUrl,
-      generatedBackdrop: backdropUrl,
       finalShareImage: absoluteShareImage
     });
 
@@ -104,7 +109,8 @@ export async function generateMetadata({ params }: { params: Promise<{ slug: str
       ? `${movie.summary.slice(0, 150)}${movie.summary.length > 150 ? '...' : ''}`
       : `Xem phim ${movie.title} (${movie.releaseYear}) với chất lượng cao tại AllDrama. Đánh giá: ${movie.rating || 'N/A'}/10`
       
-    const movieUrl = `${process.env.NEXT_PUBLIC_SITE_URL || 'https://alldrama.net'}/movie/${resolvedParams.slug}`
+    const baseUrl = process.env.NEXT_PUBLIC_SITE_URL || 'https://alldrama.net'
+    const movieUrl = `${baseUrl}/movie/${resolvedParams.slug}`
 
     console.log(`✅ [generateMetadata] Successfully generated metadata for: ${movie.title} (ID: ${movie.id})`);
 

@@ -11,46 +11,31 @@ export function getSafePosterUrl(
   movieId?: number | string,
   fallback: string = "/placeholder.svg"
 ): string {
-  if (!posterUrl || posterUrl.trim() === '') {
-    // If we have movieId, try to construct poster URL
-    if (movieId) {
-      return `https://media.alldrama.tech/movies/${movieId}/poster.jpg`;
-    }
-    return fallback;
-  }
-
-  try {
-    // If it's already a full URL, return as is
-    if (posterUrl.startsWith('http')) {
-      return posterUrl;
-    }
-
-    // If it's a placeholder or invalid, try to construct from movieId
-    if (posterUrl.includes('placeholder') || posterUrl === '/') {
-      if (movieId) {
-        return `https://media.alldrama.tech/movies/${movieId}/poster.jpg`;
+  // Always try to use the API provided URL first
+  if (posterUrl && posterUrl.trim() !== '' && !posterUrl.includes('placeholder') && posterUrl !== '/') {
+    try {
+      // If it's already a full URL, return as is
+      if (posterUrl.startsWith('http')) {
+        return posterUrl;
       }
-      return fallback;
+      
+      // If it's a relative path, keep as is for local assets
+      if (posterUrl.startsWith('/')) {
+        return posterUrl;
+      }
+      
+      return posterUrl;
+    } catch (error) {
+      console.warn('Error processing poster URL:', error);
     }
-
-    // If it's a relative path, make it absolute
-    if (posterUrl.startsWith('/')) {
-      return posterUrl; // Keep relative for local assets
-    }
-
-    // For server-side, construct full URL if we have movieId
-    if (movieId) {
-      return `https://media.alldrama.tech/movies/${movieId}/poster.jpg`;
-    }
-
-    return posterUrl;
-  } catch (error) {
-    console.warn('Error processing poster URL:', error);
-    if (movieId) {
-      return `https://media.alldrama.tech/movies/${movieId}/poster.jpg`;
-    }
-    return fallback;
   }
+
+  // Fallback: construct URL from media server if we have movieId
+  if (movieId) {
+    return `https://media.alldrama.tech/movies/${movieId}/poster.jpg`;
+  }
+
+  return fallback;
 }
 
 /**

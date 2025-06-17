@@ -20,12 +20,11 @@ export async function GET(
       return NextResponse.json({ error: 'Movie not found' }, { status: 404 })
     }
 
-    // Get the best image for sharing
-    const backdropUrl = getSafeBackdropUrl(movie.backdropUrl, movie.posterUrl, movie.id)
+    // Get the poster image for sharing (since backdrop is not available from API)
     const posterUrl = getSafePosterUrl(movie.posterUrl, movie.id)
     
-    // Prefer backdrop over poster for better social media preview
-    const imageUrl = backdropUrl !== '/placeholder.svg' ? backdropUrl : posterUrl
+    // Use poster as the primary image for social sharing
+    const imageUrl = posterUrl !== '/placeholder.svg' ? posterUrl : `https://media.alldrama.tech/movies/${movieId}/poster.jpg`
     
     // If it's a relative URL, make it absolute
     const absoluteImageUrl = imageUrl.startsWith('http') 

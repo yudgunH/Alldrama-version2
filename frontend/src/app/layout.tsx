@@ -5,6 +5,7 @@ import { Analytics } from "@vercel/analytics/react";
 import "@/app/globals.css";
 import ClientLayout from "@/components/layout/ClientLayout";
 import OrganizationStructuredData from "@/components/seo/OrganizationStructuredData";
+import MetaTagsValidator from "@/components/seo/MetaTagsValidator";
 
 // Định nghĩa các fonts
 const geistSans = Geist({
@@ -179,6 +180,7 @@ export default function RootLayout({
         className={`${geistSans.variable} ${geistMono.variable} antialiased bg-gray-950 text-white min-h-screen p-0 m-0`}
       >
         <ClientLayout>{children}</ClientLayout>
+        <MetaTagsValidator />
         <Analytics />
       </body>
     </html>

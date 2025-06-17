@@ -36,6 +36,7 @@ import { useImageErrorHandler } from "@/hooks/useImageErrorHandler"
 import MovieStructuredData from "./MovieStructuredData"
 import ShareButtons from "./ShareButtons"
 import SocialPreview from "./SocialPreview"
+import SocialMetaDebug from "./SocialMetaDebug"
 
 interface MovieDetailProps {
   movieId: string | number
@@ -968,6 +969,7 @@ const MovieDetail = ({ movieId, initialData }: MovieDetailProps) => {
           </div>
         </div>
       </div>
+
     </div>
   )
 }
