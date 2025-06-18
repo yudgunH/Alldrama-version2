@@ -237,13 +237,13 @@ export default function VideoPlayer({
     const shouldForceHLS = isiOS() && Hls.isSupported() && forceHLSJS
     const useNativeHLS = !hlsStream || (v.canPlayType('application/vnd.apple.mpegurl') && !shouldForceHLS)
     
-    if(useNativeHLS) {
-      // Use native HLS playback (old behavior)
+    if(useNativeHLS || !hlsStream) {
+      // Sử dụng phát native cho MP4 hoặc HLS native
       v.src = videoSrc
 
       
-      // For iOS native HLS, listen for tracks to be available
-      if(isiOS()) {
+      // Chỉ xử lý tracks cho HLS trên iOS
+      if(hlsStream && isiOS()) {
         const handleLoadedMetadata = () => {
           setTimeout(() => {
             const videoElement = v as any // Cast for iOS videoTracks access
@@ -343,6 +343,7 @@ export default function VideoPlayer({
           h.recoverMediaError()
           return 
         }
+        console.error('HLS Fatal Error:', data)
         setFatalErr(true)
         h.destroy()
       })

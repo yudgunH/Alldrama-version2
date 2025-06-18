@@ -1,5 +1,6 @@
-import { useMemo } from 'react'
+import { useMemo, useState, useEffect } from 'react'
 import { getSafePosterUrl } from '@/utils/image'
+import { checkUrlExists } from '@/utils/url'
 import { MovieWithSubtitles, EpisodeWithSubtitles } from './useWatchData'
 
 interface UseVideoSourcesProps {
@@ -8,54 +9,123 @@ interface UseVideoSourcesProps {
   isSeries: boolean;
 }
 
-export function useVideoSources({ movie, activeEpisode, isSeries }: UseVideoSourcesProps) {
-  // Get video source URL with proper fallbacks
-  const videoSrc = useMemo(() => {
-    // console.log('🎬 useVideoSources debug:', { 
-    //   movieId: movie?.id, 
-    //   movieTitle: movie?.title,
-    //   totalEpisodes: movie?.totalEpisodes,
-    //   isSeries, 
-    //   activeEpisodeId: activeEpisode?.id,
-    //   activeEpisodeNumber: activeEpisode?.episodeNumber,
-    //   hasMoviePlaylistUrl: !!movie?.playlistUrl,
-    //   hasActiveEpisodePlaylistUrl: !!activeEpisode?.playlistUrl
-    // });
+interface VideoSourceResult {
+  videoSrc: string;
+  posterSrc: string; 
+  title: string;
+  subtitles: any[];
+  isHLS: boolean;
+  sourceType: 'hls' | 'mp4' | 'test' | 'none';
+  processingStatus?: 'processing' | 'completed' | 'failed' | 'pending' | 'unknown';
+}
 
-    // For episode, use its playlist if available
-    if (isSeries && activeEpisode) {
-      if (activeEpisode.playlistUrl && activeEpisode.playlistUrl.startsWith('http')) {
-        // console.log('📺 Using episode playlistUrl:', activeEpisode.playlistUrl);
-        return activeEpisode.playlistUrl;
-      }
-      // If not, try to construct it intelligently
-      if (movie?.id && activeEpisode.episodeNumber) {
-        const constructedUrl = `https://media.alldrama.tech/episodes/${movie.id}/${activeEpisode.episodeNumber}/hls/master.m3u8`;
-        // console.log('🔨 Constructed episode URL:', constructedUrl);
-        return constructedUrl;
-      }
+
+
+export function useVideoSources({ movie, activeEpisode, isSeries }: UseVideoSourcesProps): VideoSourceResult {
+  const [checkedSources, setCheckedSources] = useState<{[key: string]: 'hls' | 'mp4' | 'none'}>({});
+
+  // Tạo key duy nhất để cache kết quả kiểm tra (chỉ cho episodes)
+  const cacheKey = useMemo(() => {
+    if (movie?.id && activeEpisode?.episodeNumber) {
+      return `episode-${movie.id}-${activeEpisode.episodeNumber}`;
+    }
+    return 'no-episode';
+  }, [movie?.id, activeEpisode?.episodeNumber]);
+
+  // Lấy các URL có thể (chỉ cho episodes)
+  const possibleSources = useMemo(() => {
+    if (!movie?.id || !isSeries || !activeEpisode) {
+      return { hlsUrl: '', mp4Url: '' };
     }
 
-    // If it's a series but no activeEpisode available yet, log this for debugging
-    if (isSeries && !activeEpisode) {
-      // console.warn(`⚠️ Series detected (movie ID: ${movie?.id}) but no activeEpisode available. This might indicate episodes data hasn't loaded yet or is missing.`);
-    }
+    const hlsUrl = activeEpisode.playlistUrl || 
+      `https://media.alldrama.tech/episodes/${movie.id}/${activeEpisode.episodeNumber}/hls/master.m3u8`;
+    const mp4Url = `https://media.alldrama.tech/episodes/${movie.id}/${activeEpisode.episodeNumber}/original.mp4`;
     
-    // For movie, use its playlist if available
-    if (movie?.playlistUrl && movie.playlistUrl.startsWith('http')) {
-      // console.log('🎥 Using movie playlistUrl:', movie.playlistUrl);
-      return movie.playlistUrl;
-    }
-    
-    // Fallback to constructed URL
-    const fallbackUrl = movie ? `https://media.alldrama.tech/movies/${movie.id}/hls/master.m3u8` : '';
-    // console.log('🔄 Using fallback movie URL:', fallbackUrl);
-    return fallbackUrl;
-  }, [isSeries, activeEpisode, movie]);
+    return { hlsUrl, mp4Url };
+  }, [movie, activeEpisode, isSeries]);
 
-  // Get poster URL with proper fallbacks
+  // Kiểm tra và xác định nguồn video tối ưu
+  useEffect(() => {
+    const checkSources = async () => {
+      if (!possibleSources.hlsUrl || checkedSources[cacheKey]) return;
+
+      // Ưu tiên kiểm tra HLS trước
+      const hlsExists = await checkUrlExists(possibleSources.hlsUrl);
+      
+      if (hlsExists) {
+        setCheckedSources(prev => ({
+          ...prev,
+          [cacheKey]: 'hls'
+        }));
+        return;
+      }
+
+      // Nếu HLS không có, kiểm tra MP4
+      const mp4Exists = await checkUrlExists(possibleSources.mp4Url);
+      
+      if (mp4Exists) {
+        setCheckedSources(prev => ({
+          ...prev,
+          [cacheKey]: 'mp4'
+        }));
+        return;
+      }
+
+      // Nếu cả hai đều không có
+      setCheckedSources(prev => ({
+        ...prev,
+        [cacheKey]: 'none'
+      }));
+    };
+
+    checkSources();
+  }, [possibleSources.hlsUrl, possibleSources.mp4Url, cacheKey, checkedSources]);
+
+  // Xác định nguồn video cuối cùng
+  const videoSource = useMemo(() => {
+    const sourceType = checkedSources[cacheKey];
+    
+    // Lấy processing status từ episode (chỉ hỗ trợ series)
+    const processingStatus = (activeEpisode as any)?.processingStatus;
+    
+    if (!sourceType) {
+      // Chưa kiểm tra xong, mặc định thử HLS trước
+      return {
+        url: possibleSources.hlsUrl,
+        isHLS: true,
+        sourceType: 'hls' as const,
+        processingStatus
+      };
+    }
+
+    switch (sourceType) {
+      case 'hls':
+        return {
+          url: possibleSources.hlsUrl,
+          isHLS: true,
+          sourceType: 'hls' as const,
+          processingStatus
+        };
+      case 'mp4':
+        return {
+          url: possibleSources.mp4Url,
+          isHLS: false,
+          sourceType: 'mp4' as const,
+          processingStatus
+        };
+      default:
+        return {
+          url: '',
+          isHLS: true,
+          sourceType: 'none' as const,
+          processingStatus
+        };
+    }
+  }, [checkedSources, cacheKey, possibleSources, activeEpisode]);
+
+  // Get poster URL với fallback thông thường
   const posterSrc = useMemo(() => {
-    // Always use movie poster instead of episode thumbnails to avoid 404s
     if (movie?.posterUrl) {
       if (movie.posterUrl.startsWith('http')) {
         return movie.posterUrl;
@@ -63,7 +133,6 @@ export function useVideoSources({ movie, activeEpisode, isSeries }: UseVideoSour
       return getSafePosterUrl(movie.posterUrl, movie.id);
     }
     
-    // Fallback to auto-detected poster or placeholder
     return movie?.id ? getSafePosterUrl(null, movie.id) : '/placeholder.svg';
   }, [movie]);
 
@@ -74,7 +143,7 @@ export function useVideoSources({ movie, activeEpisode, isSeries }: UseVideoSour
       : movie?.title || '';
   }, [isSeries, activeEpisode, movie]);
 
-  // Get subtitles with proper types
+  // Get subtitles
   const subtitles = useMemo(() => {
     return isSeries && activeEpisode
       ? (activeEpisode.subtitles || [])
@@ -82,9 +151,12 @@ export function useVideoSources({ movie, activeEpisode, isSeries }: UseVideoSour
   }, [isSeries, activeEpisode, movie]);
 
   return {
-    videoSrc,
+    videoSrc: videoSource.url,
     posterSrc,
     title,
-    subtitles
+    subtitles,
+    isHLS: videoSource.isHLS,
+    sourceType: videoSource.sourceType,
+    processingStatus: videoSource.processingStatus
   };
 } 

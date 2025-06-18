@@ -116,3 +116,69 @@ export function debugUrlGeneration(id: string | number, title: string): void {
   const fullUrl = `/movie/${slug}-${id}`;
   // console.log(`Final URL: ${fullUrl}`);
 }
+
+// Cache for URL existence checks
+const urlExistenceCache = new Map<string, { exists: boolean; timestamp: number }>();
+const CACHE_DURATION = 5 * 60 * 1000; // 5 minutes
+
+/**
+ * Check if URL exists with caching
+ * @param url URL to check
+ * @returns Promise<boolean> indicating if URL exists
+ */
+export const checkUrlExists = async (url: string): Promise<boolean> => {
+  if (!url) return false;
+
+  // Check cache first
+  const cached = urlExistenceCache.get(url);
+  if (cached && (Date.now() - cached.timestamp) < CACHE_DURATION) {
+    return cached.exists;
+  }
+
+  try {
+    const response = await fetch(url, { 
+      method: 'HEAD',
+      // Add timeout to prevent hanging
+      signal: AbortSignal.timeout(5000)
+    });
+    
+    const exists = response.ok;
+    
+    // Cache the result
+    urlExistenceCache.set(url, {
+      exists,
+      timestamp: Date.now()
+    });
+    
+    return exists;
+  } catch (error) {
+    // Cache failed attempts as non-existent
+    urlExistenceCache.set(url, {
+      exists: false,
+      timestamp: Date.now()
+    });
+    
+    return false;
+  }
+};
+
+/**
+ * Clear URL existence cache
+ */
+export const clearUrlExistenceCache = (): void => {
+  urlExistenceCache.clear();
+};
+
+/**
+ * Get URL cache statistics
+ */
+export const getUrlCacheStats = () => {
+  return {
+    size: urlExistenceCache.size,
+    entries: Array.from(urlExistenceCache.entries()).map(([url, data]) => ({
+      url,
+      exists: data.exists,
+      age: Date.now() - data.timestamp
+    }))
+  };
+};
