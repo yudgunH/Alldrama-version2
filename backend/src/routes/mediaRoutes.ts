@@ -51,7 +51,7 @@ router.post('/movies/:movieId/trailer',
   uploadMovieTrailer
 );
 
-// Routes cho tập phim
+// Routes cho tập phim - Now uses queue system
 router.post('/episodes/:movieId/:episodeId/video',
   authenticate,
   requireAdmin,

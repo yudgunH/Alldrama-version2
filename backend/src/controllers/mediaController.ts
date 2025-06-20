@@ -133,38 +133,73 @@ export const uploadEpisodeVideo = async (req: Request, res: Response): Promise<v
   try {
     const { movieId, episodeId } = req.params;
     const file = req.file;
-    
+
     if (!file) {
-      res.status(400).json({ message: 'Không tìm thấy file' });
+      res.status(400).json({ message: 'Không có file được upload' });
       return;
     }
-    
-    // Sử dụng MediaService để upload video và tạo thumbnail
+
+    logger.debug(`Upload video cho episode ${episodeId} của movie ${movieId}`);
+
+    // Upload video và tạo thumbnail
     const result = await mediaService.uploadEpisodeVideo(Number(movieId), Number(episodeId), file);
+
+    // Generate job ID for queue processing
+    const jobId = `direct-upload-${Date.now()}-${episodeId}`;
     
-    // Bắt đầu xử lý HLS
-    res.status(202).json({
-      message: 'Đã nhận video, đang xử lý HLS',
-      originalUrl: result.originalUrl,
-      thumbnailUrl: result.thumbnailUrl,
-      processingStatus: result.processingStatus,
-      estimatedDuration: result.duration
-    });
-    
-    // Tạo thư mục HLS output
-    const hlsOutputDir = path.join(os.tmpdir(), `hls-${episodeId}`);
-    if (!fs.existsSync(hlsOutputDir)) {
-      fs.mkdirSync(hlsOutputDir, { recursive: true });
-    }
-    
-    // Xử lý HLS bất đồng bộ sau khi đã trả về response
-    mediaService.processVideoToHLS(file.path, movieId, episodeId)
-      .then(async (hlsResult) => {
-        logger.debug('HLS xử lý thành công:', hlsResult);
-      })
-      .catch(error => {
-        logger.error(`Lỗi khi xử lý HLS cho episode ${episodeId}:`, error);
+    // Add to queue instead of direct processing
+    try {
+      // Get video key from the uploaded URL
+      const videoUrl = new URL(result.originalUrl);
+      const videoKey = videoUrl.pathname.substring(1); // Remove leading '/'
+      
+      const { hlsQueueService } = await import('../services/queue/hlsQueueService');
+      
+      await hlsQueueService.addHLSJob({
+        videoKey,
+        movieId: Number(movieId),
+        episodeId: Number(episodeId),
+        jobId,
+        priority: 1 // Higher priority for direct uploads
       });
+
+      const queueInfo = await hlsQueueService.getQueueInfo();
+      const queuePosition = queueInfo.waiting + queueInfo.active;
+
+      logger.info(`Direct upload episode ${episodeId} added to queue at position ${queuePosition}`);
+
+      res.status(200).json({
+        message: 'Video đã được upload thành công và đã được thêm vào queue xử lý',
+        originalUrl: result.originalUrl,  // Keep original field name for compatibility
+        videoUrl: result.originalUrl,     // Also provide new field name
+        thumbnailUrl: result.thumbnailUrl,
+        duration: result.duration,
+        processingStatus: 'pending',
+        queuePosition,
+        estimatedDuration: result.duration
+      });
+
+    } catch (queueError) {
+      logger.error('Error adding direct upload to queue:', queueError);
+      
+      // Fallback to old direct processing if queue fails
+      logger.warn('Queue failed, falling back to direct processing');
+      
+      // HLS processing is now handled by queue system via Cloudflare Worker webhook
+      // No direct processing here to avoid bypassing the queue
+      logger.info(`Episode ${episodeId} uploaded. HLS processing will be handled by queue system.`);
+      
+      res.status(200).json({
+        message: 'Video đã được upload thành công',
+        originalUrl: result.originalUrl,  // Keep original field name for compatibility
+        videoUrl: result.originalUrl,     // Also provide new field name
+        thumbnailUrl: result.thumbnailUrl,
+        duration: result.duration,
+        processingStatus: 'pending',
+        estimatedDuration: result.duration
+      });
+    }
+
   } catch (error) {
     logger.error('Lỗi khi upload video:', error);
     
