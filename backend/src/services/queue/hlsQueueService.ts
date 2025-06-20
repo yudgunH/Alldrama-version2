@@ -46,7 +46,7 @@ class HLSQueueService {
       lazyConnect: true,
       enableReadyCheck: true,
       connectTimeout: 10000,
-      commandTimeout: 5000,
+      commandTimeout: 0, // Disable command timeout for long-running jobs
     });
 
     // Thêm error handlers cho Redis
