@@ -16,6 +16,8 @@ import statsRoutes from "./routes/statsRoutes";
 import viewRoutes from "./routes/viewRoutes";
 import mediaRoutes from "./routes/mediaRoutes";
 import commentRoutes from "./routes/commentRoutes";
+import queueRoutes from "./routes/queueRoutes";
+import queueDashboard, { setupQueueDashboard } from "./routes/queueDashboard";
 
 // Khởi tạo Express app
 const app = express();
@@ -99,6 +101,13 @@ app.use('/api/stats', statsRoutes);
 app.use('/api/views', viewRoutes);
 app.use('/api/media', mediaRoutes);
 app.use('/api/comments', commentRoutes);
+app.use('/api/queue', queueRoutes);
+app.use('/api/queue', queueDashboard);
+
+// Setup Queue Dashboard (sẽ chỉ hoạt động nếu dependencies được cài đặt)
+setupQueueDashboard(app).catch(() => {
+  // Bỏ qua lỗi nếu dependencies chưa được cài
+});
 
 // Route mặc định
 app.get("/", (req: Request, res: Response) => {

@@ -67,6 +67,12 @@ export default function validateEnv() {
     WORKER_SECRET: str(),
     WORKER_CONCURRENCY: num({ default: 2 }),
 
+    // Queue System
+    HLS_QUEUE_CONCURRENCY: num({ default: 2 }),
+    HLS_QUEUE_RETRY_ATTEMPTS: num({ default: 3 }),
+    HLS_QUEUE_RETRY_DELAY: num({ default: 30000 }),
+    QUEUE_DASHBOARD_ENABLED: bool({ default: true }),
+
     // Logging
     LOG_LEVEL: str({ choices: ['error', 'warn', 'info', 'debug'], default: 'info' }),
     LOG_FILE_PATH: str(),

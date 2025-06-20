@@ -4,6 +4,7 @@ import app from "./app";
 import createDatabase from "./utils/createDatabase";
 import initDatabase from "./utils/initDatabase";
 import { startViewsSyncJob } from "./jobs/syncViewsJob";
+import hlsQueueService from "./services/queue/hlsQueueService";
 import os from 'os';
 import path from 'path';
 
@@ -64,6 +65,15 @@ const startServer = async () => {
     
     // Khởi động cron job đồng bộ lượt xem từ Redis vào database
     startViewsSyncJob();
+    
+    // Khởi động HLS Queue Service
+    try {
+      await hlsQueueService.start();
+      logger.info('HLS Queue Service started successfully');
+    } catch (error) {
+      logger.error('Failed to start HLS Queue Service:', error);
+      // Không exit vì queue service không phải critical service
+    }
 
     // Lắng nghe kết nối
     const server = app.listen(PORT, () => {
@@ -76,8 +86,17 @@ const startServer = async () => {
     });
 
     // Xử lý graceful shutdown
-    const gracefulShutdown = () => {
+    const gracefulShutdown = async () => {
       logger.debug('Đang đóng server...');
+      
+      // Dừng queue service trước
+      try {
+        await hlsQueueService.stop();
+        logger.info('HLS Queue Service stopped');
+      } catch (error) {
+        logger.error('Error stopping HLS Queue Service:', error);
+      }
+      
       server.close(() => {
         logger.debug('Server đã đóng.');
         process.exit(0);

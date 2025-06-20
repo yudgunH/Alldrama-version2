@@ -400,66 +400,43 @@ export class MediaService {
     success: boolean;
     jobId: string;
     error?: string;
+    queuePosition?: number;
   }> {
     try {
       logger.info(`Xử lý yêu cầu Worker cho video: ${videoKey}, movieId=${movieId}, episodeId=${episodeId}, jobId=${jobId}`);
       
-      // Cập nhật trạng thái episode là đang xử lý
+      // Cập nhật trạng thái episode là pending (chờ queue)
       await Episode.update(
         { processingStatus: 'pending' },
         { where: { id: episodeId, movieId } }
       );
       
-      // Xử lý bất đồng bộ nếu có callbackUrl
-      if (callbackUrl) {
-        (async () => {
-          try {
-            const result = await this.processVideoToHLS(videoKey, movieId, episodeId, jobId);
-            
-            // Gửi callback khi hoàn thành
-            await this.sendCallbackToWorker(
-              callbackUrl, 
-              result.success ? 'completed' : 'error', 
-              movieId, 
-              episodeId, 
-              jobId,
-              result.error
-            );
-            
-            logger.info(`Đã hoàn thành xử lý HLS cho jobId=${jobId}, kết quả=${result.success}`);
-          } catch (error) {
-            logger.error(`Lỗi khi xử lý HLS bất đồng bộ cho jobId=${jobId}:`, error);
-            
-            // Gửi callback báo lỗi
-            if (callbackUrl) {
-              await this.sendCallbackToWorker(
-                callbackUrl, 
-                'error', 
-                movieId, 
-                episodeId, 
-                jobId,
-                error instanceof Error ? error.message : 'Lỗi không xác định'
-              );
-            }
-          }
-        })();
-      } else {
-        // Xử lý đồng bộ nếu không có callbackUrl
-        this.processVideoToHLS(videoKey, movieId, episodeId, jobId)
-          .then(result => {
-            logger.info(`Đã hoàn thành xử lý HLS cho jobId=${jobId}, kết quả=${result.success}`);
-          })
-          .catch(error => {
-            logger.error(`Lỗi khi xử lý HLS cho jobId=${jobId}:`, error);
-          });
-      }
+      // Import dynamic để tránh circular dependency
+      const { hlsQueueService } = await import('../queue/hlsQueueService');
+      
+      // Thêm job vào queue thay vì xử lý trực tiếp
+      const job = await hlsQueueService.addHLSJob({
+        videoKey,
+        movieId: Number(movieId),
+        episodeId: Number(episodeId),
+        jobId,
+        callbackUrl,
+        priority: 0 // Có thể điều chỉnh priority dựa trên yêu cầu
+      });
+      
+      // Lấy vị trí trong queue
+      const queueInfo = await hlsQueueService.getQueueInfo();
+      const queuePosition = queueInfo.waiting + queueInfo.active;
+      
+      logger.info(`Đã thêm video vào queue: jobId=${jobId}, vị trí=${queuePosition}`);
       
       return {
         success: true,
-        jobId
+        jobId,
+        queuePosition
       };
     } catch (error) {
-      logger.error('Lỗi khi xử lý yêu cầu từ Worker:', error);
+      logger.error('Lỗi khi thêm video vào queue:', error);
       return {
         success: false,
         jobId,
