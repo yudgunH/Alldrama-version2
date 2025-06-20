@@ -93,6 +93,9 @@ export default function validateEnv() {
     BACKUP_CRON: str({ default: '0 0 * * *' }),
     BACKUP_RETENTION_DAYS: num({ default: 30 }),
     BACKUP_S3_BUCKET: str({ default: undefined }),
+
+    // Optional Production Configuration
+    PUBLIC_DOMAIN: str({ default: undefined }),
   });
 }
 

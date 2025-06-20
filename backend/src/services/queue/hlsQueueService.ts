@@ -42,8 +42,24 @@ class HLSQueueService {
       host: process.env.REDIS_HOST || '172.17.0.2',
       port: parseInt(process.env.REDIS_PORT || '6379'),
       password: process.env.REDIS_PASSWORD,
-      maxRetriesPerRequest: 3,
+      maxRetriesPerRequest: null,
       lazyConnect: true,
+      enableReadyCheck: true,
+      connectTimeout: 10000,
+      commandTimeout: 5000,
+    });
+
+    // Thêm error handlers cho Redis
+    this.redisConnection.on('error', (error) => {
+      logger.error('Redis connection error:', error);
+    });
+
+    this.redisConnection.on('reconnecting', () => {
+      logger.warn('Redis reconnecting...');
+    });
+
+    this.redisConnection.on('ready', () => {
+      logger.info('Redis connection ready');
     });
 
     // Khởi tạo queue
@@ -277,7 +293,10 @@ class HLSQueueService {
       ? process.env.PUBLIC_DOMAIN 
       : '127.0.0.1';
     const backendPort = process.env.PORT || '5000';
-    const actualCallbackUrl = callbackUrl || `http://${backendHost}:${backendPort}/api/media/hls-processor/callback`;
+    
+    // Use HTTPS in production, HTTP in development
+    const protocol = process.env.NODE_ENV === 'production' ? 'https' : 'http';
+    const actualCallbackUrl = callbackUrl || `${protocol}://${backendHost}${process.env.NODE_ENV === 'production' ? '' : ':' + backendPort}/api/media/hls-processor/callback`;
 
     const dockerCommand = [
       'docker', 'run',
@@ -375,7 +394,14 @@ class HLSQueueService {
 
         elapsed += checkInterval;
         if (elapsed >= maxWaitTime) {
-          reject(new Error('Container processing timeout'));
+          // Force kill container if timeout
+          try {
+            execSync(`docker rm -f ${containerName}`, { stdio: 'ignore' });
+            logger.warn(`Force killed container ${containerName} due to timeout`);
+          } catch (killError) {
+            logger.error(`Error killing timed out container: ${killError}`);
+          }
+          reject(new Error(`Container processing timeout after ${maxWaitTime}ms`));
           return;
         }
 
@@ -412,11 +438,50 @@ class HLSQueueService {
    * Cleanup Docker volume
    */
   private async cleanupVolume(volumeName: string): Promise<void> {
-    try {
-      execSync(`docker volume rm ${volumeName}`, { stdio: 'ignore' });
-      logger.debug(`Cleaned up volume ${volumeName}`);
-    } catch (error) {
-      logger.warn(`Error cleaning up volume ${volumeName}:`, error);
+    const maxRetries = 3;
+    let retryCount = 0;
+
+    while (retryCount < maxRetries) {
+      try {
+        // Wait a bit before cleanup to ensure container is fully stopped
+        await new Promise(resolve => setTimeout(resolve, 1000));
+
+        // Check and kill any containers still using the volume
+        try {
+          const { stdout: usingContainers } = await new Promise<{ stdout: string; stderr: string }>((resolve) => {
+            exec(`docker ps -q --filter volume=${volumeName}`, (error, stdout, stderr) => {
+              resolve({ stdout, stderr });
+            });
+          });
+
+          if (usingContainers.trim()) {
+            logger.warn(`Killing containers still using volume ${volumeName}`);
+            execSync(`docker rm -f ${usingContainers.trim().split('\n').join(' ')}`, { stdio: 'ignore' });
+            // Wait after killing containers
+            await new Promise(resolve => setTimeout(resolve, 2000));
+          }
+        } catch (containerError) {
+          logger.warn(`Error checking containers for volume ${volumeName}:`, containerError);
+        }
+
+        // Try to remove the volume
+        execSync(`docker volume rm ${volumeName}`, { stdio: 'ignore' });
+        logger.debug(`Successfully cleaned up volume ${volumeName}`);
+        return;
+
+      } catch (error) {
+        retryCount++;
+        logger.warn(`Cleanup attempt ${retryCount}/${maxRetries} failed for volume ${volumeName}:`, error);
+
+        if (retryCount >= maxRetries) {
+          logger.error(`Failed to cleanup volume ${volumeName} after ${maxRetries} attempts`);
+          // Don't throw error, just log it to prevent job failure
+          return;
+        }
+
+        // Wait before retry with exponential backoff
+        await new Promise(resolve => setTimeout(resolve, 1000 * retryCount));
+      }
     }
   }
 
