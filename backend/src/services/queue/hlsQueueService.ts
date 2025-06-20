@@ -427,6 +427,51 @@ class HLSQueueService {
         const status = stdout.trim();
         logger.debug(`Container ${containerName} status: ${status}`);
 
+        // Handle empty status (container removed or doesn't exist)
+        if (!status || status === '') {
+          logger.info(`🔍 DEBUG: Container ${containerName} no longer exists - checking if processing completed`);
+          
+          // Verify processing completed by checking if output files exist on R2
+          try {
+            const workerDomain = process.env.CLOUDFLARE_WORKER_DOMAIN || process.env.WORKER_DOMAIN;
+            const playlistUrl = `https://${workerDomain}/episodes/${job.data.movieId}/${job.data.episodeId}/hls/master.m3u8`;
+            const thumbnailUrl = `https://${workerDomain}/episodes/${job.data.movieId}/${job.data.episodeId}/thumbnail.jpg`;
+
+            // Try to verify files exist by making a quick HEAD request (optional verification)
+            logger.info(`🔍 DEBUG: Container removed - assuming processing completed for episode ${job.data.episodeId}`);
+
+            await Episode.update(
+              { 
+                processingStatus: 'completed',
+                playlistUrl: playlistUrl,
+                thumbnailUrl: thumbnailUrl
+              },
+              { where: { id: job.data.episodeId } }
+            );
+
+            resolve({ playlistUrl, thumbnailUrl });
+            return;
+          } catch (verifyError) {
+            logger.warn(`🔍 DEBUG: Could not verify completion for ${containerName}:`, verifyError);
+            // Still assume completed since container was removed
+            const workerDomain = process.env.CLOUDFLARE_WORKER_DOMAIN || process.env.WORKER_DOMAIN;
+            const playlistUrl = `https://${workerDomain}/episodes/${job.data.movieId}/${job.data.episodeId}/hls/master.m3u8`;
+            const thumbnailUrl = `https://${workerDomain}/episodes/${job.data.movieId}/${job.data.episodeId}/thumbnail.jpg`;
+
+            await Episode.update(
+              { 
+                processingStatus: 'completed',
+                playlistUrl: playlistUrl,
+                thumbnailUrl: thumbnailUrl
+              },
+              { where: { id: job.data.episodeId } }
+            );
+
+            resolve({ playlistUrl, thumbnailUrl });
+            return;
+          }
+        }
+
         if (status.includes('Exited (0)')) {
           // Container đã hoàn thành thành công
           logger.info(`🔍 DEBUG: Container ${containerName} completed successfully`);

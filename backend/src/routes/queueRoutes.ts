@@ -7,7 +7,8 @@ import {
   retryJob,
   getJobsByState,
   toggleQueue,
-  debugRedis
+  debugRedis,
+  forceCompleteJob
 } from '../controllers/queueController';
 import { authenticate, requireAdmin } from '../middleware';
 import { runAsyncWrapper } from '../utils/runAsyncWrapper';
@@ -283,6 +284,33 @@ router.get('/debug/redis',
   authenticate, 
   requireAdmin, 
   runAsyncWrapper(debugRedis)
+);
+
+/**
+ * @swagger
+ * /api/queue/job/{jobId}/force-complete:
+ *   post:
+ *     summary: Force complete a stuck job (DEBUG)
+ *     tags: [Queue]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: jobId
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: ID của job cần force complete
+ *     responses:
+ *       200:
+ *         description: Job đã được force completed
+ *       404:
+ *         description: Không tìm thấy job
+ */
+router.post('/job/:jobId/force-complete', 
+  authenticate, 
+  requireAdmin, 
+  runAsyncWrapper(forceCompleteJob)
 );
 
 export default router; 

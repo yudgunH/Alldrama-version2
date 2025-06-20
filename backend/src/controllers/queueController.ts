@@ -394,4 +394,84 @@ export const debugRedis = async (req: Request, res: Response): Promise<void> => 
       error: error instanceof Error ? error.message : 'Unknown error'
     });
   }
+};
+
+/**
+ * Force complete a job (for debugging stuck jobs)
+ */
+export const forceCompleteJob = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { jobId } = req.params;
+    
+    logger.info(`🔍 DEBUG: Force completing job ${jobId}...`);
+    
+    // Import dynamic để get job
+    const hlsQueueServiceModule = await import('../services/queue/hlsQueueService');
+    const hlsQueueService = hlsQueueServiceModule.hlsQueueService;
+    
+    const job = await hlsQueueService.getJob(jobId);
+    
+    if (!job) {
+      res.status(404).json({
+        success: false,
+        error: 'Job not found'
+      });
+      return;
+    }
+    
+    // Get job data
+    const { movieId, episodeId } = job.data;
+    
+    // Force complete the job
+    const workerDomain = process.env.CLOUDFLARE_WORKER_DOMAIN || process.env.WORKER_DOMAIN;
+    const playlistUrl = `https://${workerDomain}/episodes/${movieId}/${episodeId}/hls/master.m3u8`;
+    const thumbnailUrl = `https://${workerDomain}/episodes/${movieId}/${episodeId}/thumbnail.jpg`;
+
+    // Update database
+    const { Episode } = await import('../models');
+    await Episode.update(
+      { 
+        processingStatus: 'completed',
+        playlistUrl: playlistUrl,
+        thumbnailUrl: thumbnailUrl
+      },
+      { where: { id: episodeId } }
+    );
+    
+    // Try to complete the job
+    try {
+      await job.moveToCompleted({ 
+        playlistUrl, 
+        thumbnailUrl,
+        success: true,
+        processingTime: Date.now() - job.timestamp
+      }, job.token || '', true);
+      
+      logger.info(`🔍 DEBUG: Force completed job ${jobId} for episode ${episodeId}`);
+      
+      res.json({
+        success: true,
+        message: `Job ${jobId} force completed`,
+        episodeId,
+        playlistUrl,
+        thumbnailUrl
+      });
+    } catch (jobError) {
+      logger.warn(`Could not move job to completed, but database updated:`, jobError);
+      res.json({
+        success: true,
+        message: `Job ${jobId} database updated (job may have been auto-completed)`,
+        episodeId,
+        playlistUrl,
+        thumbnailUrl
+      });
+    }
+    
+  } catch (error) {
+    logger.error('Error force completing job:', error);
+    res.status(500).json({
+      success: false,
+      error: error instanceof Error ? error.message : 'Unknown error'
+    });
+  }
 }; 
