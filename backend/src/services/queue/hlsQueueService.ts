@@ -167,8 +167,9 @@ class HLSQueueService {
 
       await job.updateProgress(10);
 
-      // Tạo volume và download video
-      const volumeName = `hls-processor-data-${movieId}-${episodeId}-${Date.now()}`;
+      // Tạo unique volume cho mỗi job
+      const volumeName = `hls-processor-data-${movieId}-${episodeId}-${job.id}-${Date.now()}`;
+      logger.info(`🔍 DEBUG: Creating volume: ${volumeName}`);
       await this.setupDockerVolume(volumeName, videoKey);
 
       await job.updateProgress(20);
@@ -185,8 +186,10 @@ class HLSQueueService {
 
       await job.updateProgress(90);
 
-      // Cleanup volume
+      // Cleanup volume - đảm bảo container đã dừng hoàn toàn
+      logger.info(`🔍 DEBUG: Starting cleanup for volume: ${volumeName}`);
       await this.cleanupVolume(volumeName);
+      logger.info(`🔍 DEBUG: Cleanup completed for volume: ${volumeName}`);
 
       await job.updateProgress(100);
 
@@ -208,6 +211,31 @@ class HLSQueueService {
         { processingStatus: 'failed' },
         { where: { id: episodeId } }
       );
+
+      // Cleanup volume nếu có lỗi
+      try {
+        const volumeName = `hls-processor-data-${movieId}-${episodeId}-${job.id}-`;
+        logger.info(`🔍 DEBUG: Attempting cleanup after error for volumes matching: ${volumeName}*`);
+        
+        // Tìm volume có pattern tương tự
+        const { stdout: volumeList } = await new Promise<{ stdout: string; stderr: string }>((resolve) => {
+          exec(`docker volume ls -q | grep "${volumeName}"`, (error, stdout, stderr) => {
+            resolve({ stdout, stderr });
+          });
+        });
+        
+        if (volumeList.trim()) {
+          const volumes = volumeList.trim().split('\n');
+          for (const volume of volumes) {
+            if (volume.trim()) {
+              logger.info(`🔍 DEBUG: Cleaning up volume after error: ${volume}`);
+              await this.cleanupVolume(volume.trim());
+            }
+          }
+        }
+      } catch (cleanupError) {
+        logger.warn('Error during error cleanup:', cleanupError);
+      }
 
       return {
         success: false,
@@ -236,8 +264,12 @@ class HLSQueueService {
         execSync(`docker exec ${tempContainer} chmod 777 /data/input /data/output`);
 
         // Download video từ R2
-        logger.debug(`Downloading video from R2: ${videoKey}`);
+        logger.info(`🔍 DEBUG: Downloading video from R2 with key: ${videoKey}`);
+        logger.info(`🔍 DEBUG: Video key length: ${videoKey.length}`);
+        logger.info(`🔍 DEBUG: Video key starts with: ${videoKey.substring(0, 50)}...`);
+        
         const videoData = await downloadFromR2AsBuffer(videoKey);
+        logger.info(`🔍 DEBUG: Downloaded video buffer size: ${videoData.length} bytes`);
         
         // Ghi file tạm
         const tempFile = path.join(os.tmpdir(), `original-${Date.now()}.mp4`);
@@ -369,6 +401,11 @@ class HLSQueueService {
 
         if (status.includes('Exited (0)')) {
           // Container đã hoàn thành thành công
+          logger.info(`🔍 DEBUG: Container ${containerName} completed successfully`);
+          
+          // Wait extra time để đảm bảo container thực sự đã dừng
+          await new Promise(resolve => setTimeout(resolve, 2000));
+          
           const workerDomain = process.env.CLOUDFLARE_WORKER_DOMAIN || process.env.WORKER_DOMAIN;
           const playlistUrl = `https://${workerDomain}/episodes/${job.data.movieId}/${job.data.episodeId}/hls/master.m3u8`;
           const thumbnailUrl = `https://${workerDomain}/episodes/${job.data.movieId}/${job.data.episodeId}/thumbnail.jpg`;
@@ -388,6 +425,16 @@ class HLSQueueService {
 
         if (status.includes('Exited') && !status.includes('Exited (0)')) {
           // Container đã thoát với lỗi
+          logger.error(`🔍 DEBUG: Container ${containerName} exited with error: ${status}`);
+          
+          // Wait và cleanup container trước khi reject
+          await new Promise(resolve => setTimeout(resolve, 1000));
+          try {
+            execSync(`docker rm -f ${containerName}`, { stdio: 'ignore' });
+          } catch (cleanupError) {
+            logger.warn(`Error cleaning up failed container: ${cleanupError}`);
+          }
+          
           reject(new Error(`Container exited with error: ${status}`));
           return;
         }
@@ -441,46 +488,67 @@ class HLSQueueService {
     const maxRetries = 3;
     let retryCount = 0;
 
+    logger.info(`🔍 DEBUG: Starting cleanup for volume ${volumeName}`);
+
     while (retryCount < maxRetries) {
       try {
-        // Wait a bit before cleanup to ensure container is fully stopped
-        await new Promise(resolve => setTimeout(resolve, 1000));
+        // Wait longer before cleanup to ensure container is fully stopped
+        await new Promise(resolve => setTimeout(resolve, 3000));
 
-        // Check and kill any containers still using the volume
+        // First, check for any containers using this volume (including stopped ones)
         try {
-          const { stdout: usingContainers } = await new Promise<{ stdout: string; stderr: string }>((resolve) => {
-            exec(`docker ps -q --filter volume=${volumeName}`, (error, stdout, stderr) => {
+          const { stdout: allContainers } = await new Promise<{ stdout: string; stderr: string }>((resolve) => {
+            exec(`docker ps -a -q --filter volume=${volumeName}`, (error, stdout, stderr) => {
               resolve({ stdout, stderr });
             });
           });
 
-          if (usingContainers.trim()) {
-            logger.warn(`Killing containers still using volume ${volumeName}`);
-            execSync(`docker rm -f ${usingContainers.trim().split('\n').join(' ')}`, { stdio: 'ignore' });
+          if (allContainers.trim()) {
+            logger.warn(`🔍 DEBUG: Found containers using volume ${volumeName}, removing them`);
+            const containerIds = allContainers.trim().split('\n').filter(id => id.trim());
+            for (const containerId of containerIds) {
+              try {
+                execSync(`docker rm -f ${containerId}`, { stdio: 'ignore' });
+                logger.info(`🔍 DEBUG: Removed container ${containerId}`);
+              } catch (removeError) {
+                logger.warn(`🔍 DEBUG: Error removing container ${containerId}:`, removeError);
+              }
+            }
             // Wait after killing containers
-            await new Promise(resolve => setTimeout(resolve, 2000));
+            await new Promise(resolve => setTimeout(resolve, 3000));
+          } else {
+            logger.info(`🔍 DEBUG: No containers found using volume ${volumeName}`);
           }
         } catch (containerError) {
-          logger.warn(`Error checking containers for volume ${volumeName}:`, containerError);
+          logger.warn(`🔍 DEBUG: Error checking containers for volume ${volumeName}:`, containerError);
+        }
+
+        // Check if volume exists before trying to remove
+        try {
+          execSync(`docker volume inspect ${volumeName}`, { stdio: 'ignore' });
+          logger.info(`🔍 DEBUG: Volume ${volumeName} exists, attempting to remove`);
+        } catch {
+          logger.info(`🔍 DEBUG: Volume ${volumeName} does not exist, cleanup complete`);
+          return;
         }
 
         // Try to remove the volume
         execSync(`docker volume rm ${volumeName}`, { stdio: 'ignore' });
-        logger.debug(`Successfully cleaned up volume ${volumeName}`);
+        logger.info(`🔍 DEBUG: Successfully cleaned up volume ${volumeName}`);
         return;
 
       } catch (error) {
         retryCount++;
-        logger.warn(`Cleanup attempt ${retryCount}/${maxRetries} failed for volume ${volumeName}:`, error);
+        logger.warn(`🔍 DEBUG: Cleanup attempt ${retryCount}/${maxRetries} failed for volume ${volumeName}:`, error);
 
         if (retryCount >= maxRetries) {
-          logger.error(`Failed to cleanup volume ${volumeName} after ${maxRetries} attempts`);
+          logger.error(`🔍 DEBUG: Failed to cleanup volume ${volumeName} after ${maxRetries} attempts - volume may still exist`);
           // Don't throw error, just log it to prevent job failure
           return;
         }
 
         // Wait before retry with exponential backoff
-        await new Promise(resolve => setTimeout(resolve, 1000 * retryCount));
+        await new Promise(resolve => setTimeout(resolve, 2000 * retryCount));
       }
     }
   }

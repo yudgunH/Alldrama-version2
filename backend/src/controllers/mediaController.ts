@@ -153,7 +153,8 @@ export const uploadEpisodeVideo = async (req: Request, res: Response): Promise<v
       const videoUrl = new URL(result.originalUrl);
       const videoKey = videoUrl.pathname.substring(1); // Remove leading '/'
       
-      const { hlsQueueService } = await import('../services/queue/hlsQueueService');
+      const hlsQueueServiceModule = await import('../services/queue/hlsQueueService');
+      const hlsQueueService = hlsQueueServiceModule.hlsQueueService;
       
       await hlsQueueService.addHLSJob({
         videoKey,
@@ -589,7 +590,7 @@ export const processVideo = async (req: Request, res: Response): Promise<void> =
   }
 };
 
-// Webhook từ Cloudflare Worker để xử lý video
+// Webhook từ Cloudflare Worker để xử lý video - NOW USES QUEUE SYSTEM
 export const processVideoFromWorker = async (req: Request, res: Response): Promise<void> => {
   try {
     logger.debug("Received process-video request from Worker");
@@ -604,6 +605,10 @@ export const processVideoFromWorker = async (req: Request, res: Response): Promi
     
     const { videoKey, movieId, episodeId } = req.body;
     
+    // DEBUG: Log video key info
+    logger.info(`🔍 DEBUG processVideoFromWorker: videoKey=${videoKey}, movieId=${movieId}, episodeId=${episodeId}`);
+    logger.info(`🔍 DEBUG: Video key type: ${typeof videoKey}, length: ${videoKey?.length}`);
+    
     if (!videoKey || !movieId || !episodeId) {
       logger.debug("Missing required fields");
       res.status(400).json({ 
@@ -613,225 +618,42 @@ export const processVideoFromWorker = async (req: Request, res: Response): Promi
       return;
     }
     
-    // Tạo callback URL cho container để gọi lại khi xử lý xong
-    // Sử dụng IP thật hoặc tên miền public
+    // Generate callback URL for queue system
     let backendHost;
     const isProd = process.env.NODE_ENV === 'production';
     
     if (isProd && process.env.PUBLIC_DOMAIN) {
-      // Sử dụng tên miền public trong môi trường production
-      backendHost = process.env.PUBLIC_DOMAIN; // ví dụ: 'alldramaz.com'
-      logger.debug(`Using public domain for callback: ${backendHost}`);
+      backendHost = process.env.PUBLIC_DOMAIN;
     } else {
-      // Trong môi trường dev, sử dụng IP cục bộ
       backendHost = '127.0.0.1';
-      logger.debug(`Using localhost IP for callback: ${backendHost}`);
     }
     
     const backendPort = process.env.PORT || '5000';
-    const callbackUrl = `http://${backendHost}:${backendPort}/api/media/hls-processor/callback`;
-    logger.debug(`Callback URL: ${callbackUrl}`);
+    const protocol = isProd ? 'https' : 'http';
+    const callbackUrl = `${protocol}://${backendHost}${isProd ? '' : ':' + backendPort}/api/media/hls-processor/callback`;
     
-    // Tạo job ID
-    const jobId = `hls-job-${Date.now()}`;
+    // Generate job ID
+    const jobId = `worker-job-${Date.now()}-${episodeId}`;
     
-    // Tạo và kiểm tra volume với tên riêng cho mỗi job
-    const volumeName = `hls-processor-data-${movieId}-${episodeId}-${Date.now()}`;
-    const volumeCreated = await createVolumeIfNotExists(volumeName);
-    if (!volumeCreated) {
-      throw new Error('Failed to create or verify Docker volume');
-    }
-
-    // Kiểm tra dung lượng trống
-    const hasEnoughSpace = await checkVolumeSpace(volumeName);
-    if (!hasEnoughSpace) {
-      throw new Error('Insufficient space in Docker volume');
-    }
-
-    // Tạo container tạm thời để copy file vào volume
-    const tempContainer = `temp-copy-${Date.now()}`;
-    try {
-      // Tạo container với volume mount
-      execSync(`docker run -d --name ${tempContainer} -v ${volumeName}:/data node:18-slim tail -f /dev/null`);
-      logger.debug(`Created temporary container: ${tempContainer}`);
-
-      // Tạo thư mục trong container với quyền đầy đủ
-      execSync(`docker exec ${tempContainer} mkdir -p /data/input /data/output`);
-      execSync(`docker exec ${tempContainer} chmod 777 /data/input /data/output`);
-
-      // Tải file từ R2 vào buffer
-      logger.debug(`Downloading video from R2 into buffer: ${videoKey}`);
-      const videoData = await downloadFromR2AsBuffer(videoKey);
-      logger.debug(`Downloaded video size: ${videoData.length} bytes`);
-      
-      // Ghi file vào thư mục tạm
-      const tempFile = path.join(os.tmpdir(), 'original.mp4');
-      fs.writeFileSync(tempFile, videoData);
-      logger.debug(`Wrote temporary file: ${tempFile}, size: ${fs.statSync(tempFile).size} bytes`);
-      
-      // Copy file vào container và set quyền
-      logger.debug(`Copying file to container ${tempContainer}:/data/input/original.mp4`);
-      execSync(`docker cp ${tempFile} ${tempContainer}:/data/input/original.mp4`);
-      execSync(`docker exec ${tempContainer} chmod 666 /data/input/original.mp4`);
-      
-      // Verify file in container
-      const result = execSync(`docker exec ${tempContainer} ls -la /data/input/`).toString();
-      logger.debug(`Files in container: ${result}`);
-      
-      // Xóa file tạm
-      fs.unlinkSync(tempFile);
-      
-      logger.debug('Successfully copied video to Docker volume');
-    } catch (error) {
-      // Cleanup nếu có lỗi
-      await cleanupVolume(volumeName);
-      throw error;
-    } finally {
-      // Dọn dẹp container tạm
-      try {
-        execSync(`docker rm -f ${tempContainer}`);
-      } catch (cleanupError) {
-        logger.warn('Error cleaning up temporary container:', cleanupError);
-      }
-    }
+    logger.info(`Worker processing video: ${videoKey} for movie ${movieId}, episode ${episodeId}, jobId: ${jobId}`);
     
-    // Cập nhật trạng thái episode
-    await Episode.update(
-      { processingStatus: 'processing' },
-      { where: { id: episodeId } }
+    // Use MediaService to add job to queue
+    const result = await mediaService.processVideoFromWorker(
+      videoKey, 
+      movieId, 
+      episodeId, 
+      jobId,
+      callbackUrl
     );
     
-    // Khởi chạy Docker container để xử lý
-    try {
-      // Đảm bảo image đã được build
-      try {
-        logger.debug('Building HLS processor Docker image...');
-        execSync('cd hls-processor && docker build -t alldrama-hls-processor .', { stdio: 'inherit' });
-      } catch (buildError) {
-        logger.error('Failed to build Docker image:', buildError);
-        throw new Error('Failed to build Docker image');
-      }
-      
-      // Khởi động container mới để xử lý
-      logger.info(`Starting HLS processor container for episode ${episodeId}`);
-      
-      // Chuẩn bị các tham số chạy docker
-      const r2AccountId = process.env.R2_ACCOUNT_ID || '';
-      const r2AccessKey = process.env.R2_ACCESS_KEY_ID || ''; // Đảm bảo tên biến môi trường đúng
-      const r2SecretKey = process.env.R2_SECRET_ACCESS_KEY || ''; // Đảm bảo tên biến môi trường đúng
-      const r2BucketName = process.env.R2_BUCKET || 'movie-web-vn'; // Đồng bộ tên biến môi trường với r2Service
-      
-      // Khởi chạy container sử dụng exec thay vì spawn
-      const containerName = `hls-processor-${episodeId}-${Date.now()}`;
-      
-      // Tạo lệnh Docker dưới dạng chuỗi - thêm kiểm tra container trước khi chạy
-      try {
-        // Kiểm tra xem image có tồn tại không
-        execSync('docker image inspect alldrama-hls-processor');
-        logger.debug('HLS processor image exists and is ready');
         
-        // Kiểm tra xem volume có dữ liệu không
-        const volumeCheck = execSync(`docker run --rm -v hls-processor-data:/data alpine ls -la /data/input/original.mp4`).toString();
-        logger.debug(`Volume data check: ${volumeCheck.trim()}`);
-      } catch (checkError) {
-        logger.warn(`Pre-run check failed: ${checkError}`);
-        // Tiếp tục vì có thể image chưa được pull nhưng vẫn có thể build
-      }
-      
-      // Tạo lệnh Docker dưới dạng chuỗi
-      const dockerCommand = [
-        'docker', 'run',
-        '-d', // Chạy ở chế độ detached
-        '--name', containerName,
-        '--rm', // Tự động xóa container sau khi chạy xong
-        '--network', 'host', // Sử dụng network của host
-        '--add-host=host.docker.internal:host-gateway', // Thêm host.docker.internal vào /etc/hosts
-        '-v', `${volumeName}:/data`,
-        'alldrama-hls-processor',
-        '/data/input/original.mp4',
-        '/data/output',
-        `${movieId}`,
-        `${episodeId}`,
-        `${r2AccountId}`,
-        `${r2AccessKey}`,
-        `${r2SecretKey}`,
-        `${r2BucketName}`,
-        `${callbackUrl}`,
-        `${volumeName}` // Truyền tên volume để cleanup
-      ].join(' ');
-      
-      // Log lệnh Docker để debug
-      logger.debug(`Executing Docker command: ${dockerCommand}`);
-      
-      // Thực thi lệnh chính và bắt kết quả
-      logger.debug("Executing detached container now...");
-      const { stdout, stderr } = await new Promise<{stdout: string, stderr: string}>((resolve, reject) => {
-        exec(dockerCommand, (error, stdout, stderr) => {
-          if (error && !stdout) {
-            logger.error(`Error executing Docker command: ${error.message}`);
-            reject(error);
-            return;
-          }
-          
-          resolve({ stdout, stderr });
-        });
-      });
-      
-      // Ghi log kết quả thực thi
-      logger.debug(`Container ID: ${stdout.trim()}`);
-      
-      if (stderr) {
-        logger.warn(`Docker warnings: ${stderr}`);
-      }
-      
-      // Kiểm tra xem container đã thực sự chạy chưa
-      logger.debug(`Verifying container is running...`);
-      try {
-        const { stdout: psOutput } = await new Promise<{stdout: string, stderr: string}>((resolve, reject) => {
-          exec(`docker ps --filter "name=${containerName}" --format "{{.ID}}"`, (error, stdout, stderr) => {
-            if (error) {
-              logger.warn(`Error checking container status: ${error.message}`);
-              // Không reject vì đây chỉ là kiểm tra
-            }
-            resolve({ stdout, stderr });
-          });
-        });
-        
-        if (psOutput.trim()) {
-          logger.info(`Container ${containerName} is running with ID: ${psOutput.trim()}`);
-        } else {
-          logger.warn(`Container ${containerName} may not be running. Checking docker ps -a...`);
-          const { stdout: psAllOutput } = await new Promise<{stdout: string, stderr: string}>((resolve) => {
-            exec(`docker ps -a --filter "name=${containerName}" --format "{{.ID}} {{.Status}}"`, (error, stdout, stderr) => {
-              resolve({ stdout, stderr });
-            });
-          });
-          logger.info(`Container status: ${psAllOutput.trim() || 'Not found'}`);
-        }
-      } catch (verifyError) {
-        logger.warn(`Error verifying container: ${verifyError instanceof Error ? verifyError.message : String(verifyError)}`);
-      }
-      
-      // Trả về response ngay để Worker không phải đợi
-      res.json({ 
-        success: true,
-        jobId,
-        message: `HLS processing started in container ${containerName}`
-      });
-    } catch (error) {
-      logger.error('Error starting Docker container:', error);
-      
-      // Cập nhật trạng thái thất bại
-      await Episode.update(
-        { processingStatus: 'failed' },
-        { where: { id: episodeId } }
-      );
-      
-      res.status(500).json({ 
-        success: false, 
-        error: error instanceof Error ? error.message : 'Unknown error with Docker'
-      });
-    }
+    // Return response immediately for Worker
+    res.json({ 
+      success: result.success,
+      jobId: result.jobId,
+      queuePosition: result.queuePosition,
+      error: result.error
+    });
   } catch (error: unknown) {
     logger.error('Error processing video with Docker:', error);
     res.status(500).json({ 

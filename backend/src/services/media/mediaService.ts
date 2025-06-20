@@ -412,7 +412,8 @@ export class MediaService {
       );
       
       // Import dynamic để tránh circular dependency
-      const { hlsQueueService } = await import('../queue/hlsQueueService');
+      const hlsQueueServiceModule = await import('../queue/hlsQueueService');
+      const hlsQueueService = hlsQueueServiceModule.hlsQueueService;
       
       // Thêm job vào queue thay vì xử lý trực tiếp
       const job = await hlsQueueService.addHLSJob({
