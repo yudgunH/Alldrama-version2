@@ -333,4 +333,65 @@ export const toggleQueue = async (req: Request, res: Response): Promise<void> =>
       error: error instanceof Error ? error.message : 'Unknown error'
     });
   }
+};
+
+/**
+ * Debug Redis connection
+ */
+export const debugRedis = async (req: Request, res: Response): Promise<void> => {
+  try {
+    logger.info('🔍 DEBUG: Testing Redis connection...');
+    
+    // Import dynamic để test
+    const hlsQueueServiceModule = await import('../services/queue/hlsQueueService');
+    const hlsQueueService = hlsQueueServiceModule.hlsQueueService;
+    
+    // Test Redis ping
+    const startTime = Date.now();
+    
+    try {
+      // Get Redis client từ queue service
+      const redisClient = (hlsQueueService as any).redisConnection;
+      
+      logger.info('🔍 DEBUG: Pinging Redis...');
+      const pingResult = await redisClient.ping();
+      const pingTime = Date.now() - startTime;
+      
+      logger.info(`🔍 DEBUG: Redis ping successful: ${pingResult} (${pingTime}ms)`);
+      
+      // Test simple set/get
+      const testKey = `debug:test:${Date.now()}`;
+      await redisClient.set(testKey, 'test-value', 'EX', 10);
+      const getValue = await redisClient.get(testKey);
+      
+      res.json({
+        success: true,
+        redis: {
+          ping: pingResult,
+          pingTime: `${pingTime}ms`,
+          testSetGet: getValue === 'test-value' ? 'PASS' : 'FAIL',
+          connectionStatus: redisClient.status,
+          host: redisClient.options.host,
+          port: redisClient.options.port,
+          commandTimeout: redisClient.options.commandTimeout,
+        }
+      });
+      
+    } catch (redisError) {
+      logger.error('🔍 DEBUG: Redis error:', redisError);
+      res.status(500).json({
+        success: false,
+        error: 'Redis connection failed',
+        details: redisError instanceof Error ? redisError.message : String(redisError),
+        timeout: Date.now() - startTime,
+      });
+    }
+    
+  } catch (error) {
+    logger.error('Error testing Redis:', error);
+    res.status(500).json({
+      success: false,
+      error: error instanceof Error ? error.message : 'Unknown error'
+    });
+  }
 }; 

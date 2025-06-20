@@ -6,7 +6,8 @@ import {
   cancelJob,
   retryJob,
   getJobsByState,
-  toggleQueue
+  toggleQueue,
+  debugRedis
 } from '../controllers/queueController';
 import { authenticate, requireAdmin } from '../middleware';
 import { runAsyncWrapper } from '../utils/runAsyncWrapper';
@@ -264,6 +265,24 @@ router.post('/toggle',
   authenticate, 
   requireAdmin, 
   runAsyncWrapper(toggleQueue)
+);
+
+/**
+ * @swagger
+ * /api/queue/debug/redis:
+ *   get:
+ *     summary: Debug Redis connection
+ *     tags: [Queue]
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: Redis connection info
+ */
+router.get('/debug/redis', 
+  authenticate, 
+  requireAdmin, 
+  runAsyncWrapper(debugRedis)
 );
 
 export default router; 

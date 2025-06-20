@@ -37,21 +37,34 @@ class HLSQueueService {
   private isRunning = false;
 
   constructor() {
-    // Tạo kết nối Redis riêng cho queue
+    // Tạo kết nối Redis riêng cho queue theo BullMQ best practices
     this.redisConnection = new IORedis({
       host: process.env.REDIS_HOST || '172.17.0.2',
       port: parseInt(process.env.REDIS_PORT || '6379'),
       password: process.env.REDIS_PASSWORD,
-      maxRetriesPerRequest: null,
+      maxRetriesPerRequest: null, // Essential for BullMQ workers
       lazyConnect: true,
       enableReadyCheck: true,
-      connectTimeout: 10000,
-      commandTimeout: 0, // Disable command timeout for long-running jobs
+      connectTimeout: 60000, // 60s connection timeout
+      commandTimeout: 60000, // 60s command timeout for long operations
+      enableOfflineQueue: true, // Enable for workers as per BullMQ docs
+      retryStrategy: (times: number) => {
+        // Exponential backoff with max 20s, min 1s
+        return Math.max(Math.min(Math.exp(times), 20000), 1000);
+      },
     });
 
     // Thêm error handlers cho Redis
     this.redisConnection.on('error', (error) => {
       logger.error('Redis connection error:', error);
+      // Force reconnect on timeout errors
+      if (error.message.includes('timeout')) {
+        logger.warn('Forcing Redis reconnect due to timeout...');
+        this.redisConnection.disconnect();
+        setTimeout(() => {
+          this.redisConnection.connect();
+        }, 1000);
+      }
     });
 
     this.redisConnection.on('reconnecting', () => {
@@ -62,9 +75,24 @@ class HLSQueueService {
       logger.info('Redis connection ready');
     });
 
-    // Khởi tạo queue
+    this.redisConnection.on('close', () => {
+      logger.warn('Redis connection closed');
+    });
+
+    // Khởi tạo queue với proper Redis config for production
     this.queue = new Queue<HLSJobData, HLSJobResult>('hls-processing', {
-      connection: this.redisConnection,
+      connection: {
+        host: process.env.REDIS_HOST || '172.17.0.2',
+        port: parseInt(process.env.REDIS_PORT || '6379'),
+        password: process.env.REDIS_PASSWORD,
+        maxRetriesPerRequest: null,
+        enableOfflineQueue: false, // Disable for Queue instances as per BullMQ docs
+        connectTimeout: 60000,
+        commandTimeout: 60000,
+        retryStrategy: (times: number) => {
+          return Math.max(Math.min(Math.exp(times), 20000), 1000);
+        },
+      },
       defaultJobOptions: {
         removeOnComplete: 10, // Giữ lại 10 job hoàn thành gần nhất
         removeOnFail: 50,     // Giữ lại 50 job thất bại gần nhất
@@ -76,12 +104,12 @@ class HLSQueueService {
       },
     });
 
-    // Khởi tạo worker
+    // Khởi tạo worker với separate Redis connection optimized for workers
     this.worker = new Worker<HLSJobData, HLSJobResult>(
       'hls-processing',
       this.processHLSJob.bind(this),
       {
-        connection: this.redisConnection,
+        connection: this.redisConnection, // Use the worker-optimized connection
         concurrency: parseInt(process.env.HLS_QUEUE_CONCURRENCY || '2'),
         removeOnComplete: { count: 10 },
         removeOnFail: { count: 50 },
