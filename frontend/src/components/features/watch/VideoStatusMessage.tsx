@@ -14,7 +14,8 @@ export const VideoStatusMessage: React.FC<VideoStatusMessageProps> = ({
   isLoading = false,
   error
 }) => {
-  if (sourceType === 'none' || error || processingStatus === 'processing' || processingStatus === 'pending') {
+  // Chỉ hiển thị processing message khi thực sự không có source nào hoặc có lỗi
+  if (sourceType === 'none' || error || (sourceType === 'test' && (processingStatus === 'processing' || processingStatus === 'pending'))) {
     return (
       <div className="absolute inset-0 bg-black/90 flex items-center justify-center text-white">
         <div className="text-center p-6 max-w-md">
@@ -74,6 +75,11 @@ export const VideoStatusMessage: React.FC<VideoStatusMessageProps> = ({
         <span className="capitalize">
           {sourceType === 'hls' ? 'HLS Stream' : 'MP4 Video'}
         </span>
+        {processingStatus === 'processing' && sourceType === 'mp4' && (
+          <span className="ml-2 px-2 py-1 bg-yellow-500/20 text-yellow-300 rounded text-xs">
+            Fallback
+          </span>
+        )}
       </div>
     </div>
   );

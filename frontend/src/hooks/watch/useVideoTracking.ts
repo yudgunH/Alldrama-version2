@@ -7,9 +7,10 @@ import { MovieWithSubtitles, EpisodeWithSubtitles } from './useWatchData'
 interface UseVideoTrackingProps {
   movie: MovieWithSubtitles | null;
   activeEpisode: EpisodeWithSubtitles | null;
+  videoElement?: HTMLVideoElement | null;
 }
 
-export function useVideoTracking({ movie, activeEpisode }: UseVideoTrackingProps) {
+export function useVideoTracking({ movie, activeEpisode, videoElement }: UseVideoTrackingProps) {
   const [hasTrackedView, setHasTrackedView] = useState(false)
   
   const { isAuthenticated } = useAuth()
@@ -108,7 +109,6 @@ export function useVideoTracking({ movie, activeEpisode }: UseVideoTrackingProps
   // Handle time update
   const handleTimeUpdate = useCallback((time: number) => {
     try {
-      const videoElement = document.querySelector('video')
       if (!videoElement) return
       
       const duration = videoElement.duration || 0
@@ -120,13 +120,12 @@ export function useVideoTracking({ movie, activeEpisode }: UseVideoTrackingProps
     } catch (error) {
       // Silent error handling
     }
-  }, [trackViewCount, debouncedUpdateProgress, isAuthenticated])
+  }, [trackViewCount, debouncedUpdateProgress, isAuthenticated, videoElement])
 
   // Handle video end
   const handleVideoEnd = useCallback(() => {
     try {
       if (movieRef.current) {
-        const videoElement = document.querySelector('video')
         const duration = videoElement?.duration || 0
         
         const movieIdNumber = Number(movieRef.current.id)
@@ -154,7 +153,7 @@ export function useVideoTracking({ movie, activeEpisode }: UseVideoTrackingProps
     } catch (error) {
       console.error('Error handling video end:', error)
     }
-  }, [trackViewCount, isAuthenticated, updateProgress]) // Minimal dependencies
+  }, [trackViewCount, isAuthenticated, updateProgress, videoElement]) // Minimal dependencies
 
   return {
     handleTimeUpdate,

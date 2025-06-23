@@ -10,7 +10,6 @@ export interface VideoPlayerProps {
   onTimeUpdate: (time: number) => void;
   initialTime: number;
   isHLS: boolean; // Luôn mặc định là HLS từ backend
-  useTestVideo?: boolean;
   useCustomControls: boolean; // Cho phép chọn giữa điều khiển tùy chỉnh và điều khiển mặc định
   autoPlay: boolean;
   onEnded?: () => void;
