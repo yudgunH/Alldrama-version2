@@ -30,6 +30,9 @@ export default function MovieListPage() {
   // Check cache first before using infinite scroll
   const [cachedMovies, setCachedMovies] = useState<Movie[]>([]);
   const [showingCachedResults, setShowingCachedResults] = useState(false);
+  const [nextPageToLoad, setNextPageToLoad] = useState(1); // Track next page to load from server
+  const [loadingMore, setLoadingMore] = useState(false); // Track loading state for load more button
+  const [hasMoreToLoad, setHasMoreToLoad] = useState(true); // Track if there are more movies to load
   
   // Use infinite scroll hook for movies
   const {
@@ -39,12 +42,14 @@ export default function MovieListPage() {
     hasMore,
     loadMore,
     isValidating,
-    searchMovies
+    searchMovies,
+    refreshFromServer
   } = useMoviesInfinite(searchParams, {
     initialPageSize: 15,
     pageSize: 20,
     preloadCount: 5,
-    enableCache: true
+    enableCache: true,
+    preserveDataOnSearch: true
   });
 
   // Infinite scroll hook
@@ -66,12 +71,21 @@ export default function MovieListPage() {
     const checkCache = () => {
       // Get cached movies first
       const allCachedMovies = cacheManager.getAllCachedMovies();
+
+      
       if (allCachedMovies.length > 0) {
-        setCachedMovies(allCachedMovies);
+        // Only show first 15 cached movies
+        const first15Movies = allCachedMovies.slice(0, 15);
+        setCachedMovies(first15Movies);
         setShowingCachedResults(true);
+        setNextPageToLoad(2); // Next page to load is page 2
         
         // Also add them to the cacheManager for consistency
-        cacheManager.addDiscoveredMovies(allCachedMovies);
+        cacheManager.addDiscoveredMovies(first15Movies);
+      } else {
+        // No cache, start fresh
+        setShowingCachedResults(false);
+        setNextPageToLoad(1);
       }
     };
     
@@ -155,11 +169,68 @@ export default function MovieListPage() {
       router.push(`/search?genre=${encodeURIComponent(genre)}`);
     }
   }, [activeGenre, searchMovies, router, genres]);
+
+  // Function to load more movies from server and append to cache
+  const loadMoreFromServer = useCallback(async () => {
+    if (loadingMore) return; // Prevent double loading
+    
+    try {
+      setLoadingMore(true);
+      
+      const newParams = {
+        genre: activeGenre !== 'all' ? genres.find(g => g.name === activeGenre)?.id : undefined,
+        sort: 'views' as const,
+        order: 'DESC' as const,
+        page: nextPageToLoad,
+        limit: 15
+      };
+
+
+
+      // Import movieService to fetch directly
+      const { movieService } = await import('@/lib/api/services/movieService');
+      const result = await movieService.getMovies(newParams);
+
+      if (result?.movies && result.movies.length > 0) {
+        if (nextPageToLoad === 1) {
+          // First page - cache these movies
+          setCachedMovies(result.movies);
+          setShowingCachedResults(true);
+          
+          // Update cache manager only for first page
+          cacheManager.addDiscoveredMovies(result.movies);
+        } else {
+          // Subsequent pages - don't cache, just append to display
+          const currentDisplayMovies = showingCachedResults ? cachedMovies : [];
+          const allDisplayMovies = [...currentDisplayMovies, ...result.movies];
+          setCachedMovies(allDisplayMovies);
+          setShowingCachedResults(false); // Not showing cached results anymore
+        }
+        
+        setNextPageToLoad(nextPageToLoad + 1);
+      } else {
+        // No more movies available
+        setHasMoreToLoad(false);
+      }
+    } catch (error) {
+      console.error('Error loading more movies:', error);
+    } finally {
+      setLoadingMore(false);
+    }
+  }, [activeGenre, genres, nextPageToLoad, cachedMovies, loadingMore]);
+
+  // Auto load first batch if no cache and no API movies
+  useEffect(() => {
+    if (!showingCachedResults && cachedMovies.length === 0 && (!movies || movies.length === 0) && !isLoading && nextPageToLoad === 1) {
+
+      loadMoreFromServer();
+    }
+  }, [showingCachedResults, cachedMovies.length, movies, isLoading, nextPageToLoad, loadMoreFromServer]);
   
   // Memoize processed movies to avoid unnecessary recalculations
   const allMovies = useMemo(() => {
-    // Use cached movies if showing cached results, otherwise use API movies
-    const sourceMovies = showingCachedResults ? cachedMovies : movies || [];
+    // Always use cachedMovies for display (contains either cache-only or cache + additional pages)
+    const sourceMovies = cachedMovies.length > 0 ? cachedMovies : movies || [];
     
     if (!sourceMovies || sourceMovies.length === 0) return [];
     
@@ -167,7 +238,7 @@ export default function MovieListPage() {
         ...movie,
         type: movie.totalEpisodes > 0 ? 'series' : 'movie'
       })) as ProcessedMovie[];
-  }, [movies, cachedMovies, showingCachedResults]);
+  }, [movies, cachedMovies]);
   
   // Loading skeleton component
   const LoadingSkeleton = () => (
@@ -217,12 +288,20 @@ export default function MovieListPage() {
           <div className="flex flex-col gap-4">
             <div className="flex flex-wrap justify-between items-center gap-3">
               <h3 className="text-white font-medium">Thể loại phim</h3>
-              {isValidating && (
-                <div className="flex items-center gap-2 text-sm text-gray-400">
-                  <RefreshCw className="w-4 h-4 animate-spin" />
-                  Đang tải...
-                </div>
-              )}
+              <div className="flex items-center gap-4">
+                {/* Cache info - only show for first 15 movies */}
+                {showingCachedResults && cachedMovies.length === 15 && (
+                  <div className="text-xs text-gray-500">
+                    Cache: 15 phim đầu
+                  </div>
+                )}
+                {isValidating && (
+                  <div className="flex items-center gap-2 text-sm text-gray-400">
+                    <RefreshCw className="w-4 h-4 animate-spin" />
+                    Đang tải...
+                  </div>
+                )}
+              </div>
             </div>
             
             {/* Genre Tags */}
@@ -289,34 +368,35 @@ export default function MovieListPage() {
                 </div>
               )}
               
-              {/* Load more button for cached results */}
-              {showingCachedResults && allMovies.length > 0 && (
+              {/* Load more button */}
+              {allMovies.length > 0 && (
                 <div className="text-center py-8">
-                  <p className="text-gray-400 mb-4">
-                    Đang hiển thị {allMovies.length} phim
-                  </p>
-                  <Button 
-                    variant="outline" 
-                    onClick={() => {
-                      setShowingCachedResults(false);
-                      const newParams = {
-                        genre: activeGenre !== 'all' ? genres.find(g => g.name === activeGenre)?.id : undefined,
-                        sort: 'views' as const,
-                        order: 'DESC' as const,
-                      };
-                      setSearchParams(newParams);
-                      searchMovies(newParams);
-                    }}
-                  >
-                    Tải thêm từ server
-                  </Button>
+                  <div className="flex gap-3 justify-center">
+                    <Button 
+                      variant="outline" 
+                      onClick={loadMoreFromServer}
+                      disabled={loadingMore || !hasMoreToLoad}
+                    >
+                      {loadingMore ? (
+                        <>
+                          <RefreshCw className="w-4 h-4 animate-spin mr-2" />
+                          Đang tải thêm 15 phim...
+                        </>
+                      ) : !hasMoreToLoad ? (
+                        'Đã tải hết phim'
+                      ) : (
+                        `Tải thêm phim`
+                      )}
+                    </Button>
+                  </div>
                 </div>
               )}
+
               
               {/* End of results message */}
               {!hasMore && !showingCachedResults && allMovies.length > 0 && (
                 <div className="text-center py-8">
-                  <p className="text-gray-400">Đã hiển thị tất cả {allMovies.length} phim</p>
+                  <p className="text-gray-400">Đã hiển thị {allMovies.length} phim</p>
                 </div>
               )}
               

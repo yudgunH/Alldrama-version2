@@ -17,6 +17,8 @@ import { Movie } from '@/types';
 export default function Home() {
   // Track visible sections for lazy loading
   const [visibleSections, setVisibleSections] = useState<Set<string>>(new Set(['newest']));
+  // State to store random featured movies (only calculated once)
+  const [randomFeaturedMovies, setRandomFeaturedMovies] = useState<Movie[]>([]);
   
   // Use custom hook to get all homepage data
   const { 
@@ -24,6 +26,14 @@ export default function Home() {
     isLoading, 
     error 
   } = useHomepageData(DEFAULT_SECTIONS);
+
+  // Effect to set random featured movies only once when featured data is available
+  useEffect(() => {
+    if (sections.trending && sections.trending.length > 0 && randomFeaturedMovies.length === 0) {
+      const shuffled = [...sections.trending].sort(() => Math.random() - 0.5);
+      setRandomFeaturedMovies(shuffled.slice(0, 3));
+    }
+  }, [sections.trending, randomFeaturedMovies.length]);
 
   // Create refs for each section
   const sectionRefs = DEFAULT_SECTIONS.reduce((acc, section) => {
@@ -72,7 +82,7 @@ export default function Home() {
           <section className="py-8" aria-label="Phim nổi bật">
             <h2 className="text-2xl font-bold text-white mb-6">Phim Nổi Bật Hôm Nay</h2>
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-              {sections.featured?.slice(0, 3).map((movie: Movie) => (
+              {randomFeaturedMovies.map((movie: Movie) => (
                 <MovieDetailCard
                   key={movie.id}
                   movie={movie}

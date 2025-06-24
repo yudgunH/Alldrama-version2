@@ -16,6 +16,7 @@ interface UseMoviesInfiniteOptions {
   pageSize?: number;
   preloadCount?: number;
   enableCache?: boolean;
+  preserveDataOnSearch?: boolean;
 }
 
 interface UseMoviesInfiniteReturn {
@@ -30,7 +31,8 @@ interface UseMoviesInfiniteReturn {
   hasMore: boolean;
   loadMore: () => Promise<void>;
   isValidating: boolean;
-  searchMovies: (params: MovieSearchParams) => void;
+  searchMovies: (params: MovieSearchParams, resetToFirstPage?: boolean) => void;
+  refreshFromServer: (params: MovieSearchParams) => void;
 }
 
 export function useMoviesInfinite(
@@ -42,9 +44,13 @@ export function useMoviesInfinite(
     pageSize = 20,
     preloadCount = 5,
     enableCache = true,
+    preserveDataOnSearch = false,
   } = options;
 
   const [currentParams, setCurrentParams] = useState(searchParams);
+
+  // Track if we're in refresh mode to use larger page size
+  const [isRefreshMode, setIsRefreshMode] = useState(false);
 
   // Generate SWR key for infinite loading
   const getKey = useCallback(
@@ -55,7 +61,8 @@ export function useMoviesInfinite(
       }
 
       const page = pageIndex + 1;
-      const limit = page === 1 ? initialPageSize : pageSize;
+      // Use pageSize for refresh mode to get more movies, otherwise use initialPageSize for first page
+      const limit = (page === 1 && !isRefreshMode) ? initialPageSize : pageSize;
       
       return [
         'movies-infinite',
@@ -66,7 +73,7 @@ export function useMoviesInfinite(
         },
       ];
     },
-    [currentParams, initialPageSize, pageSize]
+    [currentParams, initialPageSize, pageSize, isRefreshMode]
   );
 
   // Fetcher function with caching
@@ -180,15 +187,33 @@ export function useMoviesInfinite(
   }, [hasMore, isValidating, setSize, size]);
 
   // Search function
-  const searchMovies = useCallback((params: MovieSearchParams) => {
+  const searchMovies = useCallback((params: MovieSearchParams, resetToFirstPage = true) => {
     setCurrentParams(params);
-    // Reset to first page when searching
-    setSize(1);
-    // Clear cache for new search if enabled
-    if (enableCache) {
-      cacheManager.clearMovieCache();
+    setIsRefreshMode(false); // Normal search mode
+    
+    if (resetToFirstPage) {
+      // Reset to first page when searching
+      setSize(1);
+      // Clear cache for new search if enabled and not preserving data
+      if (enableCache && !preserveDataOnSearch) {
+        cacheManager.clearMovieCache();
+      }
+    } else {
+      // Continue from where we left off, just update params
+      // Don't clear cache to preserve existing data
     }
-  }, [setSize, enableCache]);
+  }, [setSize, enableCache, preserveDataOnSearch]);
+
+  // Add a new function to force refresh from server
+  const refreshFromServer = useCallback((params: MovieSearchParams) => {
+    setCurrentParams(params);
+    setIsRefreshMode(true); // Enable refresh mode for larger page size
+    // Always reset to first page and clear cache for refresh
+    setSize(1);
+    cacheManager.clearMovieCache();
+    // Force revalidation
+    mutate();
+  }, [setSize, mutate]);
 
   const loading = !data && !error;
 
@@ -199,6 +224,7 @@ export function useMoviesInfinite(
     hasMore,
     loadMore,
     isValidating,
-    searchMovies
+    searchMovies,
+    refreshFromServer
   };
 } 

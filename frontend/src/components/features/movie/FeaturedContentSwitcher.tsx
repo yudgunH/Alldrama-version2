@@ -11,7 +11,7 @@ import { Separator } from '@/components/ui/separator'
 import { Skeleton } from '@/components/ui/skeleton'
 import { cn } from '@/lib/utils'
 import { Movie } from '@/types'
-import { generateMovieUrl } from '@/utils/url'
+import { generateMovieUrl, generateWatchUrl } from '@/utils/url'
 import { getImageInfo } from '@/utils/image'
 import { useMobile } from '@/hooks/use-mobile'
 import { motion, AnimatePresence } from 'framer-motion'
@@ -379,7 +379,7 @@ const FeaturedContentSwitcher = ({
                     )}
                     asChild
                   >
-                    <Link href={`/watch/${String(selectedItem.id)}`}>
+                    <Link href={generateWatchUrl(String(selectedItem.id), selectedItem.title)}>
                       <Play className={cn(isMobile ? "h-3 w-3" : "h-3 w-3")} />
                       Xem ngay
                     </Link>
