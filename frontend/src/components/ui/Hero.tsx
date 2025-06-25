@@ -252,7 +252,7 @@ const Hero = () => {
         <div className={cn(
           "relative max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex items-center",
           isMobile 
-            ? "min-h-[50vh] items-end pb-6 pt-6" 
+            ? "min-h-[50vh] items-end pb-16 pt-16" 
             : "h-full items-center"
         )}>
           <AnimatePresence mode="wait">
