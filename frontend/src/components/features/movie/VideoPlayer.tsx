@@ -18,9 +18,7 @@ import type {VideoPlayerProps} from '@/types/media'
 /* ------------------------------------------------------------------
  * constants + helpers
  * ----------------------------------------------------------------*/
-const TEST_HLS    = 'https://test-streams.mux.dev/x36xhzz/x36xhzz.m3u8'
-const TEST_MP4    = 'https://storage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4'
-const TEST_POSTER = 'https://peach.blender.org/wp-content/uploads/bbb-splash.png'
+
 
 const isiOS = () =>
   typeof navigator !== 'undefined' && /iP(hone|od|ad)/.test(navigator.userAgent)
@@ -112,9 +110,8 @@ export default function VideoPlayer({
   onTimeUpdate,
   autoPlay = false,
   onEnded,
-  isHLS = true,             // true nếu chuỗi .m3u8
+  isHLS,                    // auto-detected based on file extension
   useCustomControls = true,  // always respects this setting for all devices
-  useTestVideo = false,
   subtitles = [],             // [{src,label,lang,default?}]
   onHLSReady,
   onQualityLevelsUpdate,
@@ -129,16 +126,11 @@ export default function VideoPlayer({
    * decide source & flags
    * --------------------------------------------------------------*/
   const videoSrc = useMemo(() => {
-    if (useTestVideo) return TEST_HLS
     return src || videoUrl || ''
-  }, [useTestVideo, src, videoUrl])
-
-  const testMode = useMemo(() => useTestVideo || !videoSrc, [useTestVideo, videoSrc])
-  const displayTitle = useMemo(() => (
-    testMode ? 'Video Test: Big Buck Bunny' : (title || 'Đang phát')
-  ), [testMode, title])
+  }, [src, videoUrl])
 
   const hlsStream = useMemo(() => videoSrc.endsWith('.m3u8'), [videoSrc])
+  const mp4Stream = useMemo(() => videoSrc.endsWith('.mp4'), [videoSrc])
   const custom = useCustomControls   // Always respect the useCustomControls prop
 
   /* ----------------------------------------------------------------
@@ -233,12 +225,21 @@ export default function VideoPlayer({
     
     if(hlsRef.current){ hlsRef.current.destroy(); hlsRef.current=null }
 
+    // For MP4 files, always use native video element
+    if(mp4Stream) {
+      v.src = videoSrc
+      // Clear any quality levels for MP4 since it's a single file
+      setLevels([])
+      onQualityLevelsUpdate?.([])
+      return
+    }
+
     // FORCE HLS.js on iOS for quality control - this is the key change!
     const shouldForceHLS = isiOS() && Hls.isSupported() && forceHLSJS
     const useNativeHLS = !hlsStream || (v.canPlayType('application/vnd.apple.mpegurl') && !shouldForceHLS)
     
     if(useNativeHLS || !hlsStream) {
-      // Sử dụng phát native cho MP4 hoặc HLS native
+      // Sử dụng phát native cho HLS native hoặc không xác định format
       v.src = videoSrc
 
       
@@ -353,7 +354,7 @@ export default function VideoPlayer({
       onHLSReady?.(h, v)
     }
     return ()=>{ hlsRef.current?.destroy(); hlsRef.current=null }
-  },[videoSrc, hlsStream, forceHLSJS]) // Add forceHLSJS to deps to reload when toggled
+  },[videoSrc, hlsStream, mp4Stream, forceHLSJS]) // Add mp4Stream to deps
 
   /* ----------------------------------------------------------------
    * helpers UI
@@ -673,7 +674,7 @@ export default function VideoPlayer({
         playsInline
         autoPlay={autoPlay}
         preload="auto"
-        title={displayTitle}
+        title={title || 'Đang phát'}
         onClick={(e) => {
           e.stopPropagation();
           if (custom) {
@@ -686,8 +687,7 @@ export default function VideoPlayer({
         ))}
       </video>
 
-      {/* badge & error */}
-      {testMode && <span className="absolute top-2 right-2 bg-yellow-500 text-black text-xs font-semibold px-2 py-0.5 rounded">Test</span>}
+      {/* error */}
       {fatalErr && <div className="absolute inset-0 bg-black/75 flex items-center justify-center text-red-400">Không phát được video</div>}
 
       {/* ----------------- Custom controls ----------------- */}
