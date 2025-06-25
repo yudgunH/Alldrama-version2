@@ -51,7 +51,10 @@ const allowedOrigins = [
   'https://www.alldrama.net',
   'https://alldrama-version2.vercel.app',
   'https://alldrama.online',
-  'https://alldrama-vietnam-frontend.vercel.app'
+  'https://alldrama-vietnam-frontend.vercel.app',
+  'https://www.verdrama.com',
+  'https://verdrama.com',
+  'https://movie-website-three-delta.vercel.app'
 ];
 
 app.use(cors({
