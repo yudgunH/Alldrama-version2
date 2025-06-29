@@ -68,10 +68,7 @@ export default function Home() {
       <main>
         <Hero />
         
-        {/* Native Banner sau Hero */}
-        <section className="py-4">
-          <NativeBanner style="full" className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8" />
-        </section>
+
         
         {/* Top 10 Movies Section with trapezoid cards */}
         <section aria-label="Phim đang hot">
@@ -108,10 +105,7 @@ export default function Home() {
             />
           </section>
 
-          {/* Native Banner giữa featured và movie sliders */}
-          <section className="py-6">
-            <NativeBanner style="compact" className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8" />
-          </section>
+
           
           {/* Section for featured movie sliders */}
           <section className="py-4 space-y-12" aria-label="Danh sách phim theo danh mục">
@@ -143,8 +137,20 @@ export default function Home() {
           </section>
 
           {/* Native Banner cuối trang */}
-          <section className="py-8">
-            <NativeBanner style="full" className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8" />
+          {/* Desktop version */}
+          <section className="py-1 md:py-8 hidden md:block">
+            <NativeBanner 
+              style="full" 
+              className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8" 
+            />
+          </section>
+          
+          {/* Mobile compact version */}
+          <section className="py-1 md:hidden">
+            <NativeBanner 
+              style="compact" 
+              className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8" 
+            />
           </section>
           
           {/* Additional SEO Content Section */}

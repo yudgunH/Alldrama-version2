@@ -194,6 +194,14 @@ export default function RootLayout({
           src="//pl26011345.profitableratecpm.com/41/2c/78/412c7823fde1808f4dead1cfc800a971.js"
           strategy="afterInteractive"
         />
+        
+        {/* Native Banner Advertisement */}
+        <Script
+          src="//orientsweptautopsy.com/51e671af8174b21a219f35f16d8e4c70/invoke.js"
+          strategy="afterInteractive"
+          data-cfasync="false"
+          async
+        />
       </body>
     </html>
   );

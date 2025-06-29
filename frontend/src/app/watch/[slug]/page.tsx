@@ -96,11 +96,6 @@ export default function WatchPage() {
           startTime={startTime}
         />
 
-        {/* Native Banner sau video player */}
-        <div className="py-4">
-          <NativeBanner style="full" />
-        </div>
-
         {/* Content and Comments */}
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
           <div className="lg:col-span-2 space-y-6">
@@ -113,15 +108,20 @@ export default function WatchPage() {
               episodeListResponse={{ episodes: episodes || [] }}
             />
 
+            {/* Native Banner dưới tập phim, trên bình luận */}
+            <div className="py-1 md:py-4">
+              <NativeBanner style="compact" />
+            </div>
+
             <CommentSection movieId={String(movie.id)} />
           </div>
 
           <div className="space-y-6">
             <RelatedMovies movie={movie} />
             
-            {/* Native Banner trong sidebar */}
+            {/* Native Banner trong sidebar - ẩn trên mobile */}
             <div className="py-2">
-              <NativeBanner style="sidebar" />
+              <NativeBanner style="sidebar" hideOnMobile={true} />
             </div>
           </div>
         </div>

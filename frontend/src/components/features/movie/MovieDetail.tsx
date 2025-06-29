@@ -705,9 +705,9 @@ const MovieDetail = ({ movieId, initialData }: MovieDetailProps) => {
                   </CardContent>
                 </Card>
 
-                {/* Native Banner */}
-                <div className="py-4">
-                  <NativeBanner style="full" />
+                {/* Native Banner - ẩn trên mobile */}
+                <div className="py-2 md:py-4">
+                  <NativeBanner style="full" hideOnMobile={true} />
                 </div>
 
                 {/* Có thể bạn cũng thích */}
