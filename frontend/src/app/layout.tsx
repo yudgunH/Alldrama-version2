@@ -176,12 +176,24 @@ export default function RootLayout({
             gtag('config', 'G-9G6QTCYQ3B');
           `}
         </Script>
+        
+        {/* Popunder Advertisement */}
+        <Script
+          src="//pl26011313.profitableratecpm.com/5b/37/32/5b37326563517fd77befc14a649b3002.js"
+          strategy="afterInteractive"
+        />
       <body
         className={`${geistSans.variable} ${geistMono.variable} antialiased bg-gray-950 text-white min-h-screen p-0 m-0`}
       >
         <ClientLayout>{children}</ClientLayout>
         <MetaTagsValidator />
         <Analytics />
+        
+        {/* Social Bar Advertisement */}
+        <Script
+          src="//pl26011345.profitableratecpm.com/41/2c/78/412c7823fde1808f4dead1cfc800a971.js"
+          strategy="afterInteractive"
+        />
       </body>
     </html>
   );
