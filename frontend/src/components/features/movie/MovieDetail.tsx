@@ -37,6 +37,7 @@ import MovieStructuredData from "./MovieStructuredData"
 import ShareButtons from "./ShareButtons"
 import SocialPreview from "./SocialPreview"
 import SocialMetaDebug from "./SocialMetaDebug"
+import NativeBanner from "@/components/ui/NativeBanner"
 
 interface MovieDetailProps {
   movieId: string | number
@@ -703,6 +704,11 @@ const MovieDetail = ({ movieId, initialData }: MovieDetailProps) => {
                     </div>
                   </CardContent>
                 </Card>
+
+                {/* Native Banner */}
+                <div className="py-4">
+                  <NativeBanner style="full" />
+                </div>
 
                 {/* Có thể bạn cũng thích */}
                 {relatedMovies.length > 0 && (

@@ -13,6 +13,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { useInView } from 'react-intersection-observer';
 import { useEffect, useState } from 'react';
 import { Movie } from '@/types';
+import NativeBanner from '@/components/ui/NativeBanner';
 
 export default function Home() {
   // Track visible sections for lazy loading
@@ -67,6 +68,11 @@ export default function Home() {
       <main>
         <Hero />
         
+        {/* Native Banner sau Hero */}
+        <section className="py-4">
+          <NativeBanner style="full" className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8" />
+        </section>
+        
         {/* Top 10 Movies Section with trapezoid cards */}
         <section aria-label="Phim đang hot">
           <TopMoviesSection 
@@ -101,6 +107,11 @@ export default function Home() {
               isLoading={isLoading}
             />
           </section>
+
+          {/* Native Banner giữa featured và movie sliders */}
+          <section className="py-6">
+            <NativeBanner style="compact" className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8" />
+          </section>
           
           {/* Section for featured movie sliders */}
           <section className="py-4 space-y-12" aria-label="Danh sách phim theo danh mục">
@@ -129,6 +140,11 @@ export default function Home() {
           <section className="py-8 mt-8" aria-label="Thể loại phim">
             <h2 className="text-2xl font-bold text-white mb-6">Khám Phá Theo Thể Loại</h2>
             <GenreList />
+          </section>
+
+          {/* Native Banner cuối trang */}
+          <section className="py-8">
+            <NativeBanner style="full" className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8" />
           </section>
           
           {/* Additional SEO Content Section */}

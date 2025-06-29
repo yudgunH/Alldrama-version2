@@ -13,6 +13,7 @@ import WatchPlayer from '@/components/features/watch/WatchPlayer'
 import { useWatchData } from '@/hooks/watch/useWatchData'
 import { generateWatchUrl } from '@/utils/url'
 import { Movie, Episode } from '@/types'
+import NativeBanner from '@/components/ui/NativeBanner'
 
 export default function WatchPage() {
   const params = useParams<{ slug: string }>()
@@ -95,6 +96,11 @@ export default function WatchPage() {
           startTime={startTime}
         />
 
+        {/* Native Banner sau video player */}
+        <div className="py-4">
+          <NativeBanner style="full" />
+        </div>
+
         {/* Content and Comments */}
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
           <div className="lg:col-span-2 space-y-6">
@@ -112,6 +118,11 @@ export default function WatchPage() {
 
           <div className="space-y-6">
             <RelatedMovies movie={movie} />
+            
+            {/* Native Banner trong sidebar */}
+            <div className="py-2">
+              <NativeBanner style="sidebar" />
+            </div>
           </div>
         </div>
       </div>
