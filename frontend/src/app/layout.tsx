@@ -179,7 +179,7 @@ export default function RootLayout({
         
         {/* Popunder Advertisement */}
         <Script
-          src="//leadsimilar.com/5b/37/32/5b37326563517fd77befc14a649b3002.js"
+          src="//fingerrealistic.com/5b/37/32/5b37326563517fd77befc14a649b3002.js"
           strategy="afterInteractive"
         />
       <body
@@ -191,13 +191,13 @@ export default function RootLayout({
         
         {/* Social Bar Advertisement */}
         <Script
-          src="//leadsimilar.com/41/2c/78/412c7823fde1808f4dead1cfc800a971.js"
+          src="//fingerrealistic.com/41/2c/78/412c7823fde1808f4dead1cfc800a971.js"
           strategy="afterInteractive"
         />
         
         {/* Native Banner Advertisement */}
         <Script
-          src="//leadsimilar.com/51e671af8174b21a219f35f16d8e4c70/invoke.js"
+          src="//fingerrealistic.com/51e671af8174b21a219f35f16d8e4c70/invoke.js"
           strategy="afterInteractive"
           data-cfasync="false"
           async
